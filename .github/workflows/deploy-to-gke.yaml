@@ -36,17 +36,18 @@ jobs:
       - name: Configure Docker authentication
         run: |
           gcloud auth configure-docker us-docker.pkg.dev
-          gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://us-docker.pkg.dev
 
       # Step 6: Build and push backend Docker image
       - name: Build and push backend Docker image
         run: |
-          docker build -t gcr.io/podcast-search-430411/pc-backend:latest ./backend --push
+          docker build -t  us-docker.pkg.dev/gcr.io/podcast-search-430411/pc-backend:latest ./backend
+          docker push us-docker.pkg.dev/podcast-search-430411/gcr.io/pc-backend:latest
 
       # Step 7: Build and push frontend Docker image
       - name: Build and push frontend Docker image
         run: |
-          docker build -t gcr.io/podcast-search-430411/pc-frontend:latest ./frontend --push
+          docker build -t us-docker.pkg.dev/gcr.io/podcast-search-430411/pc-frontend:latest ./frontend
+          docker push us-docker.pkg.dev/podcast-search-430411/gcr.io/pc-frontend:latest
 
       # Step 8: Deploy to GKE
       - name: Deploy to GKE
