@@ -10,30 +10,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout the code
+      # Checkout the code
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2: Authenticate with GCP
+      # Authenticate with GCP
       - name: Authenticate with GCP
         uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GCP_KEY_FILE }}
 
-      # Step 3: Configure gcloud
+      # Configure gcloud
       - name: Configure gcloud
         run: |
           gcloud config set project podcast-search-430411
           gcloud config set compute/zone asia-east2
           gcloud container clusters get-credentials pc-cluster
 
-      # Step 4: Build and push backend Docker image
+      # Install gke-gcloud-auth-plugin
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-cloud-sdk-gke-gcloud-auth-plugin
+
+      # Configure Docker for GCR/Artifact Registry
+      - name: Configure Docker for GCR/Artifact Registry
+        run: |
+          gcloud auth configure-docker
+
+      # Build and push backend Docker image
       - name: Build and push backend Docker image
         run: |
           docker build -t gcr.io/podcast-search-430411/pc-backend:latest ./backend
           docker push gcr.io/podcast-search-430411/pc-backend:latest
 
-      # Step 5: Build and push frontend Docker image
+      # Build and push frontend Docker image
       - name: Build and push frontend Docker image
         run: |
           docker build -t gcr.io/podcast-search-430411/pc-frontend:latest ./frontend
