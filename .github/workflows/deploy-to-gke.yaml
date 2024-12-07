@@ -6,7 +6,7 @@ on:
       - main # Trigger only on pushes to the main branch
 
 env:
-  PROJECT_ID: ${{ secrets.GKE_PROJECT }}
+  PROJECT_ID: podcast-search-430411
   GKE_CLUSTER: pc-cluster # Add your cluster name here.
   GKE_ZONE: asia-east2 # Add your cluster zone here.
   DEPLOYMENT_NAME: gke-test # Add your deployment name here.
@@ -24,7 +24,7 @@ jobs:
       - uses: google-github-actions/setup-gcloud@1bee7de035d65ec5da40a31f8589e240eba8fde5
         with:
           service_account_key: ${{ secrets.GKE_SA_KEY }}
-          project_id: ${{ secrets.GKE_PROJECT }}
+          project_id: ${{ env.PROJECT_ID }}
 
       # Configure Docker to use the gcloud command-line tool as a credential
       # helper for authentication
