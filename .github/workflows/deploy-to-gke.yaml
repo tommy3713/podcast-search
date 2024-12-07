@@ -40,14 +40,12 @@ jobs:
       # Step 6: Build and push backend Docker image
       - name: Build and push backend Docker image
         run: |
-          docker build -t gcr.io/podcast-search-430411/pc-backend:latest ./backend
-          docker push gcr.io/podcast-search-430411/pc-backend:latest
+          docker build -t gcr.io/podcast-search-430411/pc-backend:latest ./backend --push
 
       # Step 7: Build and push frontend Docker image
       - name: Build and push frontend Docker image
         run: |
-          docker build -t gcr.io/podcast-search-430411/pc-frontend:latest ./frontend
-          docker push gcr.io/podcast-search-430411/pc-frontend:latest
+          docker build -t gcr.io/podcast-search-430411/pc-frontend:latest ./frontend --push
 
       # Step 8: Deploy to GKE
       - name: Deploy to GKE
