@@ -5,38 +5,38 @@ on:
     branches:
       - main # Trigger only on pushes to the main branch
 
+env:
+  PROJECT_ID: ${{ secrets.GKE_PROJECT }}
+  GKE_CLUSTER: pc-cluster # Add your cluster name here.
+  GKE_ZONE: asia-east2 # Add your cluster zone here.
+  DEPLOYMENT_NAME: gke-test # Add your deployment name here.
+  IMAGE: static-site
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout the code
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # Authenticate with GCP
-      - name: Authenticate with GCP
-        uses: google-github-actions/auth@v1
+      # Setup gcloud CLI
+      - uses: google-github-actions/setup-gcloud@1bee7de035d65ec5da40a31f8589e240eba8fde5
         with:
-          credentials_json: ${{ secrets.GCP_KEY_FILE }}
+          service_account_key: ${{ secrets.GKE_SA_KEY }}
+          project_id: ${{ secrets.GKE_PROJECT }}
 
-      # Configure gcloud
-      - name: Configure gcloud
-        run: |
-          gcloud config set project podcast-search-430411
-          gcloud config set compute/zone asia-east2
-          gcloud container clusters get-credentials pc-cluster
+      # Configure Docker to use the gcloud command-line tool as a credential
+      # helper for authentication
+      - run: |-
+          gcloud --quiet auth configure-docker
 
-      # Install gke-gcloud-auth-plugin
-      - name: Install gke-gcloud-auth-plugin
-        run: |
-          gcloud components install gke-gcloud-auth-plugin
-          gcloud container clusters get-credentials pc-cluster --region=asia-east2
-
-      # Configure Docker for GCR/Artifact Registry
-      - name: Configure Docker for GCR/Artifact Registry
-        run: |
-          gcloud auth configure-docker
+      # Get the GKE credentials so we can deploy to the cluster
+      - uses: google-github-actions/get-gke-credentials@db150f2cc60d1716e61922b832eae71d2a45938f
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GKE_ZONE }}
+          credentials: ${{ secrets.GKE_SA_KEY }}
 
       # Build and push backend Docker image
       - name: Build and push backend Docker image
@@ -49,6 +49,11 @@ jobs:
         run: |
           docker build -t gcr.io/podcast-search-430411/pc-frontend:latest ./frontend
           docker push gcr.io/podcast-search-430411/pc-frontend:latest
+      # Set up kustomize
+      - name: Set up Kustomize
+        run: |-
+          curl -sfLo kustomize https://github.com/kubernetes-sigs/kustomize/releases/download/v3.1.0/kustomize_3.1.0_linux_amd64
+          chmod u+x ./kustomize
 
       # Deploy using kubectl apply
       - name: Deploy Backend
