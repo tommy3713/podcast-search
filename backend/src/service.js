@@ -1,6 +1,8 @@
 import { Client } from '@elastic/elasticsearch';
-
+import path from 'path';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 dotenv.config();
 const client = new Client({
@@ -39,52 +41,4 @@ export const search = async (keyword) => {
     fullTitle: hit._source.fullTitle,
     highlights: hit.highlight.content,
   }));
-};
-
-export const init = async () => {
-  const directoryPath = path.join(
-    path.dirname(fileURLToPath(import.meta.url)),
-    '/data'
-  );
-  // Asynchronously read the directory
-  fs.readdir(directoryPath, (err, files) => {
-    if (err) {
-      console.error('Error reading directory:', err);
-      return;
-    }
-    // Filter and process only .json files
-    files.forEach((file) => {
-      if (path.extname(file) === '.json') {
-        // Construct full file path
-        let filePath = path.join(directoryPath, file);
-        // Read and parse the JSON file
-        fs.readFile(filePath, 'utf8', async (err, data) => {
-          if (err) {
-            console.error(`Error reading file ${file}:`, err);
-            return;
-          }
-          // Parse and output the file content
-          const jsonData = JSON.parse(data);
-          console.log(`Data from ${file}:`, jsonData.uploadDate);
-          console.log(`Data from ${file}:`, jsonData.podcaster);
-          console.log(`Data from ${file}:`, jsonData.title);
-          console.log(`Data from ${file}:`, jsonData.episode);
-          console.log(`Data from ${file}:`, jsonData.fullTitle);
-          const response = await client.index({
-            index: 'podcast',
-            document: {
-              podcaster: jsonData.podcaster,
-              content: jsonData.content,
-              title: jsonData.title,
-              uploadDate: jsonData.uploadDate,
-              episode: jsonData.episode,
-              fullTitle: jsonData.fullTitle,
-            },
-          });
-          await client.indices.refresh({ index: 'podcast' });
-          console.log(`Data indexed:`, response);
-        });
-      }
-    });
-  });
 };
