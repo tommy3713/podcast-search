@@ -30,21 +30,26 @@ jobs:
       # Step 4: Get GKE Credentials
       - name: Get GKE credentials
         run: |
-          gcloud container clusters get-credentials pc-cluster --zone asia-east2 --project podcast-search-430411
+          gcloud container clusters get-credentials pc-cluster --zone asia-east2-a --project podcast-search-430411
 
-      # Step 5: Build and push backend Docker image
+      # Step 5: Configure Docker authentication
+      - name: Configure Docker authentication
+        run: |
+          gcloud auth configure-docker us-docker.pkg.dev
+
+      # Step 6: Build and push backend Docker image
       - name: Build and push backend Docker image
         run: |
           docker build -t gcr.io/podcast-search-430411/pc-backend:latest ./backend
           docker push gcr.io/podcast-search-430411/pc-backend:latest
 
-      # Step 6: Build and push frontend Docker image
+      # Step 7: Build and push frontend Docker image
       - name: Build and push frontend Docker image
         run: |
           docker build -t gcr.io/podcast-search-430411/pc-frontend:latest ./frontend
           docker push gcr.io/podcast-search-430411/pc-frontend:latest
 
-      # Step 7: Deploy to GKE
+      # Step 8: Deploy to GKE
       - name: Deploy to GKE
         run: |
           kubectl apply -f deployment/backend-deployment.yaml
