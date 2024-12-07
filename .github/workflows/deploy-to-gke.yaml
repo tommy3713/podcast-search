@@ -1,0 +1,49 @@
+name: Deploy to GKE
+
+on:
+  push:
+    branches:
+      - main # Trigger only on pushes to the main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the code
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Step 2: Authenticate with GCP
+      - name: Authenticate with GCP
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_KEY_FILE }}
+
+      # Step 3: Configure gcloud
+      - name: Configure gcloud
+        run: |
+          gcloud config set project podcast-search-430411
+          gcloud config set compute/zone asia-east2
+          gcloud container clusters get-credentials pc-cluster
+
+      # Step 4: Build and push backend Docker image
+      - name: Build and push backend Docker image
+        run: |
+          docker build -t gcr.io/podcast-search-430411/pc-backend:latest ./backend
+          docker push gcr.io/podcast-search-430411/pc-backend:latest
+
+      # Step 5: Build and push frontend Docker image
+      - name: Build and push frontend Docker image
+        run: |
+          docker build -t gcr.io/podcast-search-430411/pc-frontend:latest ./frontend
+          docker push gcr.io/podcast-search-430411/pc-frontend:latest
+
+      # Deploy using kubectl apply
+      - name: Deploy Backend
+        run: |
+          kubectl apply -f deployment/backend-deployment.yaml
+
+      - name: Deploy Frontend
+        run: |
+          kubectl apply -f deployment/frontend-deployment.yaml

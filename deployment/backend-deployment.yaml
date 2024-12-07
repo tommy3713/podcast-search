@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pc-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pc-backend
+  template:
+    metadata:
+      labels:
+        app: pc-backend
+    spec:
+      containers:
+        - name: pc-backend
+          image: gcr.io/podcast-search-430411/pc-backend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: ELASTIC_URL
+              value: 'http://elasticsearch:9200' # Updated to use the Elasticsearch service name
+            - name: FRONTEND_URL
+              value: 'http://podcast-search.info' # Update if using the frontend's Kubernetes service name
+            - name: ELASTIC_USERNAME
+              value: 'elastic'
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: ELASTIC_PASSWORD
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pc-backend
+spec:
+  selector:
+    app: pc-backend
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+  type: LoadBalancer

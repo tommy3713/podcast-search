@@ -1,4 +1,5 @@
-# backend/Dockerfile
+
+# frontend/Dockerfile
 # Use the Node.js 22 image as the base
 FROM node:22
 # Set working directory inside the container
@@ -7,9 +8,9 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 # Install dependencies
 RUN npm install
-# Copy the rest of the backend source code
+# Copy the rest of the frontend source code
 COPY . .
 # Expose the port your app runs on
-EXPOSE 3000
+EXPOSE 3001
 # Define the command to run your application
-CMD ["node", "./src/app.js"]
+CMD ["npm", "run", "dev"]
