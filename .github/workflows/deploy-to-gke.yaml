@@ -3,63 +3,49 @@ name: Deploy to GKE
 on:
   push:
     branches:
-      - main # Trigger only on pushes to the main branch
-
-env:
-  PROJECT_ID: podcast-search-430411
-  GKE_CLUSTER: pc-cluster # Add your cluster name here.
-  GKE_ZONE: asia-east2 # Add your cluster zone here.
-  DEPLOYMENT_NAME: gke-test # Add your deployment name here.
-  IMAGE: static-site
+      - main
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      # Step 1: Checkout the code
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      # Setup gcloud CLI
-      - uses: google-github-actions/setup-gcloud@1bee7de035d65ec5da40a31f8589e240eba8fde5
+      # Step 2: Authenticate with GCP
+      - name: Authenticate with GCP
+        uses: google-github-actions/auth@v1
         with:
-          service_account_key: ${{ secrets.GKE_SA_KEY }}
-          project_id: ${{ env.PROJECT_ID }}
+          credentials_json: ${{ secrets.GCP_KEY_FILE }}
 
-      # Configure Docker to use the gcloud command-line tool as a credential
-      # helper for authentication
-      - run: |-
-          gcloud --quiet auth configure-docker
-
-      # Get the GKE credentials so we can deploy to the cluster
-      - uses: google-github-actions/get-gke-credentials@db150f2cc60d1716e61922b832eae71d2a45938f
+      # Step 3: Set up gcloud CLI
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
         with:
-          project_id: ${{ env.PROJECT_ID }}
-          cluster_name: ${{ env.GKE_CLUSTER }}
-          location: ${{ env.GKE_ZONE }}
+          project_id: podcast-search-430411
+          install_components: kubectl
 
-      # Build and push backend Docker image
+      # Step 4: Get GKE Credentials
+      - name: Get GKE credentials
+        run: |
+          gcloud container clusters get-credentials pc-cluster --zone asia-east2 --project podcast-search-430411
+
+      # Step 5: Build and push backend Docker image
       - name: Build and push backend Docker image
         run: |
           docker build -t gcr.io/podcast-search-430411/pc-backend:latest ./backend
           docker push gcr.io/podcast-search-430411/pc-backend:latest
 
-      # Build and push frontend Docker image
+      # Step 6: Build and push frontend Docker image
       - name: Build and push frontend Docker image
         run: |
           docker build -t gcr.io/podcast-search-430411/pc-frontend:latest ./frontend
           docker push gcr.io/podcast-search-430411/pc-frontend:latest
-      # Set up kustomize
-      - name: Set up Kustomize
-        run: |-
-          curl -sfLo kustomize https://github.com/kubernetes-sigs/kustomize/releases/download/v3.1.0/kustomize_3.1.0_linux_amd64
-          chmod u+x ./kustomize
 
-      # Deploy using kubectl apply
-      - name: Deploy Backend
+      # Step 7: Deploy to GKE
+      - name: Deploy to GKE
         run: |
           kubectl apply -f deployment/backend-deployment.yaml
-
-      - name: Deploy Frontend
-        run: |
           kubectl apply -f deployment/frontend-deployment.yaml
