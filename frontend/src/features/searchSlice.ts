@@ -21,9 +21,9 @@ export const fetchSearchResults = createAsyncThunk(
   async (keyword: string, { rejectWithValue }) => {
     try {
       const response = await fetch(
-        `${process.env.BACKEND_URL}/api/search?keyword=${encodeURIComponent(
-          keyword
-        )}`
+        `${
+          process.env.NEXT_PUBLIC_BACKEND_URL
+        }/api/search?keyword=${encodeURIComponent(keyword)}`
       );
       if (!response.ok) {
         throw new Error('Network response was not ok');
