@@ -30,8 +30,8 @@ jobs:
       # Install gke-gcloud-auth-plugin
       - name: Install gke-gcloud-auth-plugin
         run: |
-          sudo apt-get update
-          sudo apt-get install -y google-cloud-sdk-gke-gcloud-auth-plugin
+          gcloud components install gke-gcloud-auth-plugin
+          gcloud container clusters get-credentials pc-cluster --region=asia-east2
 
       # Configure Docker for GCR/Artifact Registry
       - name: Configure Docker for GCR/Artifact Registry
