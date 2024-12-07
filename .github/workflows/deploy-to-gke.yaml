@@ -54,3 +54,5 @@ jobs:
         run: |
           kubectl apply -f deployment/backend-deployment.yaml
           kubectl apply -f deployment/frontend-deployment.yaml
+          kubectl rollout restart deployment pc-backend
+          kubectl rollout restart deployment pc-frontend
