@@ -42,3 +42,12 @@
 /openai-env
 /frontend/openai-env
 /data
+/backend/src/data
+/merged-data
+/podcasts
+/temp
+/deployment/backend-secret.yaml
+docker-compose.yml
+init-es.py
+main.py
+merge-data.py

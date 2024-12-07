@@ -12,6 +12,22 @@ I utilized OpenAI speech-to-text api to tranform podcast to word, and used Elast
 
 For now, it only have ten episodes.
 
+## Local Developement
+
+### Sourve python env
+
+```bash
+source openai-env/bin/activate
+```
+
+### Go to /local-dev/podcast-downloader
+
+run
+
+```bash
+python -m podcast_downloader --config config.json
+```
+
 ## Frontend
 
 - Next.js
