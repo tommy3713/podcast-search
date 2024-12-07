@@ -1,11 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { Client } from '@elastic/elasticsearch';
-import path from 'path';
-import fs from 'fs';
-import { json } from 'stream/consumers';
-import { fileURLToPath } from 'url';
-import { search, initES } from './service.js';
+import { search } from './service.js';
 const app = express();
 const port = 3000;
 
@@ -43,4 +38,7 @@ app.get('/api/search', async (req, res) => {
 
 app.get('/hello', (req, res) => {
   res.send({ message: 'Hello World!' });
+});
+app.listen(port, () => {
+  console.log(`Server running on http://localhost:${port}`);
 });
