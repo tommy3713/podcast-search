@@ -62,4 +62,3 @@ jobs:
           kubectl apply -f deployment/podcast-automation-deployment.yaml
           kubectl rollout restart deployment pc-backend
           kubectl rollout restart deployment pc-frontend
-          kubectl rollout restart deployment podcast-automation

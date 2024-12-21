@@ -11,11 +11,32 @@ spec:
           containers:
             - name: podcast-automation
               image: gcr.io/podcast-search-430411/podcast-automation:latest
+              env:
+                - name: OPENAI_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: podcast-secrets
+                      key: OPENAI_API_KEY
+                - name: ELASTICSEARCH_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: podcast-secrets
+                      key: ELASTICSEARCH_USERNAME
+                - name: ELASTICSEARCH_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: podcast-secrets
+                      key: ELASTICSEARCH_PASSWORD
+                - name: MONGO_URI
+                  valueFrom:
+                    secretKeyRef:
+                      name: podcast-secrets
+                      key: MONGO_URI
               command:
                 - /bin/sh
                 - -c
                 - |
                   # Run the processing script
                   python /app/process_podcasts.py production
-          restartPolicy: OnFailure
+          restartPolicy: Never
       backoffLimit: 3
