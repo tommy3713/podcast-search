@@ -10,8 +10,5 @@ COPY . .
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Add environment variables (if needed)
-ENV PYTHONUNBUFFERED=1
-
 # Specify the command to run your script
 CMD ["python", "main.py","test"]

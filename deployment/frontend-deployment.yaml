@@ -39,5 +39,5 @@ spec:
     - protocol: TCP
       port: 80
       targetPort: 3001
-  type: LoadBalancer
-  loadBalancerIP: 34.96.251.84
+  # type: LoadBalancer
+  # loadBalancerIP: 34.96.251.84
