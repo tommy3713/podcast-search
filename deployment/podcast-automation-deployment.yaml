@@ -42,6 +42,13 @@ spec:
                 - -c
                 - |
                   # Run the processing script
-                  python /app/process_podcasts.py production
+                  python /app/main.py production
+              resources: # Add resource requests and limits here
+                requests:
+                  memory: '256Mi'
+                  cpu: '250m'
+                limits:
+                  memory: '512Mi'
+                  cpu: '500m'
           restartPolicy: Never
       backoffLimit: 3

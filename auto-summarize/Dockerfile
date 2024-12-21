@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 ENV PYTHONUNBUFFERED=1
 
 # Specify the command to run your script
-CMD ["python", "/app/process_podcasts.py","production"]
+CMD ["python", "/app/main.py","production"]
