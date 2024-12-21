@@ -29,6 +29,15 @@ spec:
                 secretKeyRef:
                   name: backend-secret
                   key: ELASTIC_PASSWORD
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-env-secret
+                  key: MONGO_URI
+            - name: MONGO_DB
+              value: 'podcastDB'
+            - name: MONGO_COLLECTION
+              value: 'episodes'
 
 ---
 apiVersion: v1
