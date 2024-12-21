@@ -16,7 +16,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="">
+    <html lang="en" className="bg-white">
       <head>
         <meta
           name="viewport"
@@ -24,7 +24,9 @@ export default function RootLayout({
         ></meta>
       </head>
       <body className={inter.className}>
-        <Providers>{children}</Providers>
+        <div className="bg-white">
+          <Providers>{children}</Providers>
+        </div>
       </body>
     </html>
   );

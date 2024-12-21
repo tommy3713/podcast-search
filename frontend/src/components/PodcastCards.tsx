@@ -14,7 +14,9 @@ export default function PodcastCards() {
         <p className="text-black">Please enter a keyword</p>
       )}
       {status === 'succeeded' &&
-        results.map((result) => <PodcastCard {...result} />)}
+        results.map((result) => (
+          <PodcastCard key={result.episode} {...result} />
+        ))}
     </div>
   );
 }

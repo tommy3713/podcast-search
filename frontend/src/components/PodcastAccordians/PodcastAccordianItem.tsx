@@ -1,5 +1,11 @@
 import React, { FC } from 'react';
-import { Accordion, AccordionItem, Avatar, Image } from '@nextui-org/react';
+import {
+  Accordion,
+  AccordionItem,
+  Avatar,
+  Image,
+  Button,
+} from '@nextui-org/react';
 
 interface PodcastAccordionItemProps {
   title: string;

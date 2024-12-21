@@ -1,10 +1,18 @@
 'use client';
 import React from 'react';
-import { Accordion, AccordionItem, Avatar, Image } from '@nextui-org/react';
+import {
+  Accordion,
+  AccordionItem,
+  Avatar,
+  Image,
+  Button,
+} from '@nextui-org/react';
 import { useAppSelector } from '../../app/hook';
-import PodcastAccordionItem from './PodcastAccordianItem';
+import { useRouter } from 'next/router';
+import Link from 'next/link';
 
 export default function PodcastAccordians() {
+  // const router = useRouter();
   const results = useAppSelector((state) => state.search.results);
   const status = useAppSelector((state) => state.search.status);
   const error = useAppSelector((state) => state.search.error);
@@ -36,6 +44,9 @@ export default function PodcastAccordians() {
               }
             >
               <div className="flex flex-col gap-y-3 mb-3">
+                <Button color="primary" className="w-1/12">
+                  <Link href={`/summary/${result.fullTitle}`}>AI筆記整理</Link>
+                </Button>
                 {result.highlights.map((hightlight) => {
                   const highlightedText = hightlight.replace(
                     /{{HIGHLIGHT}}(.*?){{\/HIGHLIGHT}}/g,

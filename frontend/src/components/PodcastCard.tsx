@@ -6,6 +6,7 @@ import {
   Divider,
   Link,
   Image,
+  Button,
 } from '@nextui-org/react';
 
 interface PodcastCardProps {
@@ -35,6 +36,7 @@ export function PodcastCard({
         </div>
       </CardHeader>
       <Divider />
+
       <CardBody className="flex gap-y-3">
         {highlights.map((hightlight) => {
           const highlightedText = hightlight.replace(

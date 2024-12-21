@@ -48,11 +48,18 @@ jobs:
         run: |
           docker build -t us-docker.pkg.dev/podcast-search-430411/gcr.io/pc-frontend:latest ./frontend
           docker push us-docker.pkg.dev/podcast-search-430411/gcr.io/pc-frontend:latest
+      # Step 8: Build and push frontend Docker image
+      - name: Build and push podcast automation Docker image
+        run: |
+          docker build -t us-docker.pkg.dev/podcast-search-430411/gcr.io/podcast-automation:latest ./auto-summarize
+          docker push us-docker.pkg.dev/podcast-search-430411/gcr.io/podcast-automation:latest
 
-      # Step 8: Deploy to GKE
+      # Step 9: Deploy to GKE
       - name: Deploy to GKE
         run: |
           kubectl apply -f deployment/backend-deployment.yaml
           kubectl apply -f deployment/frontend-deployment.yaml
+          kubectl apply -f deployment/podcast-automation-deployment.yaml
           kubectl rollout restart deployment pc-backend
           kubectl rollout restart deployment pc-frontend
+          kubectl rollout restart deployment podcast-automation

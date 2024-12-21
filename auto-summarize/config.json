@@ -1,0 +1,11 @@
+{
+  "if_directory_empty": "download_last",
+  "podcasts": [
+    {
+      "name": "Gooaye",
+      "rss_link": "https://feeds.soundon.fm/podcasts/954689a5-3096-43a4-a80b-7810b219cef3.xml",
+      "path": "./data/gooaye",
+      "file_name_template": "[%publish_date%] %title%.%file_extension%"
+    }
+  ]
+}

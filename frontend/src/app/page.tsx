@@ -1,9 +1,6 @@
 import Image from 'next/image';
 
 import { SearchInput } from '@/components/SearchInput';
-import { PodcastCard } from '@/components/PodcastCard';
-import Hello from '@/components/Hello';
-import PodcastCards from '@/components/PodcastCards';
 import PodcastAccordians from '@/components/PodcastAccordians/PodcastAccordians';
 
 export default function Home() {

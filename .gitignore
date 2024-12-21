@@ -51,3 +51,4 @@ docker-compose.yml
 init-es.py
 main.py
 merge-data.py
+auto-summarize/.env

@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: podcast-automation
+spec:
+  schedule: '0 0 * * *' # Runs daily at midnight
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: podcast-automation
+              image: gcr.io/podcast-search-430411/podcast-automation:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  # Run the processing script
+                  python /app/process_podcasts.py production
+          restartPolicy: OnFailure
+      backoffLimit: 3
