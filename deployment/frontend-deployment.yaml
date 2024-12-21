@@ -22,10 +22,10 @@ spec:
               value: 'http://pc-backend.default:3000' # Updated to use the backend's Kubernetes service name
           resources: # Optional: Add resource requests/limits
             requests:
-              memory: '128Mi'
+              memory: '512Mi'
               cpu: '250m'
             limits:
-              memory: '256Mi'
+              memory: '1G'
               cpu: '500m'
 ---
 apiVersion: v1
