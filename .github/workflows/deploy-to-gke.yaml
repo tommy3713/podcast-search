@@ -30,7 +30,7 @@ jobs:
       # Step 4: Get GKE Credentials
       - name: Get GKE credentials
         run: |
-          gcloud container clusters get-credentials pc-cluster-2 --zone asia-east2 --project podcast-search-430411
+          gcloud container clusters get-credentials podcast-cluster --zone asia-east2 --project podcast-search-430411
 
       # Step 5: Configure Docker authentication
       - name: Configure Docker authentication
