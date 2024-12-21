@@ -17,21 +17,26 @@ spec:
                     secretKeyRef:
                       name: podcast-secrets
                       key: OPENAI_API_KEY
+                - name: ELASTICSEARCH_HOST
+                  value: 'http://elasticsearch:9200' # Updated to use the Elasticsearch service name
                 - name: ELASTICSEARCH_USERNAME
-                  valueFrom:
-                    secretKeyRef:
-                      name: podcast-secrets
-                      key: ELASTICSEARCH_USERNAME
+                  value: 'elastic'
                 - name: ELASTICSEARCH_PASSWORD
                   valueFrom:
                     secretKeyRef:
                       name: podcast-secrets
                       key: ELASTICSEARCH_PASSWORD
+                - name: INDEX_NAME
+                  value: podcast
                 - name: MONGO_URI
                   valueFrom:
                     secretKeyRef:
                       name: podcast-secrets
                       key: MONGO_URI
+                - name: MONGO_DB
+                  value: 'podcastDB'
+                - name: MONGO_COLLECTION
+                  value: 'episodes'
               command:
                 - /bin/sh
                 - -c
