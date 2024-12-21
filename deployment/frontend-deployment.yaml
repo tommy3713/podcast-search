@@ -20,6 +20,13 @@ spec:
           env:
             - name: NEXT_PUBLIC_BACKEND_URL
               value: 'http://pc-backend.default:3000' # Updated to use the backend's Kubernetes service name
+          resources: # Optional: Add resource requests/limits
+            requests:
+              memory: '128Mi'
+              cpu: '250m'
+            limits:
+              memory: '256Mi'
+              cpu: '500m'
 ---
 apiVersion: v1
 kind: Service

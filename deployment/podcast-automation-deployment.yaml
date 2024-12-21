@@ -42,7 +42,7 @@ spec:
                 - -c
                 - |
                   # Run the processing script
-                  python /app/main.py production
+                  python main.py test
               resources: # Add resource requests and limits here
                 requests:
                   memory: '256Mi'
