@@ -12,6 +12,15 @@ I utilized OpenAI speech-to-text api to tranform podcast to word, and used Elast
 
 For now, it only have ten episodes.
 
+### Demo screenshot
+
+Initial Web Page
+![initial-webpage](initial-webpage.png)
+Expand one seach result
+![expanded-card](expanded-card.png)
+Click AI summary button
+![detail-episode](detail-episode.png)
+
 ## Local Developement
 
 ### Sourve python env
