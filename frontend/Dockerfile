@@ -1,7 +1,7 @@
 
 # frontend/Dockerfile
 # Use the Node.js 22 image as the base
-FROM node:22
+FROM node:18
 # Set working directory inside the container
 WORKDIR /usr/src/app
 # Copy package.json and package-lock.json files
