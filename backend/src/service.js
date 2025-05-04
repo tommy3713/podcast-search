@@ -54,11 +54,15 @@ export const getPodcastByPodcasterAndEpisode = async (podcaster, episode) => {
     const database = mongoClient.db(dbName);
     const collection = database.collection(collectionName);
 
-    // Query for the document with the specified fullTitle
     const document = await collection.findOne(
       { podcaster: podcaster, episode: episode },
       { projection: { content: 0 } }
     );
+    if (document && document.note) {
+      document.noteSections = document.note
+        .split('- ')
+        .filter((section) => section.trim() !== '');
+    }
     return document;
   } catch (error) {
     console.error('Error fetching note:', error);

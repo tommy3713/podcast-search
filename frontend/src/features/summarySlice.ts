@@ -8,6 +8,7 @@ interface SummaryResult {
   fullTitle: string;
   podcaster: string;
   note: string;
+  noteSections: Array<string>;
 }
 
 interface SummaryState {
@@ -35,7 +36,8 @@ export const fetchSummary = createAsyncThunk(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/podcast/summary?podcaster=${podcaster}&episode=${episode}`
       );
       if (!response.ok) {
-        throw new Error('Network response was not ok');
+        const errorData = await response.json().catch(() => null); // Safely parse JSON
+        throw new Error(errorData?.error || 'Network response was not ok');
       }
       const data: SummaryResult = await response.json();
       return data;

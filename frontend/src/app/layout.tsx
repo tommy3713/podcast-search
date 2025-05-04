@@ -23,7 +23,7 @@ export default function RootLayout({
           content="width=device-width, initial-scale=1.0"
         ></meta>
       </head>
-      <body className={inter.className}>
+      <body className={`${inter.className} text-black`}>
         <div className="bg-white">
           <Providers>{children}</Providers>
         </div>

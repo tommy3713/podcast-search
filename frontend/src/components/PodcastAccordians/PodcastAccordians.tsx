@@ -45,7 +45,9 @@ export default function PodcastAccordians() {
             >
               <div className="flex flex-col gap-y-3 mb-3">
                 <Button color="primary" className="w-1/12">
-                  <Link href={`/summary/${result.fullTitle}`}>AI筆記整理</Link>
+                  <Link href={`/summary/${result.podcaster}/${result.episode}`}>
+                    AI筆記整理
+                  </Link>
                 </Button>
                 {result.highlights.map((hightlight) => {
                   const highlightedText = hightlight.replace(
