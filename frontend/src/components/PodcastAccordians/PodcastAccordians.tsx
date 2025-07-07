@@ -49,13 +49,14 @@ export default function PodcastAccordians() {
                     AI筆記整理
                   </Link>
                 </Button>
-                {result.highlights.map((hightlight) => {
+                {result.highlights.map((hightlight, index) => {
                   const highlightedText = hightlight.replace(
                     /{{HIGHLIGHT}}(.*?){{\/HIGHLIGHT}}/g,
                     '<span style="color: red">$1</span>'
                   );
                   return (
                     <p
+                      key={index}
                       className="text-black"
                       dangerouslySetInnerHTML={{ __html: highlightedText }}
                     ></p>
