@@ -1,5 +1,5 @@
 'use client';
-import { Card, CardHeader, CardBody } from '@nextui-org/react';
+
 import { useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
@@ -21,50 +21,58 @@ export default function EpisodeSummaryPage() {
       dispatch(fetchSummary({ podcaster, episode }));
     }
   }, [podcaster, episode, dispatch]);
-  console.log('Redux State:', { status, error });
-  if (status === 'failed') {
-    console.log('Error', error);
+
+  if (status === 'loading' || status === 'idle') {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <p className="text-lg font-semibold text-gray-600">Loading...</p>
+      </div>
+    );
   }
-  if (status === 'loading' || status === 'idle') return <p>Loading...</p>;
-  if (status === 'failed') return <p>Error: {error}</p>;
+
+  if (status === 'failed') {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <p className="text-lg font-semibold text-red-500">Error: {error}</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="mt-12 flex justify-center">
-      <Card className="w-3/4">
-        <CardHeader>
-          <h3 className="text-2xl font-bold">Podcast Episode Details</h3>
-        </CardHeader>
-        <CardBody>
-          <div>
-            <h4 className="">
-              <strong>Title:</strong> {result?.fullTitle}
-            </h4>
-          </div>
-          <div className="text-gray-700">
-            <p>
-              <strong>Podcaster:</strong> {result?.podcaster}
-            </p>
-            <p>
-              <strong>Upload Date:</strong> {result?.uploadDate}
-            </p>
-            <p>
-              <strong>Episode:</strong> {result?.episode}
-            </p>
-          </div>
-          <div>
-            <h4 className="text-lg font-semibold">Notes:</h4>
-            {result?.noteSections ? (
-              <ul className="list-disc pl-6 space-y-2 text-gray-700">
-                {result.noteSections.map((section, index) => (
-                  <li key={index}>{section}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-gray-700">{result?.note}</p>
-            )}
-          </div>
-        </CardBody>
-      </Card>
+    <div className="flex flex-col items-center min-h-screen bg-gray-50 py-8 px-4">
+      <div className="w-full max-w-4xl bg-white shadow-md rounded-lg p-6">
+        <h1 className="text-3xl font-bold text-gray-800 mb-6">
+          Podcast Episode Details
+        </h1>
+        <div className="mb-4">
+          <h2 className="text-xl font-semibold text-gray-700">
+            <strong>Title:</strong> {result?.fullTitle}
+          </h2>
+        </div>
+        <div className="mb-4 text-gray-700">
+          <p className="mb-2">
+            <strong>Podcaster:</strong> {result?.podcaster}
+          </p>
+          <p className="mb-2">
+            <strong>Upload Date:</strong> {result?.uploadDate}
+          </p>
+          <p className="mb-2">
+            <strong>Episode:</strong> {result?.episode}
+          </p>
+        </div>
+        <div className="mt-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">Notes:</h3>
+          {result?.noteSections ? (
+            <ul className="list-disc pl-6 space-y-2 text-gray-700">
+              {result.noteSections.map((section, index) => (
+                <li key={index}>{section}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-gray-700">{result?.note}</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
