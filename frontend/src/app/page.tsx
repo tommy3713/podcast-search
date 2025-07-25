@@ -1,16 +1,14 @@
-import Image from 'next/image';
-
-import { SearchInput } from '@/components/SearchInput';
-import PodcastAccordians from '@/components/PodcastAccordians/PodcastAccordians';
+import Layout from './layout';
 
 export default function Home() {
   return (
-    <div className="bg-white w-full flex flex-col items-center">
-      <SearchInput />
-      <PodcastAccordians />
-      {/* <PodcastCards /> */}
-      {/* <PodcastCard /> */}
-      {/* <Hello /> */}
-    </div>
+    <Layout>
+      <div className="text-center">
+        <h1 className="text-3xl font-bold text-gray-800 mb-4">
+          Welcome to Podcast Search
+        </h1>
+        <p className="text-gray-600">Use the menu above to navigate.</p>
+      </div>
+    </Layout>
   );
 }

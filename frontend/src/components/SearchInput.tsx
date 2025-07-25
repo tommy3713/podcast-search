@@ -1,40 +1,45 @@
 'use client';
 import { Input } from '@nextui-org/react';
-import { Button } from '@nextui-org/button';
+import { Button } from '@nextui-org/react';
 import { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../app/hook';
 import { fetchSearchResults } from '@/features/searchSlice';
-import { SearchIcon } from '@/icon/SearchIcon';
-import { Image } from '@nextui-org/react';
+
 export function SearchInput() {
-  const [keyword, setkeyword] = useState('');
+  const [keyword, setKeyword] = useState('');
   const dispatch = useAppDispatch();
   const status = useAppSelector((state) => state.search.status);
 
   const onClick = () => {
     dispatch(fetchSearchResults(keyword));
   };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
       onClick();
     }
   };
+
   return (
-    <div className="w-[90%] sm:w-[40%] my-3 flex flex-row items-center justify-between">
+    <div className="w-full max-w-lg my-6 flex flex-row items-center justify-between gap-4">
       <Input
         label="Search"
         placeholder="Search for podcasts..."
-        className=""
-        onClear={() => setkeyword('')}
-        // isClearables
+        className="flex-grow"
         radius="lg"
         value={keyword}
         onKeyDown={onKeyDown}
-        onChange={(event) => setkeyword(event.target.value)}
-      ></Input>
-      {/* <Button onClick={onClick} isLoading={status === 'loading'} isIconOnly>
-          <Image src="/search.svg" alt="search icon" width={20} />
-        </Button> */}
+        onChange={(event) => setKeyword(event.target.value)}
+        isClearable
+      />
+      <Button
+        onClick={onClick}
+        isLoading={status === 'loading'}
+        className="bg-blue-500 text-white hover:bg-blue-600"
+        radius="lg"
+      >
+        Search
+      </Button>
     </div>
   );
 }

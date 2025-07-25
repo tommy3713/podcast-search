@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchSummary } from '@/features/summarySlice';
 import { AppDispatch, RootState } from '@/app/store';
+import { Divider } from '@nextui-org/react';
 
 export default function EpisodeSummaryPage() {
   const { podcaster, episode } = useParams() as {
@@ -24,7 +25,7 @@ export default function EpisodeSummaryPage() {
 
   if (status === 'loading' || status === 'idle') {
     return (
-      <div className="flex justify-center items-center h-screen">
+      <div className="flex justify-center items-center h-screen bg-gray-50">
         <p className="text-lg font-semibold text-gray-600">Loading...</p>
       </div>
     );
@@ -32,44 +33,47 @@ export default function EpisodeSummaryPage() {
 
   if (status === 'failed') {
     return (
-      <div className="flex justify-center items-center h-screen">
+      <div className="flex justify-center items-center h-screen bg-gray-50">
         <p className="text-lg font-semibold text-red-500">Error: {error}</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col items-center min-h-screen bg-gray-50 py-8 px-4">
-      <div className="w-full max-w-4xl bg-white shadow-md rounded-lg p-6">
-        <h1 className="text-3xl font-bold text-gray-800 mb-6">
-          Podcast Episode Details
-        </h1>
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold text-gray-700">
-            <strong>Title:</strong> {result?.fullTitle}
-          </h2>
+    <div className="flex flex-col items-center min-h-screen bg-gray-100 py-12 px-6">
+      <div className="w-full max-w-3xl bg-white shadow-lg rounded-lg p-8">
+        <div className="flex flex-col gap-4 mb-8">
+          <div className="flex justify-between items-center bg-gray-100 text-gray-800 px-4 py-3 rounded-lg shadow-md">
+            <span className="font-semibold">Title</span>
+            <span>{result?.title}</span>
+          </div>
+          <div className="flex justify-between items-center bg-blue-100 text-blue-600 px-4 py-3 rounded-lg shadow-md">
+            <span className="font-semibold">Podcaster:</span>
+            <span>{result?.podcaster}</span>
+          </div>
+          <div className="flex justify-between items-center bg-purple-100 text-purple-600 px-4 py-3 rounded-lg shadow-md">
+            <span className="font-semibold">Upload Date:</span>
+            <span>{result?.uploadDate}</span>
+          </div>
+          <div className="flex justify-between items-center bg-green-100 text-green-600 px-4 py-3 rounded-lg shadow-md">
+            <span className="font-semibold">Episode:</span>
+            <span>{result?.episode}</span>
+          </div>
         </div>
-        <div className="mb-4 text-gray-700">
-          <p className="mb-2">
-            <strong>Podcaster:</strong> {result?.podcaster}
-          </p>
-          <p className="mb-2">
-            <strong>Upload Date:</strong> {result?.uploadDate}
-          </p>
-          <p className="mb-2">
-            <strong>Episode:</strong> {result?.episode}
-          </p>
-        </div>
-        <div className="mt-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Notes:</h3>
+
+        <Divider />
+        <div className="mt-8">
+          <h3 className="text-xl font-semibold text-gray-800 mb-6">Notes:</h3>
           {result?.noteSections ? (
-            <ul className="list-disc pl-6 space-y-2 text-gray-700">
+            <ul className="list-disc pl-8 space-y-4 text-gray-700">
               {result.noteSections.map((section, index) => (
-                <li key={index}>{section}</li>
+                <li key={index} className="text-lg">
+                  {section}
+                </li>
               ))}
             </ul>
           ) : (
-            <p className="text-gray-700">{result?.note}</p>
+            <p className="text-lg text-gray-700">{result?.note}</p>
           )}
         </div>
       </div>

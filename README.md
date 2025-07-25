@@ -37,6 +37,12 @@ run
 python -m podcast_downloader --config config.json
 ```
 
+1. Run main.py to generate text from podcast(audio)
+2. Run merge-data.py to have valid json
+3. Run init-es to put /merge-data into elasticsearch
+4. Run generate-summary.py to generate summary from OpenAI and store in MongoDB
+5. Run store_notes.py to store all the json in merge-data into mongoDB
+
 ## Frontend
 
 - Next.js
