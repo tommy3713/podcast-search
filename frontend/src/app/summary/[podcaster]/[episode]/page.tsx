@@ -61,7 +61,7 @@ export default function EpisodeSummaryPage() {
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-gray-10 pt-4">
-      <div className="w-2/3 bg-white shadow-lg rounded-lg p-8">
+      <div className="w-full md:w-2/3  bg-white shadow-lg rounded-lg p-2  md:p-8">
         <div className="flex flex-col gap-4 mb-8">
           <div className="flex justify-between items-center bg-gray-100 text-gray-800 px-4 py-3 rounded-lg shadow-md">
             <span className="font-semibold">Title</span>
@@ -83,7 +83,9 @@ export default function EpisodeSummaryPage() {
 
         <Divider />
         <div className="mt-8">
-          <h3 className="text-xl font-semibold text-gray-800 mb-6">Notes:</h3>
+          <h3 className="flex justify-between items-center bg-red-100 text-red-600 px-4 py-3 rounded-lg shadow-md">
+            Notes:
+          </h3>
           {result?.note ? (
             <div className="prose max-w-none text-gray-700">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -98,7 +100,7 @@ export default function EpisodeSummaryPage() {
         <div className="mt-8">
           <Button
             color="primary"
-            className="mb-4"
+            className="mb-4 w-full md:w-auto"
             onClick={() => {
               setTranscriptVisible(!isTranscriptVisible);
             }}

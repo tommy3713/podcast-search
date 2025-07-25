@@ -27,7 +27,7 @@ export default function RootLayout({
       <body className={`${inter.className} text-black`}>
         <div className="bg-gray-50 min-h-screen flex flex-col">
           <header className="bg-blue-500 text-white shadow-md">
-            <nav className="max-w-4xl mx-auto flex justify-between items-center py-4 px-6">
+            <nav className="max-w-4xl mx-auto flex justify-start items-center py-4 px-6 gap-5">
               <Link
                 href="/search"
                 className="text-lg font-semibold hover:underline"
