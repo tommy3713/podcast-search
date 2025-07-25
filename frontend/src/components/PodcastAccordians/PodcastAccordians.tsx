@@ -60,16 +60,24 @@ export default function PodcastAccordians() {
                 </Link>
                 <div className="space-y-2">
                   {result.highlights.map((highlight, index) => {
-                    const highlightedText = highlight.replace(
-                      /{{HIGHLIGHT}}(.*?){{\/HIGHLIGHT}}/g,
-                      '<span style="color: red">$1</span>'
-                    );
                     return (
-                      <p
-                        key={index}
-                        className="text-gray-700"
-                        dangerouslySetInnerHTML={{ __html: highlightedText }}
-                      ></p>
+                      <p key={index} className="text-gray-700">
+                        {highlight
+                          .split(/({{HIGHLIGHT}}.*?{{\/HIGHLIGHT}})/g)
+                          .map((part, i) => {
+                            const match = part.match(
+                              /{{HIGHLIGHT}}(.*?){{\/HIGHLIGHT}}/
+                            );
+                            if (match) {
+                              return (
+                                <span key={i} className="text-red-500">
+                                  {match[1]}
+                                </span>
+                              );
+                            }
+                            return <span key={i}>{part}</span>;
+                          })}
+                      </p>
                     );
                   })}
                 </div>
