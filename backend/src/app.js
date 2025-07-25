@@ -4,6 +4,7 @@ import {
   search,
   getPodcastByPodcasterAndEpisode,
   getPodcasts,
+  getPodcastTranscriptByPodcasterAndEpisode,
 } from './service.js';
 import { MongoClient } from 'mongodb';
 const app = express();
@@ -53,6 +54,30 @@ app.get('/api/podcast/summary', async (req, res) => {
 
   try {
     const document = await getPodcastByPodcasterAndEpisode(podcaster, episode);
+    if (document) {
+      res.json(document);
+    } else {
+      res.status(404).json({ error: 'Document not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+app.get('/api/podcast/transcript', async (req, res) => {
+  const { podcaster, episode } = req.query;
+
+  if (!podcaster) {
+    return res.status(400).json({ error: 'fullTitle is required' });
+  }
+  if (!episode) {
+    return res.status(400).json({ error: 'episode is required' });
+  }
+
+  try {
+    const document = await getPodcastTranscriptByPodcasterAndEpisode(
+      podcaster,
+      episode
+    );
     if (document) {
       res.json(document);
     } else {

@@ -55,14 +55,53 @@ export const getPodcastByPodcasterAndEpisode = async (podcaster, episode) => {
     const collection = database.collection(collectionName);
 
     const document = await collection.findOne(
-      { podcaster: podcaster, episode: episode },
-      { projection: { content: 0 } }
+      {
+        podcaster: podcaster,
+        episode: episode,
+      },
+      {
+        projection: {
+          content: 0,
+        },
+      }
     );
     if (document && document.note) {
       document.noteSections = document.note
         .split('- ')
         .filter((section) => section.trim() !== '');
     }
+    return document;
+  } catch (error) {
+    console.error('Error fetching note:', error);
+    throw new Error('Failed to fetch note');
+  } finally {
+    // Close the MongoDB connection
+    await mongoClient.close();
+  }
+};
+export const getPodcastTranscriptByPodcasterAndEpisode = async (
+  podcaster,
+  episode
+) => {
+  try {
+    // Connect to MongoDB
+    await mongoClient.connect();
+    const database = mongoClient.db(dbName);
+    const collection = database.collection(collectionName);
+
+    const document = await collection.findOne(
+      {
+        podcaster: podcaster,
+        episode: episode,
+      },
+      {
+        projection: {
+          content: 1,
+          _id: 0,
+        },
+      }
+    );
+
     return document;
   } catch (error) {
     console.error('Error fetching note:', error);

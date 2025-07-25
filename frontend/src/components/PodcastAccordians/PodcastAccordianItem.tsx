@@ -41,12 +41,17 @@ export const PodcastAccordionItem: FC<PodcastAccordionItemProps> = ({
       }
     >
       <div className="flex gap-y-3">
-        {highlights.map((hightlight) => {
+        {highlights.map((hightlight, i) => {
           const highlightedText = hightlight.replace(
             /{{HIGHLIGHT}}(.*?){{\/HIGHLIGHT}}/g,
             '<span style="color: red">$1</span>'
           );
-          return <p dangerouslySetInnerHTML={{ __html: highlightedText }}></p>;
+          return (
+            <p
+              key={i}
+              dangerouslySetInnerHTML={{ __html: highlightedText }}
+            ></p>
+          );
         })}
       </div>
     </AccordionItem>
