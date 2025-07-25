@@ -72,3 +72,39 @@ export const getPodcastByPodcasterAndEpisode = async (podcaster, episode) => {
     await mongoClient.close();
   }
 };
+
+export const getPodcasts = async (page = 1, limit = 10) => {
+  try {
+    await mongoClient.connect();
+    const database = mongoClient.db(dbName);
+    const collection = database.collection(collectionName);
+
+    const skip = (page - 1) * limit;
+
+    // Query podcasts sorted by createdAt (newest to oldest)
+    const podcasts = await collection
+      .find(
+        {},
+        {
+          projection: {
+            title: 1,
+            uploadDate: 1,
+            episode: 1,
+            fullTitle: 1,
+            podcaster: 1,
+          },
+        }
+      )
+      .sort({ uploadDate: -1 }) // Sort by createdAt descending
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    return podcasts;
+  } catch (error) {
+    console.error('Error fetching podcasts:', error);
+    throw new Error('Failed to fetch podcasts');
+  } finally {
+    await mongoClient.close();
+  }
+};

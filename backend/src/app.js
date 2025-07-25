@@ -1,6 +1,10 @@
 import express from 'express';
 import cors from 'cors';
-import { search, getPodcastByPodcasterAndEpisode } from './service.js';
+import {
+  search,
+  getPodcastByPodcasterAndEpisode,
+  getPodcasts,
+} from './service.js';
 import { MongoClient } from 'mongodb';
 const app = express();
 const port = 3000;
@@ -55,6 +59,18 @@ app.get('/api/podcast/summary', async (req, res) => {
       res.status(404).json({ error: 'Document not found' });
     }
   } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/podcast/all', async (req, res) => {
+  const { page = 1, limit = 10 } = req.query;
+
+  try {
+    const podcasts = await getPodcasts(parseInt(page), parseInt(limit));
+    res.json(podcasts);
+  } catch (error) {
+    console.error(error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
