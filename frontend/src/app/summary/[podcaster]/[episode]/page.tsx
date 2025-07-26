@@ -8,6 +8,7 @@ import { AppDispatch, RootState } from '@/app/store';
 import { Button, Divider, Spinner } from '@nextui-org/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { formatDate } from '@/utlis';
 
 export default function EpisodeSummaryPage() {
   const { podcaster, episode } = useParams() as {
@@ -73,7 +74,7 @@ export default function EpisodeSummaryPage() {
           </div>
           <div className="flex justify-between items-center bg-purple-100 text-purple-600 px-4 py-3 rounded-lg shadow-md">
             <span className="font-semibold">Upload Date:</span>
-            <span>{result?.uploadDate}</span>
+            <span>{formatDate(result?.uploadDate ?? '')}</span>
           </div>
           <div className="flex justify-between items-center bg-green-100 text-green-600 px-4 py-3 rounded-lg shadow-md">
             <span className="font-semibold">Episode:</span>
@@ -108,7 +109,7 @@ export default function EpisodeSummaryPage() {
             {isTranscriptVisible ? '收起逐字稿' : '查看完整逐字稿'}
           </Button>
           {isTranscriptVisible && (
-            <div className="prose max-w-none text-gray-700 max-h-[400px] overflow-auto p-4 border rounded-lg">
+            <div className="prose max-w-none text-gray-700 p-4 border rounded-lg">
               {transcriptStatus === 'loading' ? (
                 <div className="flex items-center gap-2">
                   <Spinner size="sm" /> 加載逐字稿…

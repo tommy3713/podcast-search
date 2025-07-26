@@ -51,8 +51,7 @@ export default function PodcastAccordians() {
               <div className="flex flex-col gap-y-4 mb-4">
                 <Link href={`/summary/${result.podcaster}/${result.episode}`}>
                   <Button
-                    color="primary"
-                    className="w-full sm:w-auto"
+                    className="w-full sm:w-auto bg-blue-100 text-blue-700 hover:bg-blue-200 font-medium shadow-sm transition"
                     radius="lg"
                   >
                     View AI Notes
