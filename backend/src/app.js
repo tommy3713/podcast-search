@@ -6,7 +6,8 @@ import {
   getPodcasts,
   getPodcastTranscriptByPodcasterAndEpisode,
 } from './service.js';
-import { MongoClient } from 'mongodb';
+import verifyGoogleToken from './middleware/verifyGoogleToken.js';
+
 const app = express();
 const port = 3000;
 
@@ -42,7 +43,7 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-app.get('/api/podcast/summary', async (req, res) => {
+app.get('/api/podcast/summary', verifyGoogleToken, async (req, res) => {
   const { podcaster, episode } = req.query;
 
   if (!podcaster) {
