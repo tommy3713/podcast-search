@@ -1,4 +1,5 @@
 import { RootState } from '@/app/store';
+import { fetchWithAuth } from '@/utlis/fetchWithAuth';
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
 interface SummaryResult {
@@ -38,7 +39,7 @@ export const fetchSummary = createAsyncThunk(
     { rejectWithValue }
   ) => {
     try {
-      const response = await fetch(
+      const response = await fetchWithAuth(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/podcast/summary?podcaster=${podcaster}&episode=${episode}`
       );
       if (!response.ok) {
