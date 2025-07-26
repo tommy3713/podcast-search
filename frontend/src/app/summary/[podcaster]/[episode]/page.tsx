@@ -9,6 +9,7 @@ import { Button, Divider, Spinner } from '@nextui-org/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatDate } from '@/utlis';
+import LoadingComponent from '@/app/loading';
 
 export default function EpisodeSummaryPage() {
   const { podcaster, episode } = useParams() as {
@@ -45,11 +46,7 @@ export default function EpisodeSummaryPage() {
   }, [isTranscriptVisible, dispatch, podcaster, episode]);
 
   if (status === 'loading' || status === 'idle') {
-    return (
-      <div className="flex justify-center items-center h-screen bg-gray-50">
-        <p className="text-lg font-semibold text-gray-600">Loading...</p>
-      </div>
-    );
+    return <LoadingComponent />;
   }
 
   if (status === 'failed') {
@@ -83,8 +80,8 @@ export default function EpisodeSummaryPage() {
         </div>
 
         <Divider />
-        <div className="mt-8">
-          <h3 className="flex justify-between items-center bg-red-100 text-red-600 px-4 py-3 rounded-lg shadow-md">
+        <div className="mt-8 pb-4">
+          <h3 className="flex justify-between items-center bg-red-100 text-red-600 px-4 py-3 rounded-lg shadow-md mb-3">
             Notes:
           </h3>
           {result?.note ? (

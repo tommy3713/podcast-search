@@ -28,19 +28,19 @@ export default function RootLayout({
       <body className={`${inter.className} text-black`}>
         <div className="bg-gray-50 min-h-screen flex flex-col">
           {/* Desktop Nav */}
-          <header className="bg-blue-500 text-white shadow-md hidden sm:block">
-            <nav className="max-w-4xl mx-auto flex justify-start items-center py-4 px-6 gap-5">
+          <header className="bg-white text-gray-800 border-b border-gray-200 shadow-sm hidden sm:block">
+            <nav className="max-w-5xl mx-auto flex justify-start items-center py-4 px-6 gap-4">
               <Link
                 href="/search"
-                className="text-lg font-semibold hover:underline"
+                className="px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 hover:text-blue-700 transition"
               >
-                Search
+                🔍 Search
               </Link>
               <Link
                 href="/podcast-list/gooaye"
-                className="text-lg font-semibold hover:underline"
+                className="px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 hover:text-blue-700 transition"
               >
-                Podcast List
+                🎧 Podcast List
               </Link>
             </nav>
           </header>
