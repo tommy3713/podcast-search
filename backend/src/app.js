@@ -104,6 +104,11 @@ app.get('/api/podcast/all', async (req, res) => {
 app.get('/hello', (req, res) => {
   res.send({ message: 'Hello World!' });
 });
-app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
-});
+
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}`);
+  });
+}
+
+export default app;
