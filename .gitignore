@@ -56,3 +56,5 @@ deployment/podcast-secret.yaml
 generate-summary.py
 store_notes.py
 /notes
+aws-ec2/.env.production
+.claude/settings.local.json
