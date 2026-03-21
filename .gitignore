@@ -47,8 +47,8 @@
 /podcasts
 /temp
 /deployment/backend-secret.yaml
+/main.py
 init-es.py
-main.py
 merge-data.py
 auto-summarize/.env
 deployment/podcast-secret.yaml
