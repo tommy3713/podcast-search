@@ -168,7 +168,7 @@ export const getPodcasts = async (page = 1, limit = 10) => {
     body: {
       query: { match_all: {} },
       sort: [{ uploadDate: { order: 'desc' } }],
-      _source: ['title', 'uploadDate', 'episode', 'fullTitle', 'podcaster'],
+      _source: ['title', 'uploadDate', 'episode', 'fullTitle', 'podcaster', 'note'],
       from: (page - 1) * limit,
       size: limit,
     },

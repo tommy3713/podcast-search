@@ -6,6 +6,7 @@ interface Podcast {
   podcaster: string;
   episode: string;
   uploadDate: string;
+  note?: string;
 }
 
 interface PodcastListState {
