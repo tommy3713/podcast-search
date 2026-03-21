@@ -1,0 +1,88 @@
+version: '3.8'
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.3
+    env_file:
+      - .env.production
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    networks:
+      - elasticnet
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.3
+    env_file:
+      - .env.production
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - elasticnet
+
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - elasticnet
+
+  backend:
+    image: 953404796342.dkr.ecr.us-east-1.amazonaws.com/haotangli/podcast-search-backend:latest
+    env_file:
+      - .env.production
+    ports:
+      - "3000:3000"
+    depends_on:
+      - elasticsearch
+    networks:
+      - elasticnet
+      - frontendnet
+
+  frontend:
+    image: 953404796342.dkr.ecr.us-east-1.amazonaws.com/haotangli/podcast-search-frontend:latest
+    env_file:
+      - .env.production
+    ports:
+      - "3001:3001"
+    depends_on:
+      - backend
+    networks:
+      - frontendnet
+  nginx:
+    image: nginx:stable-alpine
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/html:/usr/share/nginx/html
+      - ./nginx/certs:/etc/letsencrypt   
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - frontendnet
+
+volumes:
+  esdata:
+  mongodb_data:
+
+networks:
+  elasticnet:
+  frontendnet:

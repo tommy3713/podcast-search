@@ -1,0 +1,75 @@
+version: '3.8'
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.3
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    networks:
+      - elasticnet
+    command: >
+      bash -c "
+        elasticsearch-plugin install --batch analysis-icu &&
+        /usr/local/bin/docker-entrypoint.sh elasticsearch
+      "
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.3
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_SERVICEACCOUNTTOKEN: ${ELASTICSEARCH_SERVICEACCOUNTTOKEN}
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - elasticnet
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - ELASTIC_URL=http://elasticsearch:9200
+      - FRONTEND_URL=http://frontend:3001
+      - ELASTIC_USERNAME=${ELASTIC_USERNAME}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - elasticsearch
+    networks:
+      - elasticnet
+      - frontendnet
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_BACKEND_URL=http://localhost:3000
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=http://localhost:3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      - backend
+    networks:
+      - frontendnet
+
+volumes:
+  esdata:
+
+networks:
+  elasticnet:
+  frontendnet:

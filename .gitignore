@@ -47,7 +47,6 @@
 /podcasts
 /temp
 /deployment/backend-secret.yaml
-docker-compose.yml
 init-es.py
 main.py
 merge-data.py
@@ -58,3 +57,4 @@ store_notes.py
 /notes
 aws-ec2/.env.production
 .claude/settings.local.json
+.env
