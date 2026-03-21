@@ -1,4 +1,5 @@
 import { Client } from '@elastic/elasticsearch';
+import OpenAI from 'openai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -12,6 +13,9 @@ const client = new Client({
 });
 
 const INDEX = 'podcast';
+const CHUNKS_INDEX = 'podcast_chunks';
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export const search = async (keyword) => {
   const result = await client.search({
@@ -87,6 +91,56 @@ export const getPodcastTranscriptByPodcasterAndEpisode = async (podcaster, episo
   const hit = result.hits.hits[0];
   if (!hit) return null;
   return { content: hit._source.content };
+};
+
+export const askWithContext = async (question, onChunk, onDone) => {
+  // Embed the question
+  const embeddingRes = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: question,
+  });
+  const embedding = embeddingRes.data[0].embedding;
+
+  // kNN search for relevant chunks
+  const knnResult = await client.search({
+    index: CHUNKS_INDEX,
+    body: {
+      knn: {
+        field: 'embedding',
+        query_vector: embedding,
+        k: 5,
+        num_candidates: 50,
+      },
+      _source: ['content', 'fullTitle', 'episode'],
+    },
+  });
+
+  const context = knnResult.hits.hits
+    .map((h) => `[${h._source.fullTitle}]\n${h._source.content}`)
+    .join('\n\n---\n\n');
+
+  // Stream GPT-4o-mini response
+  const stream = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    stream: true,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '你是一個專業的 podcast 問答助手，根據以下 podcast 內容片段回答問題，用繁體中文回答，並引用來源集數。',
+      },
+      {
+        role: 'user',
+        content: `以下是相關的 podcast 內容：\n\n${context}\n\n問題：${question}`,
+      },
+    ],
+  });
+
+  for await (const chunk of stream) {
+    const content = chunk.choices[0]?.delta?.content;
+    if (content) onChunk(content);
+  }
+  onDone();
 };
 
 export const getPodcasts = async (page = 1, limit = 10) => {

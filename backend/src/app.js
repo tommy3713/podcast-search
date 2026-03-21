@@ -5,6 +5,7 @@ import {
   getPodcastByPodcasterAndEpisode,
   getPodcasts,
   getPodcastTranscriptByPodcasterAndEpisode,
+  askWithContext,
 } from './service.js';
 import verifyGoogleToken from './middleware/verifyGoogleToken.js';
 
@@ -17,6 +18,7 @@ const allowedOrigins = [
   'http://127.0.0.1:3001', // Handle 127.0.0.1 if using that instead
 ];
 
+app.use(express.json());
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -98,6 +100,32 @@ app.get('/api/podcast/all', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/ask', verifyGoogleToken, async (req, res) => {
+  const { question } = req.body;
+  if (!question) {
+    return res.status(400).json({ error: 'question is required' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    await askWithContext(
+      question,
+      (content) => res.write(`data: ${JSON.stringify({ content })}\n\n`),
+      () => {
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
+    );
+  } catch (error) {
+    console.error(error);
+    res.write(`data: ${JSON.stringify({ error: 'Failed to generate response' })}\n\n`);
+    res.end();
   }
 });
 
