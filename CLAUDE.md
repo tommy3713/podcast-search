@@ -56,10 +56,10 @@ Route → Service call mapping:
 | Route | Service function |
 |---|---|
 | `GET /api/search` | `search(keyword)` — BM25 full-text on `podcast` index |
-| `GET /api/podcast/all` | `getPodcasts(page, limit)` |
+| `GET /api/podcast/all` | `getPodcasts(page, limit)` — returns `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `note` |
 | `GET /api/podcast/transcript` | `getPodcastTranscriptByPodcasterAndEpisode(podcaster, episode)` |
 | `GET /api/podcast/summary` _(auth required)_ | `getPodcastByPodcasterAndEpisode(podcaster, episode)` |
-| `POST /api/ask` _(auth required, 20 req/day/user)_ | `askWithContext()` — embed → kNN on `podcast_chunks` → GPT-4o-mini stream |
+| `POST /api/ask` _(auth required, 20 req/day/user)_ | `askWithContext()` — embed → kNN on `podcast_chunks` → SSE: first emits `{ sources: [...] }` (deduplicated episodes from kNN hits), then streams `{ content }` chunks, finally `[DONE]` |
 
 ### Frontend
 
@@ -71,7 +71,7 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit and pe
 
 - `searchSlice` — search results, driven by `fetchSearchResults(keyword)`
 - `summarySlice` — episode summary + transcript; has two independent status fields (`status` for summary, `transcriptStatus` for transcript)
-- `podcastListSlice` — paginated podcast list; has a synchronous `setPage` action
+- `podcastListSlice` — podcast list; fetches all episodes at once (limit 200); the page component manages a local `visibleCount` for load-more (20 per step) and client-side year/month filtering
 - `helloSlice` — legacy, not actively used
 
 **Auth pattern:** `src/utlis/fetchWithAuth.ts` wraps `fetch`, pulling the `id_token` from the NextAuth session and injecting `Authorization: Bearer <token>`. Any component calling a protected endpoint must use this utility. NextAuth is configured at `src/app/api/auth/[...nextauth]/route.ts`, with `authOptions` extracted to `src/lib/authOptions.ts`. The JWT callback auto-refreshes the Google ID token before expiry using the stored refresh token.
