@@ -41,7 +41,7 @@ elastic_client = Elasticsearch(
 def download_podcasts():
     print("Downloading latest podcasts...")
     subprocess.run(
-        ["python", "-m", "podcast_downloader", "--config", CONFIG_FILE],
+        [sys.executable, "-m", "podcast_downloader", "--config", CONFIG_FILE],
         check=True
     )
     print("Podcasts downloaded.")
@@ -303,11 +303,11 @@ def production_process():
         summary = summarize_transcription(full_transcription_text)
 
         # Index in ES
-        index_transcription(file_name, "gooaye", title, episode, full_transcription_text, date, note=summary)
-        embeddings = index_chunks(file_name, "gooaye", episode, date, full_transcription_text)
+        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary)
+        embeddings = index_chunks(file_name, "Gooaye", episode, date, full_transcription_text)
 
         # Save to notes/gooaye/ (with embeddings cached)
-        save_to_notes(file_name, "gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings)
+        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings)
 
         clean_data_folder()
 

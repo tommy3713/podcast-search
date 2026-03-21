@@ -51,6 +51,7 @@
 init-es.py
 merge-data.py
 auto-summarize/.env
+auto-summarize/logs/
 deployment/podcast-secret.yaml
 generate-summary.py
 store_notes.py
