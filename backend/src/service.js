@@ -1,5 +1,4 @@
 import { Client } from '@elastic/elasticsearch';
-import { MongoClient } from 'mongodb';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -12,29 +11,21 @@ const client = new Client({
   },
 });
 
-const mongoUri = process.env.MONGO_URI;
-const dbName = process.env.MONGO_DB;
-const collectionName = process.env.MONGO_COLLECTION;
-const mongoClient = new MongoClient(mongoUri);
+const INDEX = 'podcast';
 
 export const search = async (keyword) => {
-  console.log('Client', client.nodes);
   const result = await client.search({
-    index: 'podcast',
+    index: INDEX,
     body: {
       query: {
         match: { content: keyword },
       },
       highlight: {
-        fields: {
-          content: {},
-        },
+        fields: { content: {} },
         pre_tags: ['{{HIGHLIGHT}}'],
         post_tags: ['{{/HIGHLIGHT}}'],
       },
-      _source: {
-        excludes: ['content'],
-      },
+      _source: { excludes: ['content'] },
     },
   });
   return result.hits.hits.map((hit) => ({
@@ -48,102 +39,67 @@ export const search = async (keyword) => {
 };
 
 export const getPodcastByPodcasterAndEpisode = async (podcaster, episode) => {
-  try {
-    // Connect to MongoDB
-    await mongoClient.connect();
-    const database = mongoClient.db(dbName);
-    const collection = database.collection(collectionName);
-
-    const document = await collection.findOne(
-      {
-        podcaster: podcaster,
-        episode: episode,
-      },
-      {
-        projection: {
-          content: 0,
+  const result = await client.search({
+    index: INDEX,
+    body: {
+      query: {
+        bool: {
+          must: [
+            { term: { podcaster: podcaster } },
+            { term: { episode: episode } },
+          ],
         },
-      }
-    );
-    if (document && document.note) {
-      document.noteSections = document.note
-        .split('- ')
-        .filter((section) => section.trim() !== '');
-    }
-    return document;
-  } catch (error) {
-    console.error('Error fetching note:', error);
-    throw new Error('Failed to fetch note');
-  } finally {
-    // Close the MongoDB connection
-    await mongoClient.close();
+      },
+      _source: { excludes: ['content'] },
+      size: 1,
+    },
+  });
+
+  const hit = result.hits.hits[0];
+  if (!hit) return null;
+
+  const document = hit._source;
+  if (document.note) {
+    document.noteSections = document.note
+      .split('- ')
+      .filter((section) => section.trim() !== '');
   }
+  return document;
 };
-export const getPodcastTranscriptByPodcasterAndEpisode = async (
-  podcaster,
-  episode
-) => {
-  try {
-    // Connect to MongoDB
-    await mongoClient.connect();
-    const database = mongoClient.db(dbName);
-    const collection = database.collection(collectionName);
 
-    const document = await collection.findOne(
-      {
-        podcaster: podcaster,
-        episode: episode,
-      },
-      {
-        projection: {
-          content: 1,
-          _id: 0,
+export const getPodcastTranscriptByPodcasterAndEpisode = async (podcaster, episode) => {
+  const result = await client.search({
+    index: INDEX,
+    body: {
+      query: {
+        bool: {
+          must: [
+            { term: { podcaster: podcaster } },
+            { term: { episode: episode } },
+          ],
         },
-      }
-    );
+      },
+      _source: ['content'],
+      size: 1,
+    },
+  });
 
-    return document;
-  } catch (error) {
-    console.error('Error fetching note:', error);
-    throw new Error('Failed to fetch note');
-  } finally {
-    // Close the MongoDB connection
-    await mongoClient.close();
-  }
+  const hit = result.hits.hits[0];
+  if (!hit) return null;
+  return { content: hit._source.content };
 };
 
 export const getPodcasts = async (page = 1, limit = 10) => {
-  try {
-    await mongoClient.connect();
-    const database = mongoClient.db(dbName);
-    const collection = database.collection(collectionName);
+  const result = await client.search({
+    index: INDEX,
+    body: {
+      query: { match_all: {} },
+      sort: [{ uploadDate: { order: 'desc' } }],
+      _source: ['title', 'uploadDate', 'episode', 'fullTitle', 'podcaster'],
+      from: (page - 1) * limit,
+      size: limit,
+    },
+  });
 
-    const skip = (page - 1) * limit;
-
-    // Query podcasts sorted by createdAt (newest to oldest)
-    const podcasts = await collection
-      .find(
-        {},
-        {
-          projection: {
-            title: 1,
-            uploadDate: 1,
-            episode: 1,
-            fullTitle: 1,
-            podcaster: 1,
-          },
-        }
-      )
-      .sort({ uploadDate: -1 }) // Sort by createdAt descending
-      .skip(skip)
-      .limit(limit)
-      .toArray();
-
-    return podcasts;
-  } catch (error) {
-    console.error('Error fetching podcasts:', error);
-    throw new Error('Failed to fetch podcasts');
-  } finally {
-    await mongoClient.close();
-  }
+  return result.hits.hits.map((hit) => hit._source);
 };
