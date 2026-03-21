@@ -38,12 +38,12 @@ export function PodcastCard({
       <Divider />
 
       <CardBody className="flex gap-y-3">
-        {highlights.map((hightlight) => {
+        {highlights.map((hightlight, idx) => {
           const highlightedText = hightlight.replace(
             /{{HIGHLIGHT}}(.*?){{\/HIGHLIGHT}}/g,
             '<span style="color: red">$1</span>'
           );
-          return <p dangerouslySetInnerHTML={{ __html: highlightedText }}></p>;
+          return <p key={idx} dangerouslySetInnerHTML={{ __html: highlightedText }}></p>;
         })}
       </CardBody>
       <Divider />
