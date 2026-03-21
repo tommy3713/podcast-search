@@ -71,9 +71,11 @@ export const getPodcastByPodcasterAndEpisode = async (podcaster, episode) => {
   return document;
 };
 
-export const getPodcastTranscriptByPodcasterAndEpisode = async (podcaster, episode) => {
+const CHUNKS_PAGE_SIZE = 10;
+
+export const getPodcastChunks = async (podcaster, episode, page = 1) => {
   const result = await client.search({
-    index: INDEX,
+    index: CHUNKS_INDEX,
     body: {
       query: {
         bool: {
@@ -83,14 +85,25 @@ export const getPodcastTranscriptByPodcasterAndEpisode = async (podcaster, episo
           ],
         },
       },
-      _source: ['content'],
-      size: 1,
+      sort: [{ chunk_index: { order: 'asc' } }],
+      _source: ['chunk_index', 'content'],
+      from: (page - 1) * CHUNKS_PAGE_SIZE,
+      size: CHUNKS_PAGE_SIZE,
     },
   });
 
-  const hit = result.hits.hits[0];
-  if (!hit) return null;
-  return { content: hit._source.content };
+  const total = result.hits.total.value;
+  const chunks = result.hits.hits.map((hit) => ({
+    chunk_index: hit._source.chunk_index,
+    chunk_text: hit._source.content,
+  }));
+
+  return {
+    chunks,
+    total,
+    page,
+    hasMore: page * CHUNKS_PAGE_SIZE < total,
+  };
 };
 
 export const askWithContext = async (question, onSources, onChunk, onDone) => {

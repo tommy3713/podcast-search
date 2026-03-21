@@ -5,7 +5,7 @@ import {
   search,
   getPodcastByPodcasterAndEpisode,
   getPodcasts,
-  getPodcastTranscriptByPodcasterAndEpisode,
+  getPodcastChunks,
   askWithContext,
 } from './service.js';
 import verifyGoogleToken from './middleware/verifyGoogleToken.js';
@@ -67,26 +67,19 @@ app.get('/api/podcast/summary', verifyGoogleToken, async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-app.get('/api/podcast/transcript', async (req, res) => {
-  const { podcaster, episode } = req.query;
+app.get('/api/podcast/chunks', verifyGoogleToken, async (req, res) => {
+  const { podcaster, episode, page = '1' } = req.query;
 
   if (!podcaster) {
-    return res.status(400).json({ error: 'fullTitle is required' });
+    return res.status(400).json({ error: 'podcaster is required' });
   }
   if (!episode) {
     return res.status(400).json({ error: 'episode is required' });
   }
 
   try {
-    const document = await getPodcastTranscriptByPodcasterAndEpisode(
-      podcaster,
-      episode
-    );
-    if (document) {
-      res.json(document);
-    } else {
-      res.status(404).json({ error: 'Document not found' });
-    }
+    const result = await getPodcastChunks(podcaster, episode, parseInt(page));
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
   }

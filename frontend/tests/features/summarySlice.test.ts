@@ -9,7 +9,8 @@ vi.mock('@/utlis/fetchWithAuth', () => ({
 
 import summaryReducer, {
   fetchSummary,
-  fetchTranscript,
+  fetchChunks,
+  loadMoreChunks,
 } from '@/features/summarySlice';
 
 describe('summarySlice', () => {
@@ -19,7 +20,6 @@ describe('summarySlice', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    global.fetch = vi.fn();
   });
 
   it('has correct initial state', () => {
@@ -30,9 +30,12 @@ describe('summarySlice', () => {
       result: null,
       status: 'idle',
       error: undefined,
-      transcriptStatus: 'idle',
-      transcriptError: undefined,
-      transcript: null,
+      chunksStatus: 'idle',
+      chunksError: undefined,
+      chunks: [],
+      chunksPage: 0,
+      chunksTotal: 0,
+      chunksHasMore: false,
     });
   });
 
@@ -70,35 +73,74 @@ describe('summarySlice', () => {
     expect(state.error).toBe('尚未登入');
   });
 
-  it('fetchTranscript fulfilled sets transcriptStatus and transcript', async () => {
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+  it('fetchChunks fulfilled sets chunksStatus and populates chunks', async () => {
+    const fakeChunksResponse = {
+      chunks: [
+        { chunk_index: 0, chunk_text: 'First chunk' },
+        { chunk_index: 1, chunk_text: 'Second chunk' },
+      ],
+      total: 15,
+      page: 1,
+      hasMore: true,
+    };
+    mockFetchWithAuth.mockResolvedValue({
       ok: true,
-      json: async () => ({ content: 'Full transcript here' }),
+      json: async () => fakeChunksResponse,
     });
 
     const store = makeStore();
-    await store.dispatch(fetchTranscript({ podcaster: 'TestPodcaster', episode: 'EP001' }));
+    await store.dispatch(fetchChunks({ podcaster: 'TestPodcaster', episode: 'EP001' }));
 
     const state = store.getState().summary;
-    expect(state.transcriptStatus).toBe('succeeded');
-    expect(state.transcript).toBe('Full transcript here');
+    expect(state.chunksStatus).toBe('succeeded');
+    expect(state.chunks).toEqual(fakeChunksResponse.chunks);
+    expect(state.chunksPage).toBe(1);
+    expect(state.chunksTotal).toBe(15);
+    expect(state.chunksHasMore).toBe(true);
   });
 
-  it('fetchTranscript rejected sets transcriptStatus to failed', async () => {
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+  it('fetchChunks rejected sets chunksStatus to failed', async () => {
+    mockFetchWithAuth.mockResolvedValue({
       ok: false,
-      text: async () => 'Fetch transcript failed',
+      text: async () => 'Fetch chunks failed',
     });
 
     const store = makeStore();
-    await store.dispatch(fetchTranscript({ podcaster: 'TestPodcaster', episode: 'EP001' }));
+    await store.dispatch(fetchChunks({ podcaster: 'TestPodcaster', episode: 'EP001' }));
 
     const state = store.getState().summary;
-    expect(state.transcriptStatus).toBe('failed');
-    expect(state.transcriptError).toBeDefined();
+    expect(state.chunksStatus).toBe('failed');
+    expect(state.chunksError).toBeDefined();
   });
 
-  it('summary success and transcript failure coexist independently', async () => {
+  it('loadMoreChunks appends chunks to existing list', async () => {
+    const page1 = {
+      chunks: [{ chunk_index: 0, chunk_text: 'First' }],
+      total: 20,
+      page: 1,
+      hasMore: true,
+    };
+    const page2 = {
+      chunks: [{ chunk_index: 1, chunk_text: 'Second' }],
+      total: 20,
+      page: 2,
+      hasMore: false,
+    };
+    mockFetchWithAuth
+      .mockResolvedValueOnce({ ok: true, json: async () => page1 })
+      .mockResolvedValueOnce({ ok: true, json: async () => page2 });
+
+    const store = makeStore();
+    await store.dispatch(fetchChunks({ podcaster: 'TestPodcaster', episode: 'EP001' }));
+    await store.dispatch(loadMoreChunks({ podcaster: 'TestPodcaster', episode: 'EP001' }));
+
+    const state = store.getState().summary;
+    expect(state.chunks).toHaveLength(2);
+    expect(state.chunksPage).toBe(2);
+    expect(state.chunksHasMore).toBe(false);
+  });
+
+  it('summary success and chunks failure coexist independently', async () => {
     const fakeSummary = {
       _id: 'abc',
       title: 'EP1',
@@ -108,22 +150,17 @@ describe('summarySlice', () => {
       podcaster: 'TestPodcaster',
       note: 'A note',
     };
-    mockFetchWithAuth.mockResolvedValue({
-      ok: true,
-      json: async () => fakeSummary,
-    });
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: false,
-      text: async () => 'Transcript error',
-    });
+    mockFetchWithAuth
+      .mockResolvedValueOnce({ ok: true, json: async () => fakeSummary })
+      .mockResolvedValueOnce({ ok: false, text: async () => 'Chunks error' });
 
     const store = makeStore();
     await store.dispatch(fetchSummary({ podcaster: 'TestPodcaster', episode: 'EP001' }));
-    await store.dispatch(fetchTranscript({ podcaster: 'TestPodcaster', episode: 'EP001' }));
+    await store.dispatch(fetchChunks({ podcaster: 'TestPodcaster', episode: 'EP001' }));
 
     const state = store.getState().summary;
     expect(state.status).toBe('succeeded');
     expect(state.result).toEqual(fakeSummary);
-    expect(state.transcriptStatus).toBe('failed');
+    expect(state.chunksStatus).toBe('failed');
   });
 });

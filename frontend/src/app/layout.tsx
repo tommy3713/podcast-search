@@ -66,31 +66,38 @@ export default function RootLayout({
             <main className="flex-1 overflow-y-auto">{children}</main>
 
             {/* Mobile Bottom Nav */}
-            <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center py-2 shadow-md z-50">
+            <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center h-14 pb-safe shadow-md z-50">
               <Link
                 href="/search"
-                className="flex flex-col items-center text-gray-700 hover:text-blue-500"
+                className="flex flex-col items-center justify-center min-h-[44px] px-6 text-gray-700 hover:text-blue-500"
               >
-                <Search size={24} />
+                <Search size={22} />
                 <span className="text-xs mt-1">Search</span>
               </Link>
               <Link
                 href="/podcast-list/gooaye"
-                className="flex flex-col items-center text-gray-700 hover:text-blue-500"
+                className="flex flex-col items-center justify-center min-h-[44px] px-6 text-gray-700 hover:text-blue-500"
               >
-                <List size={24} />
+                <List size={22} />
                 <span className="text-xs mt-1">List</span>
               </Link>
               <Link
                 href="/ask"
-                className="flex flex-col items-center text-gray-700 hover:text-blue-500"
+                className="flex flex-col items-center justify-center min-h-[44px] px-6 text-gray-700 hover:text-blue-500"
               >
-                <MessageCircle size={24} />
+                <MessageCircle size={22} />
                 <span className="text-xs mt-1">Ask</span>
               </Link>
             </nav>
-            <footer className="bg-gray-100 text-center py-4">
-              <p className="text-sm text-gray-600">© 2025 Podcast Search</p>
+            <footer className="bg-gray-100 text-center py-2 pb-16 sm:pb-2">
+              <a
+                href="https://ko-fi.com/tommy3713"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-[#c4c2b8] hover:text-[#1a1a1a] transition-colors"
+              >
+                喜歡這個工具？請我喝杯咖啡
+              </a>
             </footer>
           </div>
         </body>

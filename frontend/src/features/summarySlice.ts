@@ -12,26 +12,35 @@ interface SummaryResult {
   note: string;
 }
 
+interface Chunk {
+  chunk_index: number;
+  chunk_text: string;
+}
+
 interface SummaryState {
   result: SummaryResult | null;
   status: 'idle' | 'loading' | 'succeeded' | 'failed';
   error?: string;
-  transcriptStatus: 'idle' | 'loading' | 'succeeded' | 'failed';
-  transcriptError?: string;
-  transcript: string | null;
+  chunksStatus: 'idle' | 'loading' | 'succeeded' | 'failed';
+  chunksError?: string;
+  chunks: Chunk[];
+  chunksPage: number;
+  chunksTotal: number;
+  chunksHasMore: boolean;
 }
 
-// Initial state
 const initialState: SummaryState = {
   result: null,
   status: 'idle',
   error: undefined,
-  transcriptStatus: 'idle',
-  transcriptError: undefined,
-  transcript: null,
+  chunksStatus: 'idle',
+  chunksError: undefined,
+  chunks: [],
+  chunksPage: 0,
+  chunksTotal: 0,
+  chunksHasMore: false,
 };
 
-// Async thunk to fetch the summary
 export const fetchSummary = createAsyncThunk(
   'summary/fetchSummary',
   async (
@@ -43,7 +52,7 @@ export const fetchSummary = createAsyncThunk(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/podcast/summary?podcaster=${podcaster}&episode=${episode}`
       );
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null); // Safely parse JSON
+        const errorData = await response.json().catch(() => null);
         throw new Error(errorData?.error || 'Network response was not ok');
       }
       const data: SummaryResult = await response.json();
@@ -54,22 +63,39 @@ export const fetchSummary = createAsyncThunk(
   }
 );
 
-export const fetchTranscript = createAsyncThunk<
-  { content: string },
+export const fetchChunks = createAsyncThunk<
+  { chunks: Chunk[]; total: number; page: number; hasMore: boolean },
   { podcaster: string; episode: string },
   { state: RootState; rejectValue: string }
 >(
-  'summary/fetchTranscript',
+  'summary/fetchChunks',
   async ({ podcaster, episode }, { rejectWithValue }) => {
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/podcast/transcript?podcaster=${podcaster}&episode=${episode}`
+      const res = await fetchWithAuth(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/podcast/chunks?podcaster=${podcaster}&episode=${episode}&page=1`
       );
-      if (!res.ok)
-        throw new Error((await res.text()) || 'Fetch transcript failed');
-      const data = await res.json();
+      if (!res.ok) throw new Error((await res.text()) || 'Fetch chunks failed');
+      return await res.json();
+    } catch (err) {
+      return rejectWithValue((err as Error).message);
+    }
+  }
+);
 
-      return { content: data.content as string };
+export const loadMoreChunks = createAsyncThunk<
+  { chunks: Chunk[]; total: number; page: number; hasMore: boolean },
+  { podcaster: string; episode: string },
+  { state: RootState; rejectValue: string }
+>(
+  'summary/loadMoreChunks',
+  async ({ podcaster, episode }, { getState, rejectWithValue }) => {
+    const nextPage = getState().summary.chunksPage + 1;
+    try {
+      const res = await fetchWithAuth(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/podcast/chunks?podcaster=${podcaster}&episode=${episode}&page=${nextPage}`
+      );
+      if (!res.ok) throw new Error((await res.text()) || 'Load more chunks failed');
+      return await res.json();
     } catch (err) {
       return rejectWithValue((err as Error).message);
     }
@@ -81,7 +107,6 @@ const summarySlice = createSlice({
   initialState,
   reducers: {},
   extraReducers: (builder) => {
-    // fetchSummary
     builder
       .addCase(fetchSummary.pending, (state) => {
         state.status = 'loading';
@@ -95,17 +120,38 @@ const summarySlice = createSlice({
         state.status = 'failed';
         state.error = payload as string;
       })
-      .addCase(fetchTranscript.pending, (state, { meta }) => {
-        state.transcriptStatus = 'loading';
-        state.transcriptError = undefined;
+      .addCase(fetchChunks.pending, (state) => {
+        state.chunksStatus = 'loading';
+        state.chunksError = undefined;
+        state.chunks = [];
+        state.chunksPage = 0;
+        state.chunksTotal = 0;
+        state.chunksHasMore = false;
       })
-      .addCase(fetchTranscript.fulfilled, (state, { payload, meta }) => {
-        state.transcriptStatus = 'succeeded';
-        state.transcript = payload.content;
+      .addCase(fetchChunks.fulfilled, (state, { payload }) => {
+        state.chunksStatus = 'succeeded';
+        state.chunks = payload.chunks;
+        state.chunksPage = payload.page;
+        state.chunksTotal = payload.total;
+        state.chunksHasMore = payload.hasMore;
       })
-      .addCase(fetchTranscript.rejected, (state, { payload, meta }) => {
-        state.transcriptStatus = 'failed';
-        state.transcriptError = payload as string;
+      .addCase(fetchChunks.rejected, (state, { payload }) => {
+        state.chunksStatus = 'failed';
+        state.chunksError = payload as string;
+      })
+      .addCase(loadMoreChunks.pending, (state) => {
+        state.chunksStatus = 'loading';
+      })
+      .addCase(loadMoreChunks.fulfilled, (state, { payload }) => {
+        state.chunksStatus = 'succeeded';
+        state.chunks = [...state.chunks, ...payload.chunks];
+        state.chunksPage = payload.page;
+        state.chunksTotal = payload.total;
+        state.chunksHasMore = payload.hasMore;
+      })
+      .addCase(loadMoreChunks.rejected, (state, { payload }) => {
+        state.chunksStatus = 'failed';
+        state.chunksError = payload as string;
       });
   },
 });

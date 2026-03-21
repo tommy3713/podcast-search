@@ -6,7 +6,7 @@ vi.mock('../../src/service.js', () => ({
   search: vi.fn(),
   getPodcasts: vi.fn(),
   getPodcastByPodcasterAndEpisode: vi.fn(),
-  getPodcastTranscriptByPodcasterAndEpisode: vi.fn(),
+  getPodcastChunks: vi.fn(),
 }));
 
 vi.mock('google-auth-library', () => ({

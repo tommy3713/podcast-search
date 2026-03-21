@@ -21,7 +21,7 @@ export function SearchInput() {
   };
 
   return (
-    <div className="my-6 w-[90%] max-w-lg flex flex-col sm:flex-row items-stretch gap-2 sm:items-center">
+    <div className="mt-2 mb-4 w-[90%] max-w-lg flex flex-col sm:flex-row items-stretch gap-2 sm:items-center">
       <Input
         label="Search"
         placeholder="Search for podcasts..."

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Spinner } from '@nextui-org/react';
+import { Input, Button, Spinner } from '@nextui-org/react';
 import { fetchWithAuth } from '@/utlis/fetchWithAuth';
 import Link from 'next/link';
 
@@ -85,29 +85,32 @@ export default function AskPage() {
   const isLoading = status === 'loading' || status === 'streaming';
 
   return (
-    <div className="flex flex-col items-center pt-6 pb-24 px-4">
+    <div className="flex flex-col items-center px-4 py-6 pb-24 md:px-6 md:py-8">
       <div className="w-full max-w-2xl flex flex-col gap-5">
         <h1 className="text-xl font-bold text-gray-900">Ask the Podcast</h1>
 
         {/* Search input */}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
+        <div className="flex flex-col sm:flex-row items-stretch gap-2 sm:items-center">
+          <Input
+            label="Ask"
             placeholder="問任何關於 podcast 的問題..."
-            className="flex-1 bg-white border border-[#e8e6dd] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-[#b8b6ac] transition-colors"
-            disabled={isLoading}
+            className="flex-grow"
+            radius="lg"
+            value={question}
+            onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
+            onChange={(e) => setQuestion(e.target.value)}
+            isDisabled={isLoading}
+            isClearable
           />
-          <button
+          <Button
             onClick={handleAsk}
-            disabled={!question.trim() || isLoading}
-            className="px-4 py-2 rounded-lg bg-gray-800 text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors flex items-center gap-2"
+            isLoading={isLoading}
+            isDisabled={!question.trim() || isLoading}
+            className="bg-blue-500 text-white hover:bg-blue-600"
+            radius="lg"
           >
-            {isLoading && <Spinner size="sm" color="white" />}
             送出
-          </button>
+          </Button>
         </div>
 
         {/* Error states */}

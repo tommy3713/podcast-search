@@ -64,7 +64,7 @@ export default function GooayePodcastList() {
   const hasMore = visibleCount < filtered.length;
 
   return (
-    <div className="w-full flex flex-col items-center">
+    <div className="w-full flex flex-col items-center py-6 pb-24 sm:pb-8 md:py-8">
       <h1 className="text-2xl font-bold my-4">
         {podcaster.charAt(0).toUpperCase() + podcaster.slice(1)} Podcasts
       </h1>
