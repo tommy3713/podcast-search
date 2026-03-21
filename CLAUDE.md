@@ -33,23 +33,29 @@ Two separate Node.js apps — an Express backend and a Next.js frontend — that
 - **Backend** (`backend/`): Express + TypeScript, ESM (`"type": "module"`), listens on port 3000
 - **Frontend** (`frontend/`): Next.js 14 App Router + TypeScript, runs on port 3001
 
-### Backend
+### Data Setup
 
-Planning to remove mongodb.
+The `podcast` Elasticsearch index is seeded from `notes/gooaye/*.json` (25 episodes). Each file contains `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `content`, and `note` fields. Run this once after standing up Elasticsearch:
+
+```bash
+pip install "elasticsearch>=8,<9" python-dotenv
+ELASTIC_URL=http://localhost:9200 ELASTIC_USERNAME=elastic ELASTIC_PASSWORD=<pw> python seed-es.py
+```
+
+The ES container installs the `analysis-icu` plugin on first start (Traditional Chinese tokenization) — wait ~60s before seeding.
+
+### Backend
 
 All routes and middleware are defined directly in `src/app.js`. The service layer (`src/service.js`) holds all database logic and is the only file that talks to Elasticsearch.
 
-**Database: Elasticsearch only** (no MongoDB) — two indices:
-
-- `podcast_episodes` — BM25 full-text search and episode summaries
-- `podcast_chunks` — kNN vector search; chunks are 400 tokens with 80-token overlap, embedded with `text-embedding-3-small`
+**Database: Elasticsearch only** — single `podcast` index with `icu_analyzer` on `content`, `note`, and `title` fields. Identifier fields (`podcaster`, `episode`, `fullTitle`, `uploadDate`) are mapped as `keyword`.
 
 - **`src/middleware/verifyGoogleToken.js`** — validates Google OAuth Bearer tokens; applied only to `/api/podcast/summary`
 
 Route → Service call mapping:
 | Route | Service function |
 |---|---|
-| `GET /api/search` | `search(keyword)` — BM25 on `podcast_episodes` |
+| `GET /api/search` | `search(keyword)` — BM25 full-text on `podcast` index |
 | `GET /api/podcast/all` | `getPodcasts(page, limit)` |
 | `GET /api/podcast/transcript` | `getPodcastTranscriptByPodcasterAndEpisode(podcaster, episode)` |
 | `GET /api/podcast/summary` _(auth required)_ | `getPodcastByPodcasterAndEpisode(podcaster, episode)` |
