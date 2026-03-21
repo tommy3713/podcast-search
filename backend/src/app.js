@@ -130,6 +130,7 @@ app.post('/api/ask', verifyGoogleToken, askRateLimiter, async (req, res) => {
   try {
     await askWithContext(
       question,
+      (sources) => res.write(`data: ${JSON.stringify({ sources })}\n\n`),
       (content) => res.write(`data: ${JSON.stringify({ content })}\n\n`),
       () => {
         res.write('data: [DONE]\n\n');

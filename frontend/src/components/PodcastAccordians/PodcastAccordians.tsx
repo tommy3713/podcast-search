@@ -1,12 +1,5 @@
 'use client';
 import React from 'react';
-import {
-  Accordion,
-  AccordionItem,
-  Avatar,
-  Image,
-  Button,
-} from '@nextui-org/react';
 import { useAppSelector } from '../../app/hook';
 import Link from 'next/link';
 
@@ -16,75 +9,53 @@ export default function PodcastAccordians() {
   const error = useAppSelector((state) => state.search.error);
 
   return (
-    <div className="flex flex-col items-center gap-y-6 w-[90%] sm:w-3/4">
+    <div className="flex flex-col gap-y-3 w-[90%] sm:w-3/4">
       {status === 'failed' && (
         <p className="text-red-500 font-semibold">Error: {error}</p>
       )}
       {status === 'idle' && (
         <p className="text-gray-600 font-medium">Please enter a keyword</p>
       )}
-      {status === 'succeeded' && (
-        <Accordion variant="splitted" className="!px-0 w-full">
-          {results.map((result) => (
-            <AccordionItem
-              key={result.episode}
-              aria-label={result.title}
-              startContent={
-                <Avatar
-                  src="https://i.scdn.co/image/a65a60aca98dcdf39f4dec11413197ccf29215b3"
-                  alt="Podcast Cover"
-                  size="lg"
-                  className="mr-4"
-                />
-              }
-              title={
-                <div className="flex flex-col">
-                  <p className="text-sm text-gray-500">
-                    Episode: {result.episode}
-                  </p>
-                  <p className="text-md font-semibold text-gray-800">
-                    {result.title}
-                  </p>
-                </div>
-              }
-            >
-              <div className="flex flex-col gap-y-4 mb-4">
-                <Link href={`/summary/${result.podcaster}/${result.episode}`}>
-                  <Button
-                    className="w-full sm:w-auto bg-blue-100 text-blue-700 hover:bg-blue-200 font-medium shadow-sm transition"
-                    radius="lg"
-                  >
-                    View AI Notes
-                  </Button>
-                </Link>
-                <div className="space-y-2">
-                  {result.highlights.map((highlight, index) => {
-                    return (
-                      <p key={index} className="text-gray-700">
-                        {highlight
-                          .split(/({{HIGHLIGHT}}.*?{{\/HIGHLIGHT}})/g)
-                          .map((part, i) => {
-                            const match = part.match(
-                              /{{HIGHLIGHT}}(.*?){{\/HIGHLIGHT}}/
-                            );
-                            if (match) {
-                              return (
-                                <span key={i} className="text-red-500">
-                                  {match[1]}
-                                </span>
-                              );
-                            }
-                            return <span key={i}>{part}</span>;
-                          })}
-                      </p>
-                    );
-                  })}
-                </div>
+      {status === 'succeeded' &&
+        results.map((result) => (
+          <Link
+            key={result.episode}
+            href={`/summary/${result.podcaster}/${result.episode}`}
+          >
+            <div className="bg-white border border-[#e8e6dd] rounded-lg hover:border-[#b8b6ac] transition-colors p-4 cursor-pointer">
+              <div className="flex items-center gap-x-2 mb-2">
+                <span className="bg-[#f0efe8] text-[#666] text-xs font-medium px-2 py-0.5 rounded shrink-0">
+                  EP.{result.episode}
+                </span>
+                <p className="text-sm font-semibold text-gray-800 leading-snug">
+                  {result.title}
+                </p>
               </div>
-            </AccordionItem>
-          ))}
-        </Accordion>
-      )}
+              <div className="space-y-1">
+                {result.highlights.map((highlight, index) => (
+                  <p key={index} className="text-sm text-gray-600 leading-relaxed">
+                    {highlight
+                      .split(/({{HIGHLIGHT}}.*?{{\/HIGHLIGHT}})/g)
+                      .map((part, i) => {
+                        const match = part.match(/{{HIGHLIGHT}}(.*?){{\/HIGHLIGHT}}/);
+                        if (match) {
+                          return (
+                            <mark
+                              key={i}
+                              className="bg-[#fbf3db] text-[#7a5800] rounded-sm px-0.5"
+                            >
+                              {match[1]}
+                            </mark>
+                          );
+                        }
+                        return <span key={i}>{part}</span>;
+                      })}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </Link>
+        ))}
     </div>
   );
 }

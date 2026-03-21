@@ -93,7 +93,7 @@ export const getPodcastTranscriptByPodcasterAndEpisode = async (podcaster, episo
   return { content: hit._source.content };
 };
 
-export const askWithContext = async (question, onChunk, onDone) => {
+export const askWithContext = async (question, onSources, onChunk, onDone) => {
   // Embed the question
   const embeddingRes = await openai.embeddings.create({
     model: 'text-embedding-3-small',
@@ -111,11 +111,30 @@ export const askWithContext = async (question, onChunk, onDone) => {
         k: 5,
         num_candidates: 50,
       },
-      _source: ['content', 'fullTitle', 'episode'],
+      _source: ['content', 'fullTitle', 'episode', 'podcaster', 'title'],
     },
   });
 
-  const context = knnResult.hits.hits
+  const hits = knnResult.hits.hits;
+
+  // Deduplicate sources by episode
+  const seen = new Set();
+  const sources = [];
+  for (const h of hits) {
+    const key = `${h._source.podcaster}:${h._source.episode}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      sources.push({
+        podcaster: h._source.podcaster,
+        episode: h._source.episode,
+        title: h._source.title,
+        fullTitle: h._source.fullTitle,
+      });
+    }
+  }
+  onSources(sources);
+
+  const context = hits
     .map((h) => `[${h._source.fullTitle}]\n${h._source.content}`)
     .join('\n\n---\n\n');
 

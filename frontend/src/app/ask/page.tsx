@@ -1,20 +1,30 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Spinner } from '@nextui-org/react';
+import { Spinner } from '@nextui-org/react';
 import { fetchWithAuth } from '@/utlis/fetchWithAuth';
+import Link from 'next/link';
 
 type Status = 'idle' | 'loading' | 'streaming' | 'succeeded' | 'failed' | 'unauthenticated' | 'rate_limited';
+
+interface Source {
+  podcaster: string;
+  episode: string;
+  title: string;
+  fullTitle: string;
+}
 
 export default function AskPage() {
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
+  const [sources, setSources] = useState<Source[]>([]);
   const [status, setStatus] = useState<Status>('idle');
 
   const handleAsk = async () => {
     if (!question.trim() || status === 'loading' || status === 'streaming') return;
 
     setAnswer('');
+    setSources([]);
     setStatus('loading');
 
     try {
@@ -27,11 +37,7 @@ export default function AskPage() {
       );
 
       if (!res.ok) {
-        if (res.status === 429) {
-          setStatus('rate_limited');
-        } else {
-          setStatus('failed');
-        }
+        setStatus(res.status === 429 ? 'rate_limited' : 'failed');
         return;
       }
 
@@ -62,7 +68,9 @@ export default function AskPage() {
           }
           try {
             const parsed = JSON.parse(data);
-            if (parsed.content) {
+            if (parsed.sources) {
+              setSources(parsed.sources);
+            } else if (parsed.content) {
               setAnswer((prev) => prev + parsed.content);
             }
           } catch {}
@@ -70,21 +78,18 @@ export default function AskPage() {
       }
       setStatus('succeeded');
     } catch (err) {
-      if ((err as Error).message === '尚未登入') {
-        setStatus('unauthenticated');
-      } else {
-        setStatus('failed');
-      }
+      setStatus((err as Error).message === '尚未登入' ? 'unauthenticated' : 'failed');
     }
   };
 
   const isLoading = status === 'loading' || status === 'streaming';
 
   return (
-    <div className="flex flex-col items-center min-h-screen bg-gray-50 pt-8 pb-24 px-4">
-      <div className="w-full max-w-2xl bg-white shadow-lg rounded-lg p-6 flex flex-col gap-6">
-        <h1 className="text-xl font-bold text-gray-800">🤖 Ask the Podcast</h1>
+    <div className="flex flex-col items-center pt-6 pb-24 px-4">
+      <div className="w-full max-w-2xl flex flex-col gap-5">
+        <h1 className="text-xl font-bold text-gray-900">Ask the Podcast</h1>
 
+        {/* Search input */}
         <div className="flex gap-2">
           <input
             type="text"
@@ -92,19 +97,20 @@ export default function AskPage() {
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
             placeholder="問任何關於 podcast 的問題..."
-            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            className="flex-1 bg-white border border-[#e8e6dd] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-[#b8b6ac] transition-colors"
             disabled={isLoading}
           />
-          <Button
-            color="primary"
+          <button
             onClick={handleAsk}
-            isLoading={isLoading}
-            isDisabled={!question.trim() || isLoading}
+            disabled={!question.trim() || isLoading}
+            className="px-4 py-2 rounded-lg bg-gray-800 text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-700 transition-colors flex items-center gap-2"
           >
+            {isLoading && <Spinner size="sm" color="white" />}
             送出
-          </Button>
+          </button>
         </div>
 
+        {/* Error states */}
         {status === 'unauthenticated' && (
           <p className="text-red-500 text-sm">請先登入才能使用此功能。</p>
         )}
@@ -115,12 +121,41 @@ export default function AskPage() {
           <p className="text-red-500 text-sm">發生錯誤，請稍後再試。</p>
         )}
 
+        {/* Answer */}
         {answer && (
-          <div className="bg-gray-50 rounded-lg p-4 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
-            {answer}
-            {status === 'streaming' && (
-              <span className="inline-block w-0.5 h-4 bg-gray-600 ml-0.5 animate-pulse align-middle" />
-            )}
+          <div>
+            <p className="text-xs uppercase text-[#aaa] mb-2 tracking-wide">回答</p>
+            <div className="bg-white border border-[#e8e6dd] rounded-lg px-4 py-3 text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+              {answer}
+              {status === 'streaming' && (
+                <span className="inline-block w-0.5 h-4 bg-gray-500 ml-0.5 animate-pulse align-middle" />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Source cards */}
+        {sources.length > 0 && (
+          <div>
+            <p className="text-xs uppercase text-[#aaa] mb-2 tracking-wide">來源</p>
+            <div className="flex flex-col gap-2">
+              {sources.map((src) => (
+                <Link
+                  key={`${src.podcaster}-${src.episode}`}
+                  href={`/summary/${src.podcaster}/${src.episode}`}
+                >
+                  <div className="bg-white border border-[#e8e6dd] rounded-lg hover:border-[#b8b6ac] transition-colors px-4 py-3 flex items-center gap-x-4">
+                    <span className="font-medium text-gray-800 w-10 shrink-0">
+                      {src.episode}
+                    </span>
+                    <p className="flex-1 text-sm text-gray-800 truncate">
+                      {src.title}
+                    </p>
+                    <span className="text-[#c4c2b8] text-lg shrink-0">›</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
         )}
       </div>
