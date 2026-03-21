@@ -58,7 +58,7 @@ export default function EpisodeSummaryPage() {
   }
 
   return (
-    <div className="flex flex-col items-center min-h-screen bg-gray-10 pt-4">
+    <div className="flex flex-col items-center bg-gray-10 pt-4 pb-20 sm:pb-0">
       <div className="w-full md:w-2/3  bg-white shadow-lg rounded-lg p-2  md:p-8">
         <div className="flex flex-col gap-4 mb-8">
           <div className="flex justify-between items-center bg-gray-100 text-gray-800 px-4 py-3 rounded-lg shadow-md">

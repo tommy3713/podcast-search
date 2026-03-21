@@ -28,7 +28,7 @@ export default function RootLayout({
       </head>
       <Providers>
         <body className={`${inter.className} text-black`}>
-          <div className="bg-gray-50 min-h-screen flex flex-col">
+          <div className="bg-gray-50 h-screen flex flex-col">
             {/* Desktop Nav */}
             <header className="bg-white text-gray-800 border-b border-gray-200 shadow-sm hidden sm:block">
               <nav className="max-w-5xl mx-auto flex justify-between items-center py-4 px-6 gap-4">
@@ -63,7 +63,7 @@ export default function RootLayout({
               <LoginButton />
             </header>
 
-            <main className="flex-grow">{children}</main>
+            <main className="flex-1 overflow-y-auto">{children}</main>
 
             {/* Mobile Bottom Nav */}
             <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center py-2 shadow-md z-50">
