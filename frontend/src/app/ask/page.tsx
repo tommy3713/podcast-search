@@ -95,7 +95,7 @@ export default function AskPage() {
             className="flex-grow"
             radius="lg"
             value={question}
-            onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
+            onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && handleAsk()}
             onChange={(e) => dispatch(setQuestion(e.target.value))}
             isDisabled={isLoading}
             isClearable
