@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import {
   search,
   getPodcastByPodcasterAndEpisode,
@@ -103,10 +104,23 @@ app.get('/api/podcast/all', async (req, res) => {
   }
 });
 
-app.post('/api/ask', verifyGoogleToken, async (req, res) => {
+const askRateLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  max: 20,
+  keyGenerator: (req) => req.user?.sub ?? req.ip,
+  handler: (req, res) => {
+    res.status(429).json({ error: '每日提問次數已達上限（20 次），請明天再試。' });
+  },
+  skip: () => process.env.NODE_ENV === 'test',
+});
+
+app.post('/api/ask', verifyGoogleToken, askRateLimiter, async (req, res) => {
   const { question } = req.body;
   if (!question) {
     return res.status(400).json({ error: 'question is required' });
+  }
+  if (question.length > 500) {
+    return res.status(400).json({ error: '問題長度不能超過 500 字元。' });
   }
 
   res.setHeader('Content-Type', 'text/event-stream');

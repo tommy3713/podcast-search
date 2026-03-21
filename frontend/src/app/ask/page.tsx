@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button, Spinner } from '@nextui-org/react';
 import { fetchWithAuth } from '@/utlis/fetchWithAuth';
 
-type Status = 'idle' | 'loading' | 'streaming' | 'succeeded' | 'failed' | 'unauthenticated';
+type Status = 'idle' | 'loading' | 'streaming' | 'succeeded' | 'failed' | 'unauthenticated' | 'rate_limited';
 
 export default function AskPage() {
   const [question, setQuestion] = useState('');
@@ -27,7 +27,11 @@ export default function AskPage() {
       );
 
       if (!res.ok) {
-        setStatus('failed');
+        if (res.status === 429) {
+          setStatus('rate_limited');
+        } else {
+          setStatus('failed');
+        }
         return;
       }
 
@@ -103,6 +107,9 @@ export default function AskPage() {
 
         {status === 'unauthenticated' && (
           <p className="text-red-500 text-sm">請先登入才能使用此功能。</p>
+        )}
+        {status === 'rate_limited' && (
+          <p className="text-red-500 text-sm">每日提問次數已達上限（20 次），請明天再試。</p>
         )}
         {status === 'failed' && (
           <p className="text-red-500 text-sm">發生錯誤，請稍後再試。</p>
