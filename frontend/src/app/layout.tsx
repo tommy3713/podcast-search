@@ -3,7 +3,7 @@ import { Inter } from 'next/font/google';
 import { Providers } from './providers';
 import './globals.css';
 import Link from 'next/link';
-import { List, Search } from 'lucide-react';
+import { List, MessageCircle, Search } from 'lucide-react';
 import LoginButton from '@/components/LoginButton';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -45,6 +45,12 @@ export default function RootLayout({
                   >
                     🎧 Podcast List
                   </Link>
+                  <Link
+                    href="/ask"
+                    className="px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 hover:text-blue-700 transition"
+                  >
+                    🤖 Ask
+                  </Link>
                 </div>
                 <LoginButton />
               </nav>
@@ -74,6 +80,13 @@ export default function RootLayout({
               >
                 <List size={24} />
                 <span className="text-xs mt-1">List</span>
+              </Link>
+              <Link
+                href="/ask"
+                className="flex flex-col items-center text-gray-700 hover:text-blue-500"
+              >
+                <MessageCircle size={24} />
+                <span className="text-xs mt-1">Ask</span>
               </Link>
             </nav>
             <footer className="bg-gray-100 text-center py-4">
