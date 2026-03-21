@@ -6,6 +6,7 @@ import helloReducer from '@/features/helloSlice';
 import searchReducer from '@/features/searchSlice';
 import summaryReducer from '@/features/summarySlice';
 import podcastListSliceReducer from '@/features/podcastListSlice';
+import askReducer from '@/features/askSlice';
 import {
   FLUSH,
   REHYDRATE,
@@ -21,6 +22,7 @@ const rootReducer = combineReducers({
   search: searchReducer,
   summary: summaryReducer,
   podcastList: podcastListSliceReducer,
+  ask: askReducer,
 });
 
 // Redux Persist configuration

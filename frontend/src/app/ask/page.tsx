@@ -1,31 +1,31 @@
 'use client';
 
-import { useState } from 'react';
-import { Input, Button, Spinner } from '@nextui-org/react';
+import { Input, Button } from '@nextui-org/react';
 import { fetchWithAuth } from '@/utlis/fetchWithAuth';
 import Link from 'next/link';
-
-type Status = 'idle' | 'loading' | 'streaming' | 'succeeded' | 'failed' | 'unauthenticated' | 'rate_limited';
-
-interface Source {
-  podcaster: string;
-  episode: string;
-  title: string;
-  fullTitle: string;
-}
+import { useDispatch, useSelector } from 'react-redux';
+import { AppDispatch, RootState } from '@/app/store';
+import {
+  setQuestion,
+  startAsking,
+  setStreaming,
+  setSources,
+  appendAnswer,
+  setStatus,
+} from '@/features/askSlice';
 
 export default function AskPage() {
-  const [question, setQuestion] = useState('');
-  const [answer, setAnswer] = useState('');
-  const [sources, setSources] = useState<Source[]>([]);
-  const [status, setStatus] = useState<Status>('idle');
+  const dispatch = useDispatch<AppDispatch>();
+  const { question, answer, sources, status } = useSelector(
+    (state: RootState) => state.ask
+  );
+
+  const isLoading = status === 'loading' || status === 'streaming';
 
   const handleAsk = async () => {
-    if (!question.trim() || status === 'loading' || status === 'streaming') return;
+    if (!question.trim() || isLoading) return;
 
-    setAnswer('');
-    setSources([]);
-    setStatus('loading');
+    dispatch(startAsking());
 
     try {
       const res = await fetchWithAuth(
@@ -37,16 +37,16 @@ export default function AskPage() {
       );
 
       if (!res.ok) {
-        setStatus(res.status === 429 ? 'rate_limited' : 'failed');
+        dispatch(setStatus(res.status === 429 ? 'rate_limited' : 'failed'));
         return;
       }
 
-      setStatus('streaming');
+      dispatch(setStreaming());
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
 
       if (!reader) {
-        setStatus('failed');
+        dispatch(setStatus('failed'));
         return;
       }
 
@@ -63,33 +63,31 @@ export default function AskPage() {
           if (!line.startsWith('data: ')) continue;
           const data = line.slice(6).trim();
           if (data === '[DONE]') {
-            setStatus('succeeded');
+            dispatch(setStatus('succeeded'));
             return;
           }
           try {
             const parsed = JSON.parse(data);
             if (parsed.sources) {
-              setSources(parsed.sources);
+              dispatch(setSources(parsed.sources));
             } else if (parsed.content) {
-              setAnswer((prev) => prev + parsed.content);
+              dispatch(appendAnswer(parsed.content));
             }
           } catch {}
         }
       }
-      setStatus('succeeded');
+      dispatch(setStatus('succeeded'));
     } catch (err) {
-      setStatus((err as Error).message === '尚未登入' ? 'unauthenticated' : 'failed');
+      dispatch(setStatus((err as Error).message === '尚未登入' ? 'unauthenticated' : 'failed'));
     }
   };
-
-  const isLoading = status === 'loading' || status === 'streaming';
 
   return (
     <div className="flex flex-col items-center px-4 py-6 pb-24 md:px-6 md:py-8">
       <div className="w-full max-w-2xl flex flex-col gap-5">
         <h1 className="text-xl font-bold text-gray-900">Ask the Podcast</h1>
 
-        {/* Search input */}
+        {/* Input */}
         <div className="flex flex-col sm:flex-row items-stretch gap-2 sm:items-center">
           <Input
             label="Ask"
@@ -98,7 +96,7 @@ export default function AskPage() {
             radius="lg"
             value={question}
             onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
-            onChange={(e) => setQuestion(e.target.value)}
+            onChange={(e) => dispatch(setQuestion(e.target.value))}
             isDisabled={isLoading}
             isClearable
           />
