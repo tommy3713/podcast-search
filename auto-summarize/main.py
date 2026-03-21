@@ -94,8 +94,19 @@ def summarize_transcription(transcription_text):
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Summarize this podcast content in bullet points in Traditional Chinese."},
-                {"role": "user", "content": transcription_text}
+                {"role": "system", "content": "你是文字編輯，專門從 podcast 逐字稿中提取每段最具價值的內容。"},
+                {"role": "user", "content": f"""以下是 podcast 的逐字稿內容，請幫我用繁體中文整理成以下格式：
+                章節劃分與主題整理：
+                - 若逐字稿可辨識章節，請劃分為例如「節目開場」、「生活雜談」、「市場觀察」、「聽眾回覆」等章節。
+                - 每章節可用 1～5 個 bullet points 表達，每點內容請直接照抄原文，不用改寫，並務必具備主題、主持人觀點、具體例子、情緒或故事脈絡。
+                - 每個章節同時請穿插最多五則精選主持人金句，將其置於對應的章節內。這些金句應具備語言風格鮮明、有啟發性或情緒張力，或能代表該集核心觀點。
+                -「聽眾回覆」列出所有聽眾留言（可直接照抄原文），並在每則下方附上主持人回覆（可直接照抄原文）
+                - 以上每一點都要250-400個字
+                請避免產出空泛套話（如「值得參考」、「令人感動」），並重視內容密度與完整性。
+                最後，請根據這個主持人的逐字稿，產生你覺得適合投資的股票，並提供詳細原因及佐證資料
+                逐字稿內容如下：
+                {transcription_text}
+                """}
             ]
         )
         summary = response.choices[0].message.content
