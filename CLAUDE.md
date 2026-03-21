@@ -50,15 +50,15 @@ All routes and middleware are defined directly in `src/app.js`. The service laye
 
 **Database: Elasticsearch only** — single `podcast` index with `icu_analyzer` on `content`, `note`, and `title` fields. Identifier fields (`podcaster`, `episode`, `fullTitle`, `uploadDate`) are mapped as `keyword`.
 
-- **`src/middleware/verifyGoogleToken.js`** — validates Google OAuth Bearer tokens; applied to `/api/podcast/summary` and `/api/ask`
+- **`src/middleware/verifyGoogleToken.js`** — validates Google OAuth Bearer tokens; applied to `/api/podcast/summary`, `/api/podcast/chunks`, and `/api/ask`
 
 Route → Service call mapping:
 | Route | Service function |
 |---|---|
 | `GET /api/search` | `search(keyword)` — BM25 full-text on `podcast` index |
 | `GET /api/podcast/all` | `getPodcasts(page, limit)` — returns `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `note` |
-| `GET /api/podcast/transcript` | `getPodcastTranscriptByPodcasterAndEpisode(podcaster, episode)` |
 | `GET /api/podcast/summary` _(auth required)_ | `getPodcastByPodcasterAndEpisode(podcaster, episode)` |
+| `GET /api/podcast/chunks` _(auth required)_ | `getPodcastChunks(podcaster, episode, page)` — returns 10 chunks/page from `podcast_chunks`, sorted by `chunk_index`; response: `{ chunks: [{ chunk_index, chunk_text }], total, page, hasMore }` |
 | `POST /api/ask` _(auth required, 20 req/day/user)_ | `askWithContext()` — embed → kNN on `podcast_chunks` → SSE: first emits `{ sources: [...] }` (deduplicated episodes from kNN hits), then streams `{ content }` chunks, finally `[DONE]` |
 
 ### Frontend
@@ -70,8 +70,9 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit and pe
 **Redux slices** (`src/features/`):
 
 - `searchSlice` — search results, driven by `fetchSearchResults(keyword)`
-- `summarySlice` — episode summary + transcript; has two independent status fields (`status` for summary, `transcriptStatus` for transcript)
+- `summarySlice` — episode summary only (transcript tab removed); `fetchSummary` fetches summary; `fetchChunks` + `loadMoreChunks` fetch paginated chunks from `/api/podcast/chunks` (kept for future use but not rendered); state fields: `chunks`, `chunksPage`, `chunksTotal`, `chunksHasMore`, `chunksStatus`, `chunksError`
 - `podcastListSlice` — podcast list; fetches all episodes at once (limit 200); the page component manages a local `visibleCount` for load-more (20 per step) and client-side year/month filtering
+- `askSlice` — Q&A state (`question`, `answer`, `sources`, `status`); persisted via redux-persist so answer survives navigation
 - `helloSlice` — legacy, not actively used
 
 **Auth pattern:** `src/utlis/fetchWithAuth.ts` wraps `fetch`, pulling the `id_token` from the NextAuth session and injecting `Authorization: Bearer <token>`. Any component calling a protected endpoint must use this utility. NextAuth is configured at `src/app/api/auth/[...nextauth]/route.ts`, with `authOptions` extracted to `src/lib/authOptions.ts`. The JWT callback auto-refreshes the Google ID token before expiry using the stored refresh token.
@@ -81,14 +82,22 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit and pe
 - `/` — home
 - `/search` — search interface
 - `/podcast-list/[podcaster]` — episode list for a podcaster
-- `/summary/[podcaster]/[episode]` — episode detail with summary (auth-gated) and transcript
+- `/summary/[podcaster]/[episode]` — episode detail with summary (auth-gated); transcript tab removed
 - `/ask` — Q&A streaming interface (auth-gated, 20 req/day limit)
+
+### Mobile UI Notes
+
+- Bottom nav height is `h-14` (56px) with `pb-safe` class for iPhone home indicator; `.pb-safe { padding-bottom: env(safe-area-inset-bottom) }` is defined in `globals.css`
+- Each nav item has `min-h-[44px]` touch target
+- Search result cards (`PodcastAccordians.tsx`): highlights default to `line-clamp-3 overflow-hidden`; per-card expand/collapse button with separate "查看集數 →" link to avoid tap conflicts
+- All text inputs guard `onKeyDown` Enter with `e.nativeEvent.isComposing` to prevent IME (Chinese/Japanese/Korean) composition from triggering search prematurely
+- Ko-fi link in footer (no copyright text)
 
 ### Testing
 
 **Backend tests** (`backend/tests/`) use supertest against the real Express app with `vi.mock('../../src/service.js')` to stub the service layer. The `google-auth-library` mock uses `vi.hoisted()` to expose `mockVerifyIdToken` to the factory.
 
-**Frontend tests** (`frontend/tests/`) use fresh `configureStore` instances (no redux-persist) per test. `summarySlice` tests mock `@/utlis/fetchWithAuth` via `vi.hoisted()`.
+**Frontend tests** (`frontend/tests/`) use fresh `configureStore` instances (no redux-persist) per test. `summarySlice` tests mock `@/utlis/fetchWithAuth` via `vi.hoisted()`. `askSlice` has no dedicated test file yet.
 
 No real network calls are made in any test — all external dependencies are mocked.
 
