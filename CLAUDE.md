@@ -35,7 +35,7 @@ Two separate Node.js apps — an Express backend and a Next.js frontend — that
 
 ### Data Setup
 
-The `podcast` Elasticsearch index is seeded from `notes/gooaye/*.json` (25 episodes). Each file contains `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `content`, and `note` fields. Run this once after standing up Elasticsearch:
+The `podcast` Elasticsearch index is seeded from `notes/gooaye/*.json` (26 episodes). Each file contains `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `content`, `note`, and `embeddings` fields. Run this once after standing up Elasticsearch:
 
 ```bash
 pip install "elasticsearch>=8,<9" python-dotenv
@@ -50,7 +50,7 @@ All routes and middleware are defined directly in `src/app.js`. The service laye
 
 **Database: Elasticsearch only** — single `podcast` index with `icu_analyzer` on `content`, `note`, and `title` fields. Identifier fields (`podcaster`, `episode`, `fullTitle`, `uploadDate`) are mapped as `keyword`.
 
-- **`src/middleware/verifyGoogleToken.js`** — validates Google OAuth Bearer tokens; applied only to `/api/podcast/summary`
+- **`src/middleware/verifyGoogleToken.js`** — validates Google OAuth Bearer tokens; applied to `/api/podcast/summary` and `/api/ask`
 
 Route → Service call mapping:
 | Route | Service function |
@@ -59,7 +59,7 @@ Route → Service call mapping:
 | `GET /api/podcast/all` | `getPodcasts(page, limit)` |
 | `GET /api/podcast/transcript` | `getPodcastTranscriptByPodcasterAndEpisode(podcaster, episode)` |
 | `GET /api/podcast/summary` _(auth required)_ | `getPodcastByPodcasterAndEpisode(podcaster, episode)` |
-| `POST /api/ask` | Streaming response — GPT-4o-mini over kNN results from `podcast_chunks` |
+| `POST /api/ask` _(auth required, 20 req/day/user)_ | `askWithContext()` — embed → kNN on `podcast_chunks` → GPT-4o-mini stream |
 
 ### Frontend
 
@@ -74,7 +74,7 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit and pe
 - `podcastListSlice` — paginated podcast list; has a synchronous `setPage` action
 - `helloSlice` — legacy, not actively used
 
-**Auth pattern:** `src/utlis/fetchWithAuth.ts` wraps `fetch`, pulling the `id_token` from the NextAuth session and injecting `Authorization: Bearer <token>`. Any component calling a protected endpoint must use this utility. NextAuth is configured at `src/app/api/auth/[...nextauth]/route.ts`.
+**Auth pattern:** `src/utlis/fetchWithAuth.ts` wraps `fetch`, pulling the `id_token` from the NextAuth session and injecting `Authorization: Bearer <token>`. Any component calling a protected endpoint must use this utility. NextAuth is configured at `src/app/api/auth/[...nextauth]/route.ts`, with `authOptions` extracted to `src/lib/authOptions.ts`. The JWT callback auto-refreshes the Google ID token before expiry using the stored refresh token.
 
 **Pages:**
 
@@ -82,6 +82,7 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit and pe
 - `/search` — search interface
 - `/podcast-list/[podcaster]` — episode list for a podcaster
 - `/summary/[podcaster]/[episode]` — episode detail with summary (auth-gated) and transcript
+- `/ask` — Q&A streaming interface (auth-gated, 20 req/day limit)
 
 ### Testing
 
@@ -90,6 +91,21 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit and pe
 **Frontend tests** (`frontend/tests/`) use fresh `configureStore` instances (no redux-persist) per test. `summarySlice` tests mock `@/utlis/fetchWithAuth` via `vi.hoisted()`.
 
 No real network calls are made in any test — all external dependencies are mocked.
+
+### Ingestion Pipeline (`auto-summarize/`)
+
+Python script that downloads, transcribes, and indexes new episodes.
+
+```bash
+cd auto-summarize
+python main.py test        # Process latest episode only (for testing)
+python main.py production  # Process all new episodes
+python main.py reindex     # Re-index from notes/gooaye/ into ES (safe to re-run)
+```
+
+**Flow:** Download via RSS → check `notes/gooaye/` for duplicates → Whisper transcription (splits audio only if > 24MB) → GPT-4o-mini summary → sentence-boundary chunking (target 600 chars, hard cap 1500) → embed via `text-embedding-3-small` → write to `podcast` + `podcast_chunks` → cache embeddings back to `notes/gooaye/*.json`.
+
+**`reindex` mode** skips episodes already in ES that also have cached embeddings in their JSON. Useful for recovering from partial failures without re-calling OpenAI.
 
 ### Environment Variables
 
