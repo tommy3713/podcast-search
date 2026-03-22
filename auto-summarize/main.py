@@ -20,10 +20,11 @@ ELASTICSEARCH_PASSWORD = os.getenv("ELASTICSEARCH_PASSWORD")
 INDEX_NAME = os.getenv("INDEX_NAME")
 
 # Directories
-PODCAST_DIR = "../podcasts/gooaye"
+IS_PROD = len(sys.argv) > 1 and sys.argv[1].lower() == "production"
+PODCAST_DIR = "./" if IS_PROD else "../podcasts/gooaye"
 NOTES_DIR = "../notes/gooaye"
 TEMP_DIR = "./data/temp"
-CONFIG_FILE = "./config.json"
+CONFIG_FILE = "./config-prod.json" if IS_PROD else "./config.json"
 
 MAX_WHISPER_BYTES = 24 * 1024 * 1024  # 24MB — Whisper limit
 CHUNK_TARGET = 600  # target chars per text chunk
@@ -223,6 +224,14 @@ def is_already_processed(file_name):
     return os.path.exists(os.path.join(NOTES_DIR, f"{note_name}.json"))
 
 
+# Function: Check if episode is already indexed in ES (used in production mode)
+def is_in_elasticsearch(file_name):
+    result = elastic_client.search(index=INDEX_NAME, query={
+        "term": {"fullTitle": file_name}
+    })
+    return result["hits"]["total"]["value"] > 0
+
+
 # Function: Clean up split temp parts only (keep original MP3s in podcasts/)
 def clean_data_folder():
     print("Cleaning up temp files...")
@@ -293,7 +302,7 @@ def production_process():
             continue
 
         print(f"Processing {file_name}...")
-        if is_already_processed(file_name):
+        if is_in_elasticsearch(file_name):
             print(f"Already in database: {file_name}")
             clean_data_folder()
             continue
@@ -315,10 +324,7 @@ def production_process():
 
         # Index in ES
         index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary)
-        embeddings = index_chunks(file_name, "Gooaye", episode, date, full_transcription_text)
-
-        # Save to notes/gooaye/ (with embeddings cached)
-        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings)
+        index_chunks(file_name, "Gooaye", episode, date, full_transcription_text)
 
         clean_data_folder()
 
