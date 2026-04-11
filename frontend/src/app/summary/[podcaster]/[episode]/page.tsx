@@ -8,7 +8,7 @@ import { AppDispatch, RootState } from '@/app/store';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatDate } from '@/utils';
-import LoadingComponent from '@/app/loading';
+import { MetadataSkeleton, SummarySkeleton } from './skeletons';
 
 export default function EpisodeSummaryPage() {
   const { podcaster, episode } = useParams() as {
@@ -25,7 +25,14 @@ export default function EpisodeSummaryPage() {
   }, [podcaster, episode, dispatch]);
 
   if (status === 'loading' || status === 'idle') {
-    return <LoadingComponent />;
+    return (
+      <div className="flex flex-col items-center py-6 pb-24 sm:pb-8 md:py-8">
+        <div className="w-full max-w-2xl px-4">
+          <MetadataSkeleton />
+          <SummarySkeleton />
+        </div>
+      </div>
+    );
   }
 
   if (status === 'failed') {
