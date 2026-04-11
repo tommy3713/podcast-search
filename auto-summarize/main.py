@@ -395,8 +395,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     mode = sys.argv[1].lower()
-    if mode == "test":
-        print("Running in test mode...")
+    if mode in ("test", "local"):
+        print("Running in local mode...")
         test_process()
     elif mode == "production":
         print("Running in production mode...")
@@ -405,5 +405,5 @@ if __name__ == "__main__":
         print("Reindexing from notes/gooaye/...")
         reindex_from_notes()
     else:
-        print("Invalid argument. Use 'test', 'production', or 'reindex'.")
+        print("Invalid argument. Use 'local', 'production', or 'reindex'.")
         sys.exit(1)
