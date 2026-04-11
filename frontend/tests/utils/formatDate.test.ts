@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDate } from '@/utlis/index';
+import { formatDate } from '@/utils/index';
 
 describe('formatDate', () => {
   it('formats 20231215 as December 15, 2023', () => {

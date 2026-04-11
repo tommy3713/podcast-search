@@ -6,7 +6,7 @@ vi.mock('next-auth/react', () => ({
   getSession: mockGetSession,
 }));
 
-import { fetchWithAuth } from '@/utlis/fetchWithAuth';
+import { fetchWithAuth } from '@/utils/fetchWithAuth';
 
 describe('fetchWithAuth', () => {
   beforeEach(() => {

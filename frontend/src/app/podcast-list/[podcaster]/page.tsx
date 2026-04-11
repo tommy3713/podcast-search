@@ -4,7 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { fetchPodcasts } from '@/features/podcastListSlice';
 import { AppDispatch, RootState } from '@/app/store';
 import { useParams } from 'next/navigation';
-import { formatDate } from '@/utlis';
+import { formatDate } from '@/utils';
 import Link from 'next/link';
 
 const LOAD_STEP = 20;

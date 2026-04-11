@@ -3,7 +3,7 @@ import { configureStore } from '@reduxjs/toolkit';
 
 const mockFetchWithAuth = vi.hoisted(() => vi.fn());
 
-vi.mock('@/utlis/fetchWithAuth', () => ({
+vi.mock('@/utils/fetchWithAuth', () => ({
   fetchWithAuth: mockFetchWithAuth,
 }));
 

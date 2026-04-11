@@ -65,7 +65,7 @@ Route → Service call mapping:
 
 Uses the Next.js App Router. State is managed globally with Redux Toolkit and persisted to `localStorage` via `redux-persist`.
 
-**Key path alias:** `@/*` → `src/*` (note: utils folder is spelled `src/utlis/` — typo in the codebase, keep consistent).
+**Key path alias:** `@/*` → `src/*`. Utils folder is at `src/utils/`.
 
 **Redux slices** (`src/features/`):
 
@@ -75,7 +75,7 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit and pe
 - `askSlice` — Q&A state (`question`, `answer`, `sources`, `status`); persisted via redux-persist so answer survives navigation
 - `helloSlice` — legacy, not actively used
 
-**Auth pattern:** `src/utlis/fetchWithAuth.ts` wraps `fetch`, pulling the `id_token` from the NextAuth session and injecting `Authorization: Bearer <token>`. Any component calling a protected endpoint must use this utility. NextAuth is configured at `src/app/api/auth/[...nextauth]/route.ts`, with `authOptions` extracted to `src/lib/authOptions.ts`. The JWT callback auto-refreshes the Google ID token before expiry using the stored refresh token.
+**Auth pattern:** `src/utils/fetchWithAuth.ts` wraps `fetch`, pulling the `id_token` from the NextAuth session and injecting `Authorization: Bearer <token>`. Any component calling a protected endpoint must use this utility. NextAuth is configured at `src/app/api/auth/[...nextauth]/route.ts`, with `authOptions` extracted to `src/lib/authOptions.ts`. The JWT callback auto-refreshes the Google ID token before expiry using the stored refresh token.
 
 **Pages:**
 
@@ -97,7 +97,7 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit and pe
 
 **Backend tests** (`backend/tests/`) use supertest against the real Express app with `vi.mock('../../src/service.js')` to stub the service layer. The `google-auth-library` mock uses `vi.hoisted()` to expose `mockVerifyIdToken` to the factory.
 
-**Frontend tests** (`frontend/tests/`) use fresh `configureStore` instances (no redux-persist) per test. `summarySlice` tests mock `@/utlis/fetchWithAuth` via `vi.hoisted()`. `askSlice` has no dedicated test file yet.
+**Frontend tests** (`frontend/tests/`) use fresh `configureStore` instances (no redux-persist) per test. `summarySlice` tests mock `@/utils/fetchWithAuth` via `vi.hoisted()`. `askSlice` has no dedicated test file yet.
 
 No real network calls are made in any test — all external dependencies are mocked.
 

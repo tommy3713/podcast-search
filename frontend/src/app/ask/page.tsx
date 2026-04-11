@@ -1,7 +1,7 @@
 'use client';
 
 import { Input, Button } from '@nextui-org/react';
-import { fetchWithAuth } from '@/utlis/fetchWithAuth';
+import { fetchWithAuth } from '@/utils/fetchWithAuth';
 import Link from 'next/link';
 import { useDispatch, useSelector } from 'react-redux';
 import { AppDispatch, RootState } from '@/app/store';

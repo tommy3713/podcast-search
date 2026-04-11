@@ -1,5 +1,5 @@
 import { RootState } from '@/app/store';
-import { fetchWithAuth } from '@/utlis/fetchWithAuth';
+import { fetchWithAuth } from '@/utils/fetchWithAuth';
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
 interface SummaryResult {

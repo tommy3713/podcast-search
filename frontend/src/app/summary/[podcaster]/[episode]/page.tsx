@@ -7,7 +7,7 @@ import { fetchSummary } from '@/features/summarySlice';
 import { AppDispatch, RootState } from '@/app/store';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { formatDate } from '@/utlis';
+import { formatDate } from '@/utils';
 import LoadingComponent from '@/app/loading';
 
 export default function EpisodeSummaryPage() {
