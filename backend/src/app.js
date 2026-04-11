@@ -7,6 +7,7 @@ import {
   getPodcasts,
   getPodcastChunks,
   askWithContext,
+  chatWithContext,
 } from './service.js';
 import verifyGoogleToken from './middleware/verifyGoogleToken.js';
 
@@ -123,6 +124,50 @@ app.post('/api/ask', verifyGoogleToken, askRateLimiter, async (req, res) => {
   try {
     await askWithContext(
       question,
+      (sources) => res.write(`data: ${JSON.stringify({ sources })}\n\n`),
+      (content) => res.write(`data: ${JSON.stringify({ content })}\n\n`),
+      () => {
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
+    );
+  } catch (error) {
+    console.error(error);
+    res.write(`data: ${JSON.stringify({ error: 'Failed to generate response' })}\n\n`);
+    res.end();
+  }
+});
+
+const chatRateLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  max: 30,
+  keyGenerator: (req) => req.user?.sub ?? req.ip,
+  handler: (req, res) => {
+    res.status(429).json({ error: '每日對話次數已達上限（30 次），請明天再試。' });
+  },
+  skip: () => process.env.NODE_ENV === 'test',
+});
+
+app.post('/api/chat', verifyGoogleToken, chatRateLimiter, async (req, res) => {
+  const { question, messages } = req.body;
+  if (!question) {
+    return res.status(400).json({ error: 'question is required' });
+  }
+  if (question.length > 500) {
+    return res.status(400).json({ error: '問題長度不能超過 500 字元。' });
+  }
+  if (!Array.isArray(messages)) {
+    return res.status(400).json({ error: 'messages must be an array' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    await chatWithContext(
+      question,
+      messages,
       (sources) => res.write(`data: ${JSON.stringify({ sources })}\n\n`),
       (content) => res.write(`data: ${JSON.stringify({ content })}\n\n`),
       () => {

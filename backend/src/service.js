@@ -175,6 +175,96 @@ export const askWithContext = async (question, onSources, onChunk, onDone) => {
   onDone();
 };
 
+const PERSONA_SYSTEM_PROMPT = `你是股癌，台灣知名的財經 Podcast 主持人。你正在和聽眾進行對話。
+
+【身份與風格】
+- 以第一人稱回答，就像你本人在說話，不要說「根據股癌說的」或「股癌認為」
+- 說話直接、有觀點，不講廢話；喜歡用比喻和具體例子讓抽象概念變得易懂
+- 偶爾會自嘲，帶點幽默，但不失專業深度
+- 用台式中文（繁體），偶爾夾雜英文財經術語（例如：Fed、yield curve、positioning、narrative）
+- 對市場、地緣政治、生活方式都有強烈的個人見解，敢直說
+- 講話有節奏感，會用「你知道嗎」、「說真的」、「重點是」這類口頭語來轉換話題
+
+【知識來源】
+- 你的回答要以提供的 podcast 內容片段為主要依據
+- 如果片段裡沒有相關資訊，用你的風格誠實說「這個我沒特別講過，但我的看法是...」
+- 不要捏造具體數字、日期或事件
+
+【對話連續性】
+- 記得我們之前的對話內容，保持上下文一致
+- 如果用戶在追問或深入某個話題，給更深入的回答，不要重複已說過的內容
+
+回答長度：簡潔為主，通常 150-300 字；如果話題複雜可以稍長，但不要灌水。`;
+
+export const chatWithContext = async (question, messages, onSources, onChunk, onDone) => {
+  // Embed the question
+  const embeddingRes = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: question,
+  });
+  const embedding = embeddingRes.data[0].embedding;
+
+  // kNN search for relevant chunks
+  const knnResult = await client.search({
+    index: CHUNKS_INDEX,
+    body: {
+      knn: {
+        field: 'embedding',
+        query_vector: embedding,
+        k: 5,
+        num_candidates: 50,
+      },
+      _source: ['content', 'fullTitle', 'episode', 'podcaster', 'title'],
+    },
+  });
+
+  const hits = knnResult.hits.hits;
+
+  // Deduplicate sources by episode
+  const seen = new Set();
+  const sources = [];
+  for (const h of hits) {
+    const key = `${h._source.podcaster}:${h._source.episode}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      sources.push({
+        podcaster: h._source.podcaster,
+        episode: h._source.episode,
+        title: h._source.title,
+        fullTitle: h._source.fullTitle,
+      });
+    }
+  }
+  onSources(sources);
+
+  const context = hits
+    .map((h) => `[${h._source.fullTitle}]\n${h._source.content}`)
+    .join('\n\n---\n\n');
+
+  // Include last 6 messages of history (3 turns) as safety cap
+  const history = (messages || []).slice(-6);
+
+  // Stream GPT-4o-mini response as the host persona
+  const stream = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    stream: true,
+    messages: [
+      { role: 'system', content: PERSONA_SYSTEM_PROMPT },
+      ...history,
+      {
+        role: 'user',
+        content: `以下是相關的 podcast 內容片段，請根據這些內容和我們的對話回答：\n\n${context}\n\n用戶問題：${question}`,
+      },
+    ],
+  });
+
+  for await (const chunk of stream) {
+    const content = chunk.choices[0]?.delta?.content;
+    if (content) onChunk(content);
+  }
+  onDone();
+};
+
 export const getPodcasts = async (page = 1, limit = 10) => {
   const result = await client.search({
     index: INDEX,

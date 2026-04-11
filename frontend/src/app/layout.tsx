@@ -3,7 +3,7 @@ import { Inter } from 'next/font/google';
 import { Providers } from './providers';
 import './globals.css';
 import Link from 'next/link';
-import { List, MessageCircle, Search } from 'lucide-react';
+import { List, MessageCircle, Search, Bot } from 'lucide-react';
 import LoginButton from '@/components/LoginButton';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -51,6 +51,12 @@ export default function RootLayout({
                   >
                     🤖 Ask
                   </Link>
+                  <Link
+                    href="/chat"
+                    className="px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 hover:text-blue-700 transition"
+                  >
+                    💬 Chat
+                  </Link>
                 </div>
                 <LoginButton />
               </nav>
@@ -69,24 +75,31 @@ export default function RootLayout({
             <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center h-14 pb-safe shadow-md z-50">
               <Link
                 href="/search"
-                className="flex flex-col items-center justify-center min-h-[44px] px-6 text-gray-700 hover:text-blue-500"
+                className="flex flex-col items-center justify-center min-h-[44px] px-4 text-gray-700 hover:text-blue-500"
               >
                 <Search size={22} />
                 <span className="text-xs mt-1">Search</span>
               </Link>
               <Link
                 href="/podcast-list/gooaye"
-                className="flex flex-col items-center justify-center min-h-[44px] px-6 text-gray-700 hover:text-blue-500"
+                className="flex flex-col items-center justify-center min-h-[44px] px-4 text-gray-700 hover:text-blue-500"
               >
                 <List size={22} />
                 <span className="text-xs mt-1">List</span>
               </Link>
               <Link
                 href="/ask"
-                className="flex flex-col items-center justify-center min-h-[44px] px-6 text-gray-700 hover:text-blue-500"
+                className="flex flex-col items-center justify-center min-h-[44px] px-4 text-gray-700 hover:text-blue-500"
               >
                 <MessageCircle size={22} />
                 <span className="text-xs mt-1">Ask</span>
+              </Link>
+              <Link
+                href="/chat"
+                className="flex flex-col items-center justify-center min-h-[44px] px-4 text-gray-700 hover:text-blue-500"
+              >
+                <Bot size={22} />
+                <span className="text-xs mt-1">Chat</span>
               </Link>
             </nav>
             <footer className="bg-gray-100 text-center py-2 pb-16 sm:pb-2">
