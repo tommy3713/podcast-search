@@ -35,7 +35,7 @@ Two separate Node.js apps — an Express backend and a Next.js frontend — that
 
 ### Data Setup
 
-The `podcast` Elasticsearch index is seeded from `notes/gooaye/*.json` (26 episodes). Each file contains `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `content`, `note`, and `embeddings` fields. Run this once after standing up Elasticsearch:
+The `podcast` Elasticsearch index is seeded from `notes/gooaye/*.json` (29 episodes). Each file contains `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `content`, `note`, and `embeddings` fields. Run this once after standing up Elasticsearch:
 
 ```bash
 pip install "elasticsearch>=8,<9" python-dotenv
@@ -107,14 +107,13 @@ Python script that downloads, transcribes, and indexes new episodes.
 
 ```bash
 cd auto-summarize
-python main.py test        # Process latest episode only (for testing)
-python main.py production  # Process all new episodes
-python main.py reindex     # Re-index from notes/gooaye/ into ES (safe to re-run)
+python main.py local       # Process latest episode only
+python main.py reindex     # Re-index from notes/gooaye/ into ES (always rebuilds chunks)
 ```
 
-**Flow:** Download via RSS → check `notes/gooaye/` for duplicates → Whisper transcription (splits audio only if > 24MB) → GPT-4o-mini summary → sentence-boundary chunking (target 600 chars, hard cap 1500) → embed via `text-embedding-3-small` → write to `podcast` + `podcast_chunks` → cache embeddings back to `notes/gooaye/*.json`.
+**Flow:** Download via RSS → check `notes/gooaye/` for duplicates → transcribe locally via `mlx-whisper` (whisper-large-v3-turbo, Apple Silicon only) → post-process known misheard terms (`TRANSCRIPTION_FIXES`) → GPT-4o-mini summary → sentence-boundary chunking (target 600 chars, hard cap 1500) from `note` field (not raw transcript) → embed via `text-embedding-3-small` → write to `podcast` + `podcast_chunks` → cache embeddings back to `notes/gooaye/*.json`.
 
-**`reindex` mode** skips episodes already in ES that also have cached embeddings in their JSON. Useful for recovering from partial failures without re-calling OpenAI.
+**`reindex` mode** always deletes and rebuilds `podcast_chunks` from the `note` field. Does not re-transcribe or re-summarize.
 
 ### Environment Variables
 
