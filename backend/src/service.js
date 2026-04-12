@@ -302,7 +302,7 @@ export const getStocksList = async () => {
       size: 0,
       aggs: {
         tickers: {
-          terms: { field: 'mentioned_stocks', size: 500 },
+          terms: { field: 'mentioned_stocks.keyword', size: 500 },
           aggs: {
             first_date: { min: { field: 'uploadDate' } },
             last_date: { max: { field: 'uploadDate' } },
@@ -328,7 +328,7 @@ export const getStockDetail = async (ticker) => {
       size: 200,
       sort: [{ uploadDate: { order: 'desc' } }],
       _source: ['episode', 'fullTitle', 'title', 'uploadDate', 'stock_sentiments'],
-      query: { term: { mentioned_stocks: upperTicker } },
+      query: { term: { 'mentioned_stocks.keyword': upperTicker } },
     },
   });
 
