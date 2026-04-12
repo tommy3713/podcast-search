@@ -303,20 +303,48 @@ export const getStocksList = async () => {
       aggs: {
         tickers: {
           terms: { field: 'mentioned_stocks.keyword', size: 500 },
-          aggs: {
-            first_date: { min: { field: 'uploadDate' } },
-            last_date: { max: { field: 'uploadDate' } },
-          },
         },
       },
     },
   });
 
+  // Build a count map from aggregation buckets
+  const countMap = {};
+  for (const b of aggResult.aggregations.tickers.buckets) {
+    countMap[b.key] = b.doc_count;
+  }
+
+  // Fetch all episodes that have mentioned_stocks to compute firstDate/lastDate in JS
+  const episodesResult = await client.search({
+    index: INDEX,
+    body: {
+      size: 1000,
+      _source: ['uploadDate', 'mentioned_stocks'],
+      query: { exists: { field: 'mentioned_stocks' } },
+    },
+  });
+
+  // Compute firstDate and lastDate per ticker by iterating hits
+  const firstDate = {};
+  const lastDate = {};
+  for (const hit of episodesResult.hits.hits) {
+    const { uploadDate, mentioned_stocks } = hit._source;
+    if (!uploadDate || !mentioned_stocks) continue;
+    for (const ticker of mentioned_stocks) {
+      if (firstDate[ticker] === undefined || uploadDate < firstDate[ticker]) {
+        firstDate[ticker] = uploadDate;
+      }
+      if (lastDate[ticker] === undefined || uploadDate > lastDate[ticker]) {
+        lastDate[ticker] = uploadDate;
+      }
+    }
+  }
+
   return aggResult.aggregations.tickers.buckets.map((b) => ({
     ticker: b.key,
     count: b.doc_count,
-    firstDate: b.first_date.value_as_string ?? b.first_date.value,
-    lastDate: b.last_date.value_as_string ?? b.last_date.value,
+    firstDate: firstDate[b.key] ?? null,
+    lastDate: lastDate[b.key] ?? null,
   }));
 };
 
