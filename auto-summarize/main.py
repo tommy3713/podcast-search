@@ -106,15 +106,20 @@ def transcribe_audio(file_path):
                 raise RuntimeError(f"Transcription failed after 3 attempts: {e}")
 
 
-MAX_TRANSCRIPTION_CHARS = 60000  # ~20k tokens for Chinese text, safely under gpt-4o-mini's 128k limit
+MAX_TRANSCRIPTION_CHARS = 120000  # ~60k tokens for Chinese text, safely under gpt-4o-mini's 128k limit
 
 # Function: Summarize transcription using OpenAI GPT
 def summarize_transcription(transcription_text):
     print("Summarizing transcription...")
 
-    truncated = transcription_text[:MAX_TRANSCRIPTION_CHARS]
     if len(transcription_text) > MAX_TRANSCRIPTION_CHARS:
-        print(f"  Transcription truncated from {len(transcription_text)} to {MAX_TRANSCRIPTION_CHARS} chars.")
+        truncated = transcription_text[:MAX_TRANSCRIPTION_CHARS]
+        last_period = max(truncated.rfind('。'), truncated.rfind('！'), truncated.rfind('？'))
+        if last_period > 0:
+            truncated = truncated[:last_period + 1]
+        print(f"  Transcription truncated from {len(transcription_text)} to {len(truncated)} chars.")
+    else:
+        truncated = transcription_text
 
     for attempt in range(1, 4):
         try:
