@@ -46,19 +46,32 @@ def download_podcasts():
 
 
 # Proper nouns hint for Whisper — add any terms that get consistently misheard
-WHISPER_PROMPT = "股癌，謝孟恭，Gooaye，台股，美股，Fed，聯準會，ETF，殖利率，通膨，升息，降息，半導體，台積電，輝達，NVIDIA，蘋果，Google，Meta，特斯拉，股海"
+WHISPER_PROMPT = "股癌，謝孟恭，Gooaye，台股，美股，Fed，聯準會，ETF，殖利率，通膨，升息，降息，半導體，台積電，輝達，NVIDIA，蘋果，Google，Meta，特斯拉，股海，SiFive"
+
+# Known Whisper transcription errors — add new ones as they're discovered
+TRANSCRIPTION_FIXES = {
+    "聖風宮": "謝孟恭",
+    "謝夢恭": "謝孟恭",
+    "谷海": "股癌",
+    "孫悟空": "謝孟恭",
+}
+
+def fix_transcription(text):
+    for wrong, correct in TRANSCRIPTION_FIXES.items():
+        text = text.replace(wrong, correct)
+    return text
 
 # Function: Transcribe audio using mlx-whisper (local, Apple Silicon)
 def transcribe_audio(file_path):
     print(f"Transcribing {os.path.basename(file_path)}...")
     result = mlx_whisper.transcribe(
         file_path,
-        path_or_hq_model="mlx-community/whisper-large-v3-turbo",
+        path_or_hf_repo="mlx-community/whisper-large-v3-turbo",
         language="zh",
         initial_prompt=WHISPER_PROMPT,
     )
     print("Transcription completed.")
-    return result["text"]
+    return fix_transcription(result["text"])
 
 
 MAX_TRANSCRIPTION_CHARS = 120000  # ~60k tokens for Chinese text, safely under gpt-4o-mini's 128k limit
