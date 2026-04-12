@@ -265,6 +265,35 @@ export const chatWithContext = async (question, messages, onSources, onChunk, on
   onDone();
 };
 
+export const getThemesTimeline = async () => {
+  const result = await client.search({
+    index: INDEX,
+    body: {
+      size: 200,
+      sort: [{ uploadDate: { order: 'asc' } }],
+      _source: ['episode', 'fullTitle', 'title', 'uploadDate', 'themes'],
+      query: { exists: { field: 'themes' } },
+    },
+  });
+
+  const episodes = result.hits.hits.map((h) => h._source);
+
+  // Build timeline map: { "2024-06": { "美股與科技股": 2 } }
+  // uploadDate is stored as "20240612" → convert to "2024-06"
+  const timeline = {};
+  for (const ep of episodes) {
+    if (!ep.themes || !ep.uploadDate) continue;
+    const d = ep.uploadDate;
+    const month = `${d.slice(0, 4)}-${d.slice(4, 6)}`;
+    if (!timeline[month]) timeline[month] = {};
+    for (const theme of ep.themes) {
+      timeline[month][theme] = (timeline[month][theme] || 0) + 1;
+    }
+  }
+
+  return { timeline, episodes };
+};
+
 export const getPodcasts = async (page = 1, limit = 10) => {
   const result = await client.search({
     index: INDEX,

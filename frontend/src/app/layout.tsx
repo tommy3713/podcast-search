@@ -3,7 +3,7 @@ import { Inter } from 'next/font/google';
 import { Providers } from './providers';
 import './globals.css';
 import Link from 'next/link';
-import { List, MessageCircle, Search, Bot } from 'lucide-react';
+import { List, MessageCircle, Search, Bot, TrendingUp } from 'lucide-react';
 import LoginButton from '@/components/LoginButton';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -57,6 +57,12 @@ export default function RootLayout({
                   >
                     💬 Chat
                   </Link>
+                  <Link
+                    href="/themes"
+                    className="px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 hover:text-blue-700 transition"
+                  >
+                    📈 Themes
+                  </Link>
                 </div>
                 <LoginButton />
               </nav>
@@ -100,6 +106,13 @@ export default function RootLayout({
               >
                 <Bot size={22} />
                 <span className="text-xs mt-1">Chat</span>
+              </Link>
+              <Link
+                href="/themes"
+                className="flex flex-col items-center justify-center min-h-[44px] px-4 text-gray-700 hover:text-blue-500"
+              >
+                <TrendingUp size={22} />
+                <span className="text-xs mt-1">Themes</span>
               </Link>
             </nav>
             <footer className="bg-gray-100 text-center py-2 pb-16 sm:pb-2">

@@ -21,6 +21,7 @@
     "react-dom": "^18",
     "react-markdown": "^10.1.0",
     "react-redux": "^9.1.2",
+    "recharts": "^3.8.1",
     "redux-persist": "^6.0.0",
     "remark-gfm": "^4.0.1"
   },

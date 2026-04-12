@@ -8,6 +8,7 @@ import {
   getPodcastChunks,
   askWithContext,
   chatWithContext,
+  getThemesTimeline,
 } from './service.js';
 import verifyGoogleToken from './middleware/verifyGoogleToken.js';
 
@@ -179,6 +180,16 @@ app.post('/api/chat', verifyGoogleToken, chatRateLimiter, async (req, res) => {
     console.error(error);
     res.write(`data: ${JSON.stringify({ error: 'Failed to generate response' })}\n\n`);
     res.end();
+  }
+});
+
+app.get('/api/themes/timeline', async (req, res) => {
+  try {
+    const result = await getThemesTimeline();
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

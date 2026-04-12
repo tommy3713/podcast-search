@@ -19,6 +19,18 @@ ELASTICSEARCH_USERNAME = os.getenv("ELASTICSEARCH_USERNAME")
 ELASTICSEARCH_PASSWORD = os.getenv("ELASTICSEARCH_PASSWORD")
 INDEX_NAME = "podcast"
 
+THEMES = [
+    "美股與科技股",
+    "台灣市場",
+    "總體經濟",
+    "中國與新興市場",
+    "投資心理與哲學",
+    "能源與原物料",
+    "債券與利率",
+    "加密貨幣",
+    "房地產",
+]
+
 # Directories
 PODCAST_DIR = "../podcasts/gooaye"
 NOTES_DIR = "../notes/gooaye"
@@ -120,7 +132,7 @@ def summarize_transcription(transcription_text):
 
 
 # Function: Save final result to notes/gooaye/ in the project's standard JSON format
-def save_to_notes(file_name, podcaster, title, episode, upload_date, content, note, embeddings=None):
+def save_to_notes(file_name, podcaster, title, episode, upload_date, content, note, embeddings=None, themes=None):
     os.makedirs(NOTES_DIR, exist_ok=True)
     note_name = os.path.splitext(file_name)[0]  # strip .mp3
     note_path = os.path.join(NOTES_DIR, f"{note_name}.json")
@@ -135,9 +147,34 @@ def save_to_notes(file_name, podcaster, title, episode, upload_date, content, no
     }
     if embeddings is not None:
         data["embeddings"] = embeddings
+    if themes is not None:
+        data["themes"] = themes
     with open(note_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
     print(f"Saved note to {note_path}")
+
+
+def classify_themes(note_text):
+    """Classify episode themes using GPT-4o-mini. Returns list from the 9 defined themes."""
+    themes_list = "、".join(THEMES)
+    for attempt in range(1, 4):
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": "你是一個分類助手，請根據以下 podcast 摘要，從給定的主題清單中選出最相關的主題（可多選，至少一個）。"},
+                    {"role": "user", "content": f"主題清單：{themes_list}\n\n摘要內容：\n{note_text[:4000]}\n\n請輸出 JSON 格式：{{\"themes\": [\"主題1\", \"主題2\"]}}，只能從清單中選取。"},
+                ]
+            )
+            result = json.loads(response.choices[0].message.content)
+            themes = [t for t in result.get("themes", []) if t in THEMES]
+            print(f"  Themes: {themes}")
+            return themes if themes else [THEMES[0]]
+        except Exception as e:
+            print(f"  Theme classification attempt {attempt}/3 failed: {e}")
+            if attempt == 3:
+                return []
 
 
 MAX_CHUNK_CHARS = 1500  # hard cap — well under 8192 tokens for Chinese text
@@ -204,7 +241,7 @@ def index_chunks(file_name, podcaster, episode, upload_date, text):
 
 
 # Function: Index transcription in Elasticsearch
-def index_transcription(file_name, podcaster, title, episode, full_transcription_text, uploadDate, note=None):
+def index_transcription(file_name, podcaster, title, episode, full_transcription_text, uploadDate, note=None, themes=None):
     document = {
         'podcaster': podcaster,
         'title': title,
@@ -215,6 +252,8 @@ def index_transcription(file_name, podcaster, title, episode, full_transcription
     }
     if note:
         document['note'] = note
+    if themes:
+        document['themes'] = themes
     response = elastic_client.index(index=INDEX_NAME, document=document)
     print(f"Document indexed in Elasticsearch: {response}")
 
@@ -257,12 +296,15 @@ def test_process():
         # Summarize
         summary = summarize_transcription(full_transcription_text)
 
+        # Classify themes
+        themes = classify_themes(summary)
+
         # Index in ES
-        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary)
+        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary, themes=themes)
         embeddings = index_chunks(file_name, "Gooaye", episode, date, summary)
 
         # Save to notes/gooaye/ (with embeddings cached)
-        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings)
+        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings, themes=themes)
 
         break  # Process only the first file for testing
 
@@ -288,14 +330,20 @@ def reindex_from_notes():
 
         print(f"Indexing {full_title}...")
 
-        # Upsert into podcast index
-        already_in_es = elastic_client.exists(index=INDEX_NAME, id=full_title)
-        if not already_in_es:
-            doc = {k: v for k, v in data.items() if k != "embeddings"}
-            elastic_client.index(index=INDEX_NAME, id=full_title, document=doc)
+        # Backfill themes if missing
+        if "themes" not in data and note_text:
+            print(f"  Classifying themes for {full_title}...")
+            data["themes"] = classify_themes(note_text)
+
+        # Upsert into podcast index (always overwrite to pick up new fields like themes)
+        doc = {k: v for k, v in data.items() if k != "embeddings"}
+        elastic_client.index(index=INDEX_NAME, id=full_title, document=doc)
 
         if not note_text:
             print(f"  No note text, skipping chunks for {full_title}")
+            # Still save themes back to JSON if we added them
+            with open(note_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
             continue
 
         # Delete existing chunks for this episode and rebuild from note
@@ -304,7 +352,7 @@ def reindex_from_notes():
         })
         embeddings = index_chunks(full_title, "Gooaye", episode, upload_date, note_text)
 
-        # Save new embeddings back to JSON
+        # Save embeddings (and any new fields like themes) back to JSON
         data["embeddings"] = embeddings
         with open(note_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
