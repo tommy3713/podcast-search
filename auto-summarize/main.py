@@ -131,6 +131,49 @@ def summarize_transcription(transcription_text):
                 raise RuntimeError(f"Summarization failed after 3 attempts: {e}")
 
 
+def extract_sentiment_score(note_text):
+    """Extract overall market sentiment score from episode note via GPT-4o-mini.
+    Returns dict with score (float -1 to 1), label (str), reason (str).
+    """
+    empty = {"score": 0, "label": "謹慎", "reason": ""}
+    valid_labels = {"樂觀", "謹慎", "悲觀"}
+    for attempt in range(1, 4):
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": "你是財經分析助手，根據 podcast 摘要判斷主持人對整體市場的情緒。"},
+                    {"role": "user", "content": (
+                        f"摘要內容：\n{note_text[:4000]}\n\n"
+                        "請輸出 JSON 格式：\n"
+                        "{\"sentiment_score\": 0.6, \"sentiment_label\": \"樂觀\", \"sentiment_reason\": \"主持人認為...\"}\n"
+                        "sentiment_score 為 -1.0（極度悲觀）到 1.0（極度樂觀）之間的浮點數，0 為中性。\n"
+                        "sentiment_label 只能是「樂觀」、「謹慎」、「悲觀」之一。\n"
+                        "sentiment_reason 為 1-2 句繁體中文說明。"
+                    )},
+                ]
+            )
+            result = json.loads(response.choices[0].message.content)
+            score = result.get("sentiment_score", 0)
+            label = result.get("sentiment_label", "謹慎")
+            reason = result.get("sentiment_reason", "")
+            # Validate
+            if not isinstance(score, (int, float)) or not (-1 <= score <= 1):
+                raise ValueError(f"Invalid sentiment_score: {score}")
+            if label not in valid_labels:
+                raise ValueError(f"Invalid sentiment_label: {label}")
+            if not isinstance(reason, str):
+                reason = ""
+            sentiment = {"score": float(score), "label": label, "reason": reason}
+            print(f"  Market sentiment: {label} ({score:.2f})")
+            return sentiment
+        except Exception as e:
+            print(f"  Sentiment extraction attempt {attempt}/3 failed: {e}")
+            if attempt == 3:
+                return empty
+
+
 def extract_investment_thesis(note_text):
     """Extract structured investment thesis from episode note via GPT-4o-mini.
     Returns dict with bullish, bearish (lists of {stock, reason}) and macro_view (str).
@@ -177,7 +220,7 @@ def extract_investment_thesis(note_text):
 
 
 # Function: Save final result to notes/gooaye/ in the project's standard JSON format
-def save_to_notes(file_name, podcaster, title, episode, upload_date, content, note, embeddings=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None):
+def save_to_notes(file_name, podcaster, title, episode, upload_date, content, note, embeddings=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None, market_sentiment=None):
     os.makedirs(NOTES_DIR, exist_ok=True)
     note_name = os.path.splitext(file_name)[0]  # strip .mp3
     note_path = os.path.join(NOTES_DIR, f"{note_name}.json")
@@ -200,6 +243,8 @@ def save_to_notes(file_name, podcaster, title, episode, upload_date, content, no
         data["stock_sentiments"] = stock_sentiments
     if investment_thesis is not None:
         data["investment_thesis"] = investment_thesis
+    if market_sentiment is not None:
+        data["market_sentiment"] = market_sentiment
     with open(note_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
     print(f"Saved note to {note_path}")
@@ -328,7 +373,7 @@ def index_chunks(file_name, podcaster, episode, upload_date, text):
 
 
 # Function: Index transcription in Elasticsearch
-def index_transcription(file_name, podcaster, title, episode, full_transcription_text, uploadDate, note=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None):
+def index_transcription(file_name, podcaster, title, episode, full_transcription_text, uploadDate, note=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None, market_sentiment=None):
     document = {
         'podcaster': podcaster,
         'title': title,
@@ -347,6 +392,8 @@ def index_transcription(file_name, podcaster, title, episode, full_transcription
         document['stock_sentiments'] = stock_sentiments
     if investment_thesis is not None:
         document['investment_thesis'] = investment_thesis
+    if market_sentiment is not None:
+        document['market_sentiment'] = market_sentiment
     response = elastic_client.index(index=INDEX_NAME, document=document)
     print(f"Document indexed in Elasticsearch: {response}")
 
@@ -389,17 +436,18 @@ def test_process():
         # Summarize
         summary = summarize_transcription(full_transcription_text)
 
-        # Classify themes + extract stocks + extract investment thesis (parallel enrichment after summary)
+        # Classify themes + extract stocks + extract investment thesis + sentiment (enrichment after summary)
         themes = classify_themes(summary)
         mentioned_stocks, stock_sentiments = extract_stocks(summary)
         investment_thesis = extract_investment_thesis(summary)
+        market_sentiment = extract_sentiment_score(summary)
 
         # Index in ES
-        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis)
+        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis, market_sentiment=market_sentiment)
         embeddings = index_chunks(file_name, "Gooaye", episode, date, summary)
 
         # Save to notes/gooaye/ (with embeddings cached)
-        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis)
+        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis, market_sentiment=market_sentiment)
 
         break  # Process only the first file for testing
 
@@ -439,6 +487,11 @@ def reindex_from_notes():
         if "investment_thesis" not in data and note_text:
             print(f"  Extracting investment thesis for {full_title}...")
             data["investment_thesis"] = extract_investment_thesis(note_text)
+
+        # Backfill market_sentiment if missing
+        if "market_sentiment" not in data and note_text:
+            print(f"  Extracting market sentiment for {full_title}...")
+            data["market_sentiment"] = extract_sentiment_score(note_text)
 
         # Upsert into podcast index (always overwrite to pick up new fields like themes)
         doc = {k: v for k, v in data.items() if k != "embeddings"}

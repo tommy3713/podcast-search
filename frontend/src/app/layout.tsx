@@ -3,7 +3,7 @@ import { Inter } from 'next/font/google';
 import { Providers } from './providers';
 import './globals.css';
 import Link from 'next/link';
-import { List, MessageCircle, Search, Bot, TrendingUp, BarChart2 } from 'lucide-react';
+import { List, MessageCircle, Search, Bot, TrendingUp, BarChart2, Activity } from 'lucide-react';
 import LoginButton from '@/components/LoginButton';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -69,6 +69,12 @@ export default function RootLayout({
                   >
                     📊 Stocks
                   </Link>
+                  <Link
+                    href="/sentiment"
+                    className="px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 hover:text-blue-700 transition"
+                  >
+                    🎭 Sentiment
+                  </Link>
                 </div>
                 <LoginButton />
               </nav>
@@ -126,6 +132,13 @@ export default function RootLayout({
               >
                 <BarChart2 size={22} />
                 <span className="text-xs mt-1">Stocks</span>
+              </Link>
+              <Link
+                href="/sentiment"
+                className="flex flex-col items-center justify-center min-h-[44px] px-3 text-gray-700 hover:text-blue-500"
+              >
+                <Activity size={22} />
+                <span className="text-xs mt-1">情緒</span>
               </Link>
             </nav>
             <footer className="bg-gray-100 text-center py-2 pb-16 sm:pb-2">

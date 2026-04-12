@@ -10,6 +10,7 @@ import askReducer from '@/features/askSlice';
 import chatReducer from '@/features/chatSlice';
 import themesReducer from '@/features/themesSlice';
 import stocksReducer from '@/features/stocksSlice';
+import sentimentReducer from '@/features/sentimentSlice';
 import {
   FLUSH,
   REHYDRATE,
@@ -29,6 +30,7 @@ const rootReducer = combineReducers({
   chat: chatReducer,
   themes: themesReducer,
   stocks: stocksReducer,
+  sentiment: sentimentReducer,
 });
 
 // Redux Persist configuration

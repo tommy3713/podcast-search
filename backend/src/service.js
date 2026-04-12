@@ -381,6 +381,31 @@ export const getStockDetail = async (ticker) => {
   return { ticker: upperTicker, episodes, sentimentCounts };
 };
 
+export const getSentimentTimeline = async () => {
+  const result = await client.search({
+    index: INDEX,
+    body: {
+      size: 200,
+      sort: [{ uploadDate: { order: 'asc' } }],
+      _source: ['episode', 'fullTitle', 'title', 'uploadDate', 'market_sentiment'],
+      query: { exists: { field: 'market_sentiment' } },
+    },
+  });
+
+  return result.hits.hits.map((h) => {
+    const src = h._source;
+    return {
+      episode: src.episode,
+      fullTitle: src.fullTitle,
+      title: src.title,
+      uploadDate: src.uploadDate,
+      score: src.market_sentiment?.score ?? 0,
+      label: src.market_sentiment?.label ?? '謹慎',
+      reason: src.market_sentiment?.reason ?? '',
+    };
+  });
+};
+
 export const getPodcasts = async (page = 1, limit = 10) => {
   const result = await client.search({
     index: INDEX,
