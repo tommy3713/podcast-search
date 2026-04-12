@@ -294,6 +294,65 @@ export const getThemesTimeline = async () => {
   return { timeline, episodes };
 };
 
+export const getStocksList = async () => {
+  // Aggregate mention counts per ticker
+  const aggResult = await client.search({
+    index: INDEX,
+    body: {
+      size: 0,
+      aggs: {
+        tickers: {
+          terms: { field: 'mentioned_stocks', size: 500 },
+          aggs: {
+            first_date: { min: { field: 'uploadDate' } },
+            last_date: { max: { field: 'uploadDate' } },
+          },
+        },
+      },
+    },
+  });
+
+  return aggResult.aggregations.tickers.buckets.map((b) => ({
+    ticker: b.key,
+    count: b.doc_count,
+    firstDate: b.first_date.value_as_string ?? b.first_date.value,
+    lastDate: b.last_date.value_as_string ?? b.last_date.value,
+  }));
+};
+
+export const getStockDetail = async (ticker) => {
+  const upperTicker = ticker.toUpperCase();
+  const result = await client.search({
+    index: INDEX,
+    body: {
+      size: 200,
+      sort: [{ uploadDate: { order: 'desc' } }],
+      _source: ['episode', 'fullTitle', 'title', 'uploadDate', 'stock_sentiments'],
+      query: { term: { mentioned_stocks: upperTicker } },
+    },
+  });
+
+  const episodes = result.hits.hits.map((h) => {
+    const src = h._source;
+    const match = (src.stock_sentiments || []).find(
+      (s) => s.ticker === upperTicker
+    );
+    return {
+      episode: src.episode,
+      fullTitle: src.fullTitle,
+      title: src.title,
+      uploadDate: src.uploadDate,
+      sentiment: match?.sentiment ?? 'neutral',
+    };
+  });
+
+  // Tally sentiment counts
+  const sentimentCounts = { bullish: 0, bearish: 0, neutral: 0 };
+  for (const ep of episodes) sentimentCounts[ep.sentiment]++;
+
+  return { ticker: upperTicker, episodes, sentimentCounts };
+};
+
 export const getPodcasts = async (page = 1, limit = 10) => {
   const result = await client.search({
     index: INDEX,

@@ -9,6 +9,8 @@ import {
   askWithContext,
   chatWithContext,
   getThemesTimeline,
+  getStocksList,
+  getStockDetail,
 } from './service.js';
 import verifyGoogleToken from './middleware/verifyGoogleToken.js';
 
@@ -186,6 +188,26 @@ app.post('/api/chat', verifyGoogleToken, chatRateLimiter, async (req, res) => {
 app.get('/api/themes/timeline', async (req, res) => {
   try {
     const result = await getThemesTimeline();
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/stocks', async (req, res) => {
+  try {
+    const result = await getStocksList();
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/stocks/:ticker', async (req, res) => {
+  try {
+    const result = await getStockDetail(req.params.ticker);
     res.json(result);
   } catch (error) {
     console.error(error);

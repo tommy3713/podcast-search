@@ -9,6 +9,7 @@ import podcastListSliceReducer from '@/features/podcastListSlice';
 import askReducer from '@/features/askSlice';
 import chatReducer from '@/features/chatSlice';
 import themesReducer from '@/features/themesSlice';
+import stocksReducer from '@/features/stocksSlice';
 import {
   FLUSH,
   REHYDRATE,
@@ -27,6 +28,7 @@ const rootReducer = combineReducers({
   ask: askReducer,
   chat: chatReducer,
   themes: themesReducer,
+  stocks: stocksReducer,
 });
 
 // Redux Persist configuration

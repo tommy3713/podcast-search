@@ -132,7 +132,7 @@ def summarize_transcription(transcription_text):
 
 
 # Function: Save final result to notes/gooaye/ in the project's standard JSON format
-def save_to_notes(file_name, podcaster, title, episode, upload_date, content, note, embeddings=None, themes=None):
+def save_to_notes(file_name, podcaster, title, episode, upload_date, content, note, embeddings=None, themes=None, mentioned_stocks=None, stock_sentiments=None):
     os.makedirs(NOTES_DIR, exist_ok=True)
     note_name = os.path.splitext(file_name)[0]  # strip .mp3
     note_path = os.path.join(NOTES_DIR, f"{note_name}.json")
@@ -149,6 +149,10 @@ def save_to_notes(file_name, podcaster, title, episode, upload_date, content, no
         data["embeddings"] = embeddings
     if themes is not None:
         data["themes"] = themes
+    if mentioned_stocks is not None:
+        data["mentioned_stocks"] = mentioned_stocks
+    if stock_sentiments is not None:
+        data["stock_sentiments"] = stock_sentiments
     with open(note_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
     print(f"Saved note to {note_path}")
@@ -175,6 +179,42 @@ def classify_themes(note_text):
             print(f"  Theme classification attempt {attempt}/3 failed: {e}")
             if attempt == 3:
                 return []
+
+
+def extract_stocks(note_text):
+    """Extract mentioned stocks with sentiment from episode note via GPT-4o-mini.
+    Returns (tickers: list[str], sentiments: list[dict]).
+    """
+    for attempt in range(1, 4):
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": (
+                        "你是財經助手，從 podcast 摘要中抽出所有被明確提及的股票。"
+                        "情緒限定：bullish（看多）、bearish（看空）、neutral（中性/僅提及）。"
+                        "台股用數字代號（如 2330、0050），美股用英文代號（如 NVDA、AAPL）。"
+                        "若無股票提及，回傳空陣列。"
+                    )},
+                    {"role": "user", "content": (
+                        f"摘要內容：\n{note_text[:4000]}\n\n"
+                        "輸出 JSON 格式：{\"stocks\": [{\"ticker\": \"NVDA\", \"sentiment\": \"bullish\"}]}"
+                    )},
+                ]
+            )
+            result = json.loads(response.choices[0].message.content)
+            stocks = result.get("stocks", [])
+            # Validate shape
+            valid = [s for s in stocks if isinstance(s.get("ticker"), str) and s.get("sentiment") in ("bullish", "bearish", "neutral")]
+            tickers = [s["ticker"].upper() for s in valid]
+            sentiments = [{"ticker": s["ticker"].upper(), "sentiment": s["sentiment"]} for s in valid]
+            print(f"  Stocks: {tickers}")
+            return tickers, sentiments
+        except Exception as e:
+            print(f"  Stock extraction attempt {attempt}/3 failed: {e}")
+            if attempt == 3:
+                return [], []
 
 
 MAX_CHUNK_CHARS = 1500  # hard cap — well under 8192 tokens for Chinese text
@@ -241,7 +281,7 @@ def index_chunks(file_name, podcaster, episode, upload_date, text):
 
 
 # Function: Index transcription in Elasticsearch
-def index_transcription(file_name, podcaster, title, episode, full_transcription_text, uploadDate, note=None, themes=None):
+def index_transcription(file_name, podcaster, title, episode, full_transcription_text, uploadDate, note=None, themes=None, mentioned_stocks=None, stock_sentiments=None):
     document = {
         'podcaster': podcaster,
         'title': title,
@@ -254,6 +294,10 @@ def index_transcription(file_name, podcaster, title, episode, full_transcription
         document['note'] = note
     if themes:
         document['themes'] = themes
+    if mentioned_stocks:
+        document['mentioned_stocks'] = mentioned_stocks
+    if stock_sentiments:
+        document['stock_sentiments'] = stock_sentiments
     response = elastic_client.index(index=INDEX_NAME, document=document)
     print(f"Document indexed in Elasticsearch: {response}")
 
@@ -296,15 +340,16 @@ def test_process():
         # Summarize
         summary = summarize_transcription(full_transcription_text)
 
-        # Classify themes
+        # Classify themes + extract stocks (parallel enrichment after summary)
         themes = classify_themes(summary)
+        mentioned_stocks, stock_sentiments = extract_stocks(summary)
 
         # Index in ES
-        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary, themes=themes)
+        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments)
         embeddings = index_chunks(file_name, "Gooaye", episode, date, summary)
 
         # Save to notes/gooaye/ (with embeddings cached)
-        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings, themes=themes)
+        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments)
 
         break  # Process only the first file for testing
 
@@ -334,6 +379,11 @@ def reindex_from_notes():
         if "themes" not in data and note_text:
             print(f"  Classifying themes for {full_title}...")
             data["themes"] = classify_themes(note_text)
+
+        # Backfill stocks if missing
+        if "mentioned_stocks" not in data and note_text:
+            print(f"  Extracting stocks for {full_title}...")
+            data["mentioned_stocks"], data["stock_sentiments"] = extract_stocks(note_text)
 
         # Upsert into podcast index (always overwrite to pick up new fields like themes)
         doc = {k: v for k, v in data.items() if k != "embeddings"}
