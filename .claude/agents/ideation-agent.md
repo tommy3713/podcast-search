@@ -1,7 +1,7 @@
 ---
 name: ideation-agent
 description: Use this agent when you want to analyze the Gooaye codebase and generate improvement proposals, or when asked to think about what features or fixes to work on next. This agent reads the code, identifies gaps, and writes structured proposals to the Notion backlog. Invoke with phrases like "analyze the app and suggest improvements", "what should we work on next", or "add new ideas to the backlog".
-model: claude-sonnet-4-5
+model: claude-sonnet-4-6
 tools:
   - Read
   - Grep
