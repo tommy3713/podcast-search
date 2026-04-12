@@ -1,9 +1,9 @@
 import os
 import sys
-import math
 import re
 import subprocess
 import textwrap
+import mlx_whisper
 from openai import OpenAI
 import json
 from elasticsearch import Elasticsearch
@@ -22,10 +22,8 @@ INDEX_NAME = "podcast"
 # Directories
 PODCAST_DIR = "../podcasts/gooaye"
 NOTES_DIR = "../notes/gooaye"
-TEMP_DIR = "./data/temp"
 CONFIG_FILE = "./config.json"
 
-MAX_WHISPER_BYTES = 24 * 1024 * 1024  # 24MB — Whisper limit
 CHUNK_TARGET = 600  # target chars per text chunk
 
 # Initialize OpenAI Client
@@ -47,63 +45,20 @@ def download_podcasts():
     print("Podcasts downloaded.")
 
 
-# Function: Split audio only when file exceeds Whisper's 25MB limit.
-# Uses ffmpeg directly to copy the stream without re-encoding, preserving audio quality.
-def split_audio_if_needed(file_path, output_dir):
-    file_size = os.path.getsize(file_path)
-    if file_size <= MAX_WHISPER_BYTES:
-        return [file_path]
-
-    num_parts = math.ceil(file_size / MAX_WHISPER_BYTES)
-    print(f"File is {file_size / 1024 / 1024:.1f}MB, splitting into {num_parts} parts...")
-
-    # Get total duration in seconds via ffprobe
-    result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", file_path],
-        capture_output=True, text=True, check=True
-    )
-    total_duration = float(result.stdout.strip())
-    part_duration = total_duration / num_parts
-
-    os.makedirs(output_dir, exist_ok=True)
-    parts = []
-    for i in range(num_parts):
-        start = i * part_duration
-        part_path = os.path.join(output_dir, f"part_{i + 1}.mp3")
-        subprocess.run(
-            ["ffmpeg", "-y", "-ss", str(start), "-t", str(part_duration),
-             "-i", file_path, "-ar", "16000", "-ac", "1", "-b:a", "64k", part_path],
-            check=True, capture_output=True
-        )
-        parts.append(part_path)
-        print(f"  Created {os.path.basename(part_path)} ({os.path.getsize(part_path) / 1024 / 1024:.1f}MB)")
-
-    return parts
-
-
 # Proper nouns hint for Whisper — add any terms that get consistently misheard
 WHISPER_PROMPT = "股癌，謝孟恭，Gooaye，台股，美股，Fed，聯準會，ETF，殖利率，通膨，升息，降息，半導體，台積電，輝達，NVIDIA，蘋果，Google，Meta，特斯拉，股海"
 
-# Function: Transcribe audio using OpenAI Whisper
+# Function: Transcribe audio using mlx-whisper (local, Apple Silicon)
 def transcribe_audio(file_path):
     print(f"Transcribing {os.path.basename(file_path)}...")
-    for attempt in range(1, 4):
-        try:
-            with open(file_path, "rb") as audio_file:
-                transcription = openai_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    response_format="verbose_json",
-                    language="zh",
-                    prompt=WHISPER_PROMPT,
-                )
-            print("Transcription completed.")
-            return transcription
-        except Exception as e:
-            print(f"  Transcription attempt {attempt}/3 failed: {e}")
-            if attempt == 3:
-                raise RuntimeError(f"Transcription failed after 3 attempts: {e}")
+    result = mlx_whisper.transcribe(
+        file_path,
+        path_or_hq_model="mlx-community/whisper-large-v3-turbo",
+        language="zh",
+        initial_prompt=WHISPER_PROMPT,
+    )
+    print("Transcription completed.")
+    return result["text"]
 
 
 MAX_TRANSCRIPTION_CHARS = 120000  # ~60k tokens for Chinese text, safely under gpt-4o-mini's 128k limit
@@ -257,28 +212,6 @@ def is_already_processed(file_name):
     return os.path.exists(os.path.join(NOTES_DIR, f"{note_name}.json"))
 
 
-# Function: Check if episode is already indexed in ES (used in production mode)
-def is_in_elasticsearch(file_name):
-    result = elastic_client.search(index=INDEX_NAME, query={
-        "term": {"fullTitle": file_name}
-    })
-    return result["hits"]["total"]["value"] > 0
-
-
-# Function: Clean up split temp parts only (keep original MP3s in podcasts/)
-def clean_data_folder():
-    print("Cleaning up temp files...")
-    if os.path.exists(TEMP_DIR):
-        for file_name in os.listdir(TEMP_DIR):
-            file_path = os.path.join(TEMP_DIR, file_name)
-            try:
-                if os.path.isfile(file_path):
-                    os.unlink(file_path)
-                    print(f"Deleted: {file_path}")
-            except Exception as e:
-                print(f"Failed to delete {file_path}: {e}")
-    print("Cleanup completed.")
-
 
 def parse_filename(file_name):
     pattern = r"\[(\d{8})\]\s*EP(\d+)\s*(.*?)\.mp3$"
@@ -298,7 +231,6 @@ def test_process():
         print(f"Found podcast file: {file_name}")
         if is_already_processed(file_name):
             print(f"Already in database: {file_name}")
-            clean_data_folder()
             return
 
         date, episode, title = parse_filename(file_name)
@@ -306,12 +238,8 @@ def test_process():
 
         file_path = os.path.join(PODCAST_DIR, file_name)
 
-        # Transcribe (split only if needed)
-        parts = split_audio_if_needed(file_path, TEMP_DIR)
-        full_transcription_text = ""
-        for part in parts:
-            transcription = transcribe_audio(part)
-            full_transcription_text += transcription.text + " "
+        # Transcribe locally with mlx-whisper
+        full_transcription_text = transcribe_audio(file_path)
 
         # Summarize
         summary = summarize_transcription(full_transcription_text)
@@ -323,7 +251,6 @@ def test_process():
         # Save to notes/gooaye/ (with embeddings cached)
         save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings)
 
-        clean_data_folder()
         break  # Process only the first file for testing
 
 
@@ -376,7 +303,7 @@ def reindex_from_notes():
 # Main process based on argument
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python main.py <local|reindex>")
+        print("Usage: python main.py <local|test|reindex>")
         sys.exit(1)
 
     mode = sys.argv[1].lower()

@@ -1,4 +1,4 @@
-pydub==0.25.1
+mlx-whisper
 openai>=1.52.0
 elasticsearch==8.16.0
 python-dotenv==1.0.1
