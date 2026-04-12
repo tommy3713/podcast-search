@@ -59,6 +59,52 @@ export default function EpisodeSummaryPage() {
           </p>
         </div>
 
+        {/* Investment Thesis */}
+        {result?.investment_thesis && (
+          (result.investment_thesis.bullish.length > 0 ||
+            result.investment_thesis.bearish.length > 0 ||
+            result.investment_thesis.macro_view) && (
+            <div className="mb-6">
+              <h2 className="text-base font-bold text-gray-900 mb-3">投資觀點</h2>
+
+              {result.investment_thesis.macro_view ? (
+                <div className="mb-3 rounded-lg bg-gray-50 px-4 py-3">
+                  <p className="text-xs font-semibold text-gray-500 mb-1">總體觀點</p>
+                  <p className="text-sm text-gray-700 leading-relaxed">{result.investment_thesis.macro_view}</p>
+                </div>
+              ) : null}
+
+              {result.investment_thesis.bullish.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs font-semibold text-green-600 mb-2">看多</p>
+                  <div className="space-y-2">
+                    {result.investment_thesis.bullish.map((item, i) => (
+                      <div key={i} className="rounded-lg border border-green-200 bg-green-50 px-4 py-2">
+                        <span className="text-sm font-semibold text-green-700">{item.stock}</span>
+                        <p className="text-sm text-green-800 leading-relaxed mt-0.5">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {result.investment_thesis.bearish.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs font-semibold text-red-500 mb-2">看空</p>
+                  <div className="space-y-2">
+                    {result.investment_thesis.bearish.map((item, i) => (
+                      <div key={i} className="rounded-lg border border-red-200 bg-red-50 px-4 py-2">
+                        <span className="text-sm font-semibold text-red-600">{item.stock}</span>
+                        <p className="text-sm text-red-700 leading-relaxed mt-0.5">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        )}
+
         {/* Summary */}
         {result?.note ? (
           <ReactMarkdown

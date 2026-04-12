@@ -2,6 +2,17 @@ import { RootState } from '@/app/store';
 import { fetchWithAuth } from '@/utils/fetchWithAuth';
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
+interface InvestmentThesisItem {
+  stock: string;
+  reason: string;
+}
+
+interface InvestmentThesis {
+  bullish: InvestmentThesisItem[];
+  bearish: InvestmentThesisItem[];
+  macro_view: string;
+}
+
 interface SummaryResult {
   _id: string;
   title: string;
@@ -10,6 +21,7 @@ interface SummaryResult {
   fullTitle: string;
   podcaster: string;
   note: string;
+  investment_thesis?: InvestmentThesis;
 }
 
 interface Chunk {
