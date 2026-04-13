@@ -174,6 +174,41 @@ def extract_sentiment_score(note_text):
                 return empty
 
 
+def extract_glossary_terms(note_text):
+    """Extract investment terminology and frameworks from episode note via GPT-4o-mini.
+    Returns list of {term, quote} dicts.
+    """
+    for attempt in range(1, 4):
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": "你是財經教育助手，從 podcast 摘要中抽出主持人使用的專業投資術語或特有框架，每個術語附上原文引用。"},
+                    {"role": "user", "content": (
+                        f"摘要內容：\n{note_text[:4000]}\n\n"
+                        "請抽出 3-8 個專業投資術語或特有框架，輸出 JSON 格式：\n"
+                        "{\"terms\": [{\"term\": \"EPS 修正\", \"quote\": \"主持人說的原話...\"}]}\n"
+                        "term：投資概念或術語（2-10 字，繁體中文或英文代號）\n"
+                        "quote：摘要中使用此術語的原文片段（最多 60 字）\n"
+                        "若無專業術語，回傳 {\"terms\": []}。"
+                    )},
+                ]
+            )
+            result = json.loads(response.choices[0].message.content)
+            terms = [
+                {"term": str(t["term"]), "quote": str(t["quote"])}
+                for t in result.get("terms", [])
+                if isinstance(t.get("term"), str) and isinstance(t.get("quote"), str) and t["term"].strip()
+            ]
+            print(f"  Glossary terms: {[t['term'] for t in terms]}")
+            return terms
+        except Exception as e:
+            print(f"  Glossary extraction attempt {attempt}/3 failed: {e}")
+            if attempt == 3:
+                return []
+
+
 def extract_investment_thesis(note_text):
     """Extract structured investment thesis from episode note via GPT-4o-mini.
     Returns dict with bullish, bearish (lists of {stock, reason}) and macro_view (str).
@@ -220,7 +255,7 @@ def extract_investment_thesis(note_text):
 
 
 # Function: Save final result to notes/gooaye/ in the project's standard JSON format
-def save_to_notes(file_name, podcaster, title, episode, upload_date, content, note, embeddings=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None, market_sentiment=None):
+def save_to_notes(file_name, podcaster, title, episode, upload_date, content, note, embeddings=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None, market_sentiment=None, glossary_terms=None):
     os.makedirs(NOTES_DIR, exist_ok=True)
     note_name = os.path.splitext(file_name)[0]  # strip .mp3
     note_path = os.path.join(NOTES_DIR, f"{note_name}.json")
@@ -245,6 +280,8 @@ def save_to_notes(file_name, podcaster, title, episode, upload_date, content, no
         data["investment_thesis"] = investment_thesis
     if market_sentiment is not None:
         data["market_sentiment"] = market_sentiment
+    if glossary_terms is not None:
+        data["glossary_terms"] = glossary_terms
     with open(note_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
     print(f"Saved note to {note_path}")
@@ -373,7 +410,7 @@ def index_chunks(file_name, podcaster, episode, upload_date, text):
 
 
 # Function: Index transcription in Elasticsearch
-def index_transcription(file_name, podcaster, title, episode, full_transcription_text, uploadDate, note=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None, market_sentiment=None):
+def index_transcription(file_name, podcaster, title, episode, full_transcription_text, uploadDate, note=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None, market_sentiment=None, glossary_terms=None):
     document = {
         'podcaster': podcaster,
         'title': title,
@@ -394,6 +431,8 @@ def index_transcription(file_name, podcaster, title, episode, full_transcription
         document['investment_thesis'] = investment_thesis
     if market_sentiment is not None:
         document['market_sentiment'] = market_sentiment
+    if glossary_terms is not None:
+        document['glossary_terms'] = glossary_terms
     response = elastic_client.index(index=INDEX_NAME, document=document)
     print(f"Document indexed in Elasticsearch: {response}")
 
@@ -441,13 +480,14 @@ def test_process():
         mentioned_stocks, stock_sentiments = extract_stocks(summary)
         investment_thesis = extract_investment_thesis(summary)
         market_sentiment = extract_sentiment_score(summary)
+        glossary_terms = extract_glossary_terms(summary)
 
         # Index in ES
-        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis, market_sentiment=market_sentiment)
+        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis, market_sentiment=market_sentiment, glossary_terms=glossary_terms)
         embeddings = index_chunks(file_name, "Gooaye", episode, date, summary)
 
         # Save to notes/gooaye/ (with embeddings cached)
-        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis, market_sentiment=market_sentiment)
+        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis, market_sentiment=market_sentiment, glossary_terms=glossary_terms)
 
         break  # Process only the first file for testing
 
@@ -492,6 +532,11 @@ def reindex_from_notes():
         if "market_sentiment" not in data and note_text:
             print(f"  Extracting market sentiment for {full_title}...")
             data["market_sentiment"] = extract_sentiment_score(note_text)
+
+        # Backfill glossary_terms if missing
+        if "glossary_terms" not in data and note_text:
+            print(f"  Extracting glossary terms for {full_title}...")
+            data["glossary_terms"] = extract_glossary_terms(note_text)
 
         # Upsert into podcast index (always overwrite to pick up new fields like themes)
         doc = {k: v for k, v in data.items() if k != "embeddings"}

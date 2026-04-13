@@ -13,6 +13,7 @@ import {
   getStockDetail,
   getStockDrift,
   getSentimentTimeline,
+  getGlossary,
 } from './service.js';
 import verifyGoogleToken from './middleware/verifyGoogleToken.js';
 
@@ -230,6 +231,16 @@ app.get('/api/stocks/:ticker/drift', async (req, res) => {
 app.get('/api/stocks/:ticker', async (req, res) => {
   try {
     const result = await getStockDetail(req.params.ticker);
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/glossary', async (req, res) => {
+  try {
+    const result = await getGlossary();
     res.json(result);
   } catch (error) {
     console.error(error);

@@ -11,6 +11,7 @@ import chatReducer from '@/features/chatSlice';
 import themesReducer from '@/features/themesSlice';
 import stocksReducer from '@/features/stocksSlice';
 import sentimentReducer from '@/features/sentimentSlice';
+import glossaryReducer from '@/features/glossarySlice';
 import {
   FLUSH,
   REHYDRATE,
@@ -31,6 +32,7 @@ const rootReducer = combineReducers({
   themes: themesReducer,
   stocks: stocksReducer,
   sentiment: sentimentReducer,
+  glossary: glossaryReducer,
 });
 
 // Redux Persist configuration

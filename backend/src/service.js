@@ -470,6 +470,48 @@ export const getStockDrift = async (ticker) => {
   return { timeline, driftAnalysis };
 };
 
+export const getGlossary = async () => {
+  const result = await client.search({
+    index: INDEX,
+    body: {
+      size: 200,
+      _source: ['episode', 'fullTitle', 'title', 'uploadDate', 'glossary_terms'],
+      query: { exists: { field: 'glossary_terms' } },
+    },
+  });
+
+  // Aggregate by term
+  const termMap = {};
+  for (const hit of result.hits.hits) {
+    const src = hit._source;
+    if (!src.glossary_terms || !Array.isArray(src.glossary_terms)) continue;
+    for (const entry of src.glossary_terms) {
+      if (!entry.term) continue;
+      if (!termMap[entry.term]) {
+        termMap[entry.term] = { term: entry.term, count: 0, occurrences: [] };
+      }
+      termMap[entry.term].count += 1;
+      termMap[entry.term].occurrences.push({
+        episode: src.episode,
+        fullTitle: src.fullTitle,
+        title: src.title,
+        uploadDate: src.uploadDate,
+        quote: entry.quote || '',
+      });
+    }
+  }
+
+  // Sort occurrences by uploadDate asc, then sort terms by count desc
+  return Object.values(termMap)
+    .map((t) => ({
+      ...t,
+      occurrences: t.occurrences.sort((a, b) =>
+        (a.uploadDate || '').localeCompare(b.uploadDate || '')
+      ),
+    }))
+    .sort((a, b) => b.count - a.count);
+};
+
 export const getPodcasts = async (page = 1, limit = 10) => {
   const result = await client.search({
     index: INDEX,

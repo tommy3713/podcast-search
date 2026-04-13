@@ -75,6 +75,12 @@ export default function RootLayout({
                   >
                     🎭 Sentiment
                   </Link>
+                  <Link
+                    href="/glossary"
+                    className="px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 hover:text-blue-700 transition"
+                  >
+                    📖 Glossary
+                  </Link>
                 </div>
                 <LoginButton />
               </nav>
