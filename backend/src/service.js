@@ -406,6 +406,70 @@ export const getSentimentTimeline = async () => {
   });
 };
 
+export const getStockDrift = async (ticker) => {
+  const upperTicker = ticker.toUpperCase();
+  const result = await client.search({
+    index: INDEX,
+    body: {
+      size: 200,
+      sort: [{ uploadDate: { order: 'asc' } }],
+      _source: ['episode', 'fullTitle', 'title', 'uploadDate', 'stock_sentiments', 'investment_thesis'],
+      query: { term: { 'mentioned_stocks.keyword': upperTicker } },
+    },
+  });
+
+  const timeline = result.hits.hits.map((h) => {
+    const src = h._source;
+    const sentimentMatch = (src.stock_sentiments || []).find(
+      (s) => s.ticker === upperTicker
+    );
+    const sentiment = sentimentMatch?.sentiment ?? 'neutral';
+
+    const thesis = src.investment_thesis ?? {};
+    const bullishEntries = thesis.bullish ?? [];
+    const bearishEntries = thesis.bearish ?? [];
+
+    const bullishMatch = bullishEntries.find(
+      (e) => e.stock && e.stock.toUpperCase() === upperTicker
+    );
+    const bearishMatch = bearishEntries.find(
+      (e) => e.stock && e.stock.toUpperCase() === upperTicker
+    );
+
+    const reason = bullishMatch?.reason ?? bearishMatch?.reason ?? '';
+
+    return {
+      episode: src.episode,
+      title: src.title,
+      uploadDate: src.uploadDate,
+      sentiment,
+      reason,
+    };
+  });
+
+  const episodesWithReasons = timeline.filter((e) => e.reason !== '');
+
+  let driftAnalysis = '';
+  if (episodesWithReasons.length >= 2) {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: '你是財經分析師，分析主持人對特定股票的觀點如何隨時間演變。',
+        },
+        {
+          role: 'user',
+          content: `以下是主持人在不同集數中對 ${upperTicker} 的看法時間線（JSON 格式）：\n\n${JSON.stringify(episodesWithReasons, null, 2)}\n\n請用繁體中文撰寫一段簡短分析（150-250字），指出觀點的轉折點：何時情緒改變、可能的原因。若沒有明顯轉變，請簡短說明。`,
+        },
+      ],
+    });
+    driftAnalysis = completion.choices[0]?.message?.content ?? '';
+  }
+
+  return { timeline, driftAnalysis };
+};
+
 export const getPodcasts = async (page = 1, limit = 10) => {
   const result = await client.search({
     index: INDEX,

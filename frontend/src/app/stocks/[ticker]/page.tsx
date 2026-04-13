@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useAppDispatch, useAppSelector } from '@/app/hook';
 import { fetchStockDetail } from '@/features/stocksSlice';
@@ -49,14 +49,45 @@ function SentimentBar({ counts }: { counts: { bullish: number; bearish: number; 
   );
 }
 
+interface DriftEntry {
+  episode: string;
+  title: string;
+  uploadDate: string;
+  sentiment: string;
+  reason: string;
+}
+
+interface DriftData {
+  timeline: DriftEntry[];
+  driftAnalysis: string;
+}
+
 export default function StockDetailPage() {
   const { ticker } = useParams<{ ticker: string }>();
   const dispatch = useAppDispatch();
   const { detail, detailStatus } = useAppSelector((s) => s.stocks);
 
+  const [driftData, setDriftData] = useState<DriftData | null>(null);
+  const [driftStatus, setDriftStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+
   useEffect(() => {
     if (ticker) dispatch(fetchStockDetail(decodeURIComponent(ticker)));
   }, [dispatch, ticker]);
+
+  const handleFetchDrift = async () => {
+    if (!ticker) return;
+    setDriftStatus('loading');
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+      const res = await fetch(`${backendUrl}/api/stocks/${encodeURIComponent(decodeURIComponent(ticker))}/drift`);
+      if (!res.ok) throw new Error('fetch failed');
+      const data: DriftData = await res.json();
+      setDriftData(data);
+      setDriftStatus('done');
+    } catch {
+      setDriftStatus('error');
+    }
+  };
 
   if (detailStatus === 'loading') {
     return (
@@ -85,6 +116,9 @@ export default function StockDetailPage() {
   const dates = detail.episodes.map((e) => e.uploadDate).filter(Boolean);
   const firstDate = dates.length ? formatDate([...dates].sort()[0]) : '—';
   const lastDate = dates.length ? formatDate([...dates].sort().reverse()[0]) : '—';
+
+  const driftTimelineRows = driftData?.timeline.filter((e) => e.reason !== '') ?? [];
+  const hasEnoughData = driftTimelineRows.length >= 2;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 pb-24 sm:pb-8">
@@ -140,6 +174,83 @@ export default function StockDetailPage() {
             </span>
           </Link>
         ))}
+      </div>
+
+      {/* Opinion Drift Section */}
+      <div className="mt-8">
+        {driftStatus === 'idle' && (
+          <button
+            onClick={handleFetchDrift}
+            className="w-full py-2.5 text-sm font-medium text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50 transition"
+          >
+            查看觀點演變分析
+          </button>
+        )}
+
+        {driftStatus === 'loading' && (
+          <div className="flex items-center justify-center py-6 gap-2 text-gray-400 text-sm">
+            <svg className="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            分析中...
+          </div>
+        )}
+
+        {driftStatus === 'error' && (
+          <div className="text-center py-4">
+            <p className="text-red-500 text-sm mb-2">載入失敗</p>
+            <button
+              onClick={handleFetchDrift}
+              className="text-xs text-blue-500 hover:underline"
+            >
+              重試
+            </button>
+          </div>
+        )}
+
+        {driftStatus === 'done' && driftData && (
+          <div>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">觀點演變</h2>
+
+            {!hasEnoughData ? (
+              <p className="text-sm text-gray-400 py-4 text-center">資料不足，無法分析觀點演變</p>
+            ) : (
+              <>
+                {/* Timeline list */}
+                <div className="space-y-2 mb-4">
+                  {driftTimelineRows.map((entry) => (
+                    <div
+                      key={entry.episode}
+                      className="flex items-start gap-3 bg-white border border-gray-200 rounded-lg px-4 py-3"
+                    >
+                      <div className="shrink-0 text-right">
+                        <p className="text-xs text-gray-400">{formatDate(entry.uploadDate)}</p>
+                        <p className="text-xs text-gray-500">EP{entry.episode}</p>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span
+                          className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium mb-1 ${SENTIMENT_COLOR[entry.sentiment] ?? 'bg-gray-100 text-gray-600'}`}
+                        >
+                          {SENTIMENT_LABEL[entry.sentiment] ?? entry.sentiment}
+                        </span>
+                        <p className="text-xs text-gray-500 leading-relaxed">{entry.reason}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* AI drift analysis */}
+                {driftData.driftAnalysis && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+                    <p className="text-xs font-semibold text-gray-500 mb-1">AI 分析</p>
+                    <p className="text-sm text-gray-600 leading-relaxed">{driftData.driftAnalysis}</p>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

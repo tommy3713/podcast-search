@@ -10,6 +10,7 @@ vi.mock('../../src/service.js', () => ({
   getThemesTimeline: vi.fn(),
   getStocksList: vi.fn(),
   getStockDetail: vi.fn(),
+  getStockDrift: vi.fn(),
 }));
 
 vi.mock('google-auth-library', () => ({
@@ -20,7 +21,7 @@ vi.mock('google-auth-library', () => ({
 
 import request from 'supertest';
 import app from '../../src/app.js';
-import { getStocksList, getStockDetail } from '../../src/service.js';
+import { getStocksList, getStockDetail, getStockDrift } from '../../src/service.js';
 
 describe('GET /api/stocks', () => {
   beforeEach(() => {
@@ -83,6 +84,50 @@ describe('GET /api/stocks/:ticker', () => {
     getStockDetail.mockRejectedValue(new Error('Elasticsearch down'));
 
     const res = await request(app).get('/api/stocks/NVDA');
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('Internal server error');
+  });
+});
+
+describe('GET /api/stocks/:ticker/drift', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns 200 with drift data', async () => {
+    const fakeDrift = {
+      timeline: [
+        {
+          episode: '400',
+          title: 'Test Episode 400',
+          uploadDate: '20230101',
+          sentiment: 'bullish',
+          reason: '業績強勁',
+        },
+        {
+          episode: '461',
+          title: 'Test Episode 461',
+          uploadDate: '20240612',
+          sentiment: 'bearish',
+          reason: '估值過高',
+        },
+      ],
+      driftAnalysis: '主持人對 NVDA 的看法從看多轉為看空...',
+    };
+    getStockDrift.mockResolvedValue(fakeDrift);
+
+    const res = await request(app).get('/api/stocks/NVDA/drift');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(fakeDrift);
+    expect(getStockDrift).toHaveBeenCalledWith('NVDA');
+  });
+
+  it('returns 500 when service throws', async () => {
+    getStockDrift.mockRejectedValue(new Error('OpenAI error'));
+
+    const res = await request(app).get('/api/stocks/NVDA/drift');
 
     expect(res.status).toBe(500);
     expect(res.body.error).toBe('Internal server error');

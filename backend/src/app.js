@@ -11,6 +11,7 @@ import {
   getThemesTimeline,
   getStocksList,
   getStockDetail,
+  getStockDrift,
   getSentimentTimeline,
 } from './service.js';
 import verifyGoogleToken from './middleware/verifyGoogleToken.js';
@@ -209,6 +210,16 @@ app.get('/api/sentiment/timeline', async (req, res) => {
 app.get('/api/stocks', async (req, res) => {
   try {
     const result = await getStocksList();
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/stocks/:ticker/drift', async (req, res) => {
+  try {
+    const result = await getStockDrift(req.params.ticker);
     res.json(result);
   } catch (error) {
     console.error(error);
