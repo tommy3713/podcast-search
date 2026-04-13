@@ -19,7 +19,7 @@ export default function StocksPage() {
   const [sort, setSort] = useState<SortKey>('count');
 
   useEffect(() => {
-    if (listStatus === 'idle' || listStatus === 'failed') {
+    if (listStatus === 'idle' || listStatus === 'failed' || (listStatus === 'succeeded' && list.length === 0)) {
       dispatch(fetchStocksList());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

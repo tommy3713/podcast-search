@@ -43,11 +43,11 @@ export default function ThemesPage() {
   const [selectedThemes, setSelectedThemes] = useState<Set<Theme>>(new Set());
 
   useEffect(() => {
-    if (status === 'idle' || status === 'failed') {
+    if (status === 'idle' || status === 'failed' || (status === 'succeeded' && episodes.length === 0)) {
       dispatch(fetchThemesTimeline());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch]); // run only on mount — status tracked separately
+  }, [dispatch]);
 
   // Build sorted months list filtered by time range
   const allMonths = useMemo(

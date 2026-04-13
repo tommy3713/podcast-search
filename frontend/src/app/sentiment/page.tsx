@@ -2,7 +2,10 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '@/app/hook';
-import { fetchSentimentTimeline, SentimentPoint } from '@/features/sentimentSlice';
+import {
+  fetchSentimentTimeline,
+  SentimentPoint,
+} from '@/features/sentimentSlice';
 import Link from 'next/link';
 import {
   ComposedChart,
@@ -81,9 +84,12 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
       <p className="font-semibold text-gray-800 mb-1">
         EP{point.episode} {point.title}
       </p>
-      <p className="text-xs text-gray-400 mb-1">{formatFullDate(point.uploadDate)}</p>
+      <p className="text-xs text-gray-400 mb-1">
+        {formatFullDate(point.uploadDate)}
+      </p>
       <p className="font-medium mb-1" style={{ color }}>
-        {point.label}（{point.score >= 0 ? '+' : ''}{point.score.toFixed(2)}）
+        {point.label}（{point.score >= 0 ? '+' : ''}
+        {point.score.toFixed(2)}）
       </p>
       {point.reason && (
         <p className="text-xs text-gray-600 leading-relaxed">{point.reason}</p>
@@ -99,7 +105,7 @@ export default function SentimentPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
 
   useEffect(() => {
-    if (status === 'idle' || status === 'failed') {
+    if (status === 'idle' || status === 'failed' || (status === 'succeeded' && timeline.length === 0)) {
       dispatch(fetchSentimentTimeline());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -117,12 +123,12 @@ export default function SentimentPage() {
         ...p,
         dateLabel: formatDate(p.uploadDate),
       })),
-    [filteredTimeline]
+    [filteredTimeline],
   );
 
   const sortedByScore = useMemo(
     () => [...filteredTimeline].sort((a, b) => b.score - a.score),
-    [filteredTimeline]
+    [filteredTimeline],
   );
 
   if (status === 'loading') {
@@ -193,26 +199,49 @@ export default function SentimentPage() {
       <div className="overflow-x-auto">
         <div style={{ minWidth: 600 }}>
           <ResponsiveContainer width="100%" height={360}>
-            <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: -16, bottom: 4 }}>
-              <XAxis
-                dataKey="dateLabel"
-                tick={{ fontSize: 11 }}
-              />
-              <YAxis
-                domain={[-1, 1]}
-                tick={{ fontSize: 11 }}
-                tickCount={5}
-              />
+            <ComposedChart
+              data={chartData}
+              margin={{ top: 8, right: 16, left: -16, bottom: 4 }}
+            >
+              <XAxis dataKey="dateLabel" tick={{ fontSize: 11 }} />
+              <YAxis domain={[-1, 1]} tick={{ fontSize: 11 }} tickCount={5} />
               <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="4 3" />
-              <ReferenceLine y={0.3} stroke="#16a34a" strokeDasharray="4 3" label={{ value: '樂觀', position: 'right', fontSize: 10, fill: '#16a34a' }} />
-              <ReferenceLine y={-0.3} stroke="#dc2626" strokeDasharray="4 3" label={{ value: '悲觀', position: 'right', fontSize: 10, fill: '#dc2626' }} />
+              <ReferenceLine
+                y={0.3}
+                stroke="#16a34a"
+                strokeDasharray="4 3"
+                label={{
+                  value: '樂觀',
+                  position: 'right',
+                  fontSize: 10,
+                  fill: '#16a34a',
+                }}
+              />
+              <ReferenceLine
+                y={-0.3}
+                stroke="#dc2626"
+                strokeDasharray="4 3"
+                label={{
+                  value: '悲觀',
+                  position: 'right',
+                  fontSize: 10,
+                  fill: '#dc2626',
+                }}
+              />
               <Tooltip content={<CustomTooltip />} />
               <Line
                 type="monotone"
                 dataKey="score"
                 stroke="#6366f1"
                 strokeWidth={2}
-                dot={(props) => <CustomDot key={props.index} cx={props.cx} cy={props.cy} payload={props.payload} />}
+                dot={(props) => (
+                  <CustomDot
+                    key={props.index}
+                    cx={props.cx}
+                    cy={props.cy}
+                    payload={props.payload}
+                  />
+                )}
                 activeDot={false}
               />
             </ComposedChart>
@@ -226,7 +255,9 @@ export default function SentimentPage() {
           集數情緒排行（由高至低）
         </h2>
         {sortedByScore.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center mt-4">沒有符合的資料</p>
+          <p className="text-gray-400 text-sm text-center mt-4">
+            沒有符合的資料
+          </p>
         ) : (
           <div className="space-y-2">
             {sortedByScore.map((ep) => {
@@ -250,7 +281,8 @@ export default function SentimentPage() {
                     className="shrink-0 text-sm font-bold w-12 text-right"
                     style={{ color }}
                   >
-                    {ep.score >= 0 ? '+' : ''}{ep.score.toFixed(2)}
+                    {ep.score >= 0 ? '+' : ''}
+                    {ep.score.toFixed(2)}
                   </span>
                   {/* Title */}
                   <div className="min-w-0 flex-1">
