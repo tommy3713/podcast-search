@@ -25,21 +25,28 @@ export const search = async (keyword) => {
         match: { content: keyword },
       },
       highlight: {
-        fields: { content: {} },
-        pre_tags: ['{{HIGHLIGHT}}'],
-        post_tags: ['{{/HIGHLIGHT}}'],
+        fields: {
+          content: { number_of_fragments: 2, fragment_size: 120, pre_tags: ['<em>'], post_tags: ['</em>'] },
+          note: { number_of_fragments: 1, fragment_size: 120, pre_tags: ['<em>'], post_tags: ['</em>'] },
+        },
       },
       _source: { excludes: ['content'] },
     },
   });
-  return result.hits.hits.map((hit) => ({
-    podcaster: hit._source.podcaster,
-    title: hit._source.title,
-    uploadDate: hit._source.uploadDate,
-    episode: hit._source.episode,
-    fullTitle: hit._source.fullTitle,
-    highlights: hit.highlight.content,
-  }));
+  return result.hits.hits.map((hit) => {
+    const contentFragments = hit.highlight?.content ?? [];
+    const noteFragments = hit.highlight?.note ?? [];
+    const combined = [...contentFragments, ...noteFragments];
+    const deduped = [...new Set(combined)].slice(0, 3);
+    return {
+      podcaster: hit._source.podcaster,
+      title: hit._source.title,
+      uploadDate: hit._source.uploadDate,
+      episode: hit._source.episode,
+      fullTitle: hit._source.fullTitle,
+      highlight: deduped,
+    };
+  });
 };
 
 export const getPodcastByPodcasterAndEpisode = async (podcaster, episode) => {
@@ -468,6 +475,89 @@ export const getStockDrift = async (ticker) => {
   }
 
   return { timeline, driftAnalysis };
+};
+
+export const askAboutStock = async (ticker, onSources, onChunk, onDone) => {
+  const upperTicker = ticker.toUpperCase().trim();
+
+  // Step 1: find episodes that mention this ticker
+  const episodeResult = await client.search({
+    index: INDEX,
+    body: {
+      size: 200,
+      _source: ['episode', 'title', 'fullTitle', 'podcaster', 'uploadDate'],
+      query: { term: { 'mentioned_stocks.keyword': upperTicker } },
+      sort: [{ uploadDate: { order: 'asc' } }],
+    },
+  });
+
+  const episodeHits = episodeResult.hits.hits;
+
+  if (episodeHits.length === 0) {
+    onSources([]);
+    onChunk(`找不到 ${upperTicker} 的相關討論紀錄。`);
+    onDone();
+    return;
+  }
+
+  const episodeNumbers = episodeHits.map((h) => h._source.episode);
+
+  // Build source list from episode hits (already sorted by date asc)
+  const sources = episodeHits.map((h) => ({
+    podcaster: h._source.podcaster,
+    episode: h._source.episode,
+    title: h._source.title,
+    fullTitle: h._source.fullTitle,
+  }));
+  onSources(sources);
+
+  // Step 2: embed the ticker as query to find most relevant chunks
+  const embeddingRes = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: `${upperTicker} 股票投資觀點`,
+  });
+  const embedding = embeddingRes.data[0].embedding;
+
+  // Step 3: kNN on podcast_chunks filtered to those episodes
+  const knnResult = await client.search({
+    index: CHUNKS_INDEX,
+    body: {
+      knn: {
+        field: 'embedding',
+        query_vector: embedding,
+        k: 10,
+        num_candidates: 100,
+        filter: { terms: { episode: episodeNumbers } },
+      },
+      _source: ['content', 'fullTitle', 'episode', 'title'],
+    },
+  });
+
+  const context = knnResult.hits.hits
+    .map((h) => `[${h._source.fullTitle}]\n${h._source.content}`)
+    .join('\n\n---\n\n');
+
+  const stream = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    stream: true,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '你是一個專業的財經 podcast 分析助手。根據提供的 podcast 內容片段，整理主持人對特定股票的觀點，以時間軸格式呈現（最早到最近），每筆標示集數，並說明當時看多/看空/中性的原因。用繁體中文回答。',
+      },
+      {
+        role: 'user',
+        content: `以下是主持人提到 ${upperTicker} 的 podcast 內容片段：\n\n${context}\n\n請整理主持人歷年對 ${upperTicker} 的看法，按時間順序（最早→最近），每筆標示集數和觀點方向及原因。`,
+      },
+    ],
+  });
+
+  for await (const chunk of stream) {
+    const content = chunk.choices[0]?.delta?.content;
+    if (content) onChunk(content);
+  }
+  onDone();
 };
 
 export const getGlossary = async () => {

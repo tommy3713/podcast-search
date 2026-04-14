@@ -11,6 +11,7 @@ vi.mock('../../src/service.js', () => ({
   getStocksList: vi.fn(),
   getStockDetail: vi.fn(),
   getStockDrift: vi.fn(),
+  askAboutStock: vi.fn(),
 }));
 
 vi.mock('google-auth-library', () => ({

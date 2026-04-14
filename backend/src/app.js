@@ -14,6 +14,7 @@ import {
   getStockDrift,
   getSentimentTimeline,
   getGlossary,
+  askAboutStock,
 } from './service.js';
 import verifyGoogleToken from './middleware/verifyGoogleToken.js';
 
@@ -130,6 +131,36 @@ app.post('/api/ask', verifyGoogleToken, askRateLimiter, async (req, res) => {
   try {
     await askWithContext(
       question,
+      (sources) => res.write(`data: ${JSON.stringify({ sources })}\n\n`),
+      (content) => res.write(`data: ${JSON.stringify({ content })}\n\n`),
+      () => {
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
+    );
+  } catch (error) {
+    console.error(error);
+    res.write(`data: ${JSON.stringify({ error: 'Failed to generate response' })}\n\n`);
+    res.end();
+  }
+});
+
+app.post('/api/stock/ask', verifyGoogleToken, askRateLimiter, async (req, res) => {
+  const { ticker } = req.body;
+  if (!ticker) {
+    return res.status(400).json({ error: 'ticker is required' });
+  }
+  if (ticker.length > 20) {
+    return res.status(400).json({ error: '股票代號長度不能超過 20 字元。' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    await askAboutStock(
+      ticker,
       (sources) => res.write(`data: ${JSON.stringify({ sources })}\n\n`),
       (content) => res.write(`data: ${JSON.stringify({ content })}\n\n`),
       () => {
