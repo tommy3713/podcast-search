@@ -44,7 +44,11 @@ def fetch_rss_episodes(url: str) -> list[dict]:
       {episode, title, pub_date, full_title}
     Only items whose title contains EPxxx are included.
     """
-    with urllib.request.urlopen(url, timeout=15) as resp:
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; podcast-rss-checker/1.0)"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
         tree = ET.parse(resp)
 
     items = []
