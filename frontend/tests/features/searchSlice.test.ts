@@ -39,7 +39,7 @@ describe('searchSlice', () => {
         uploadDate: '20231215',
         episode: 'EP001',
         fullTitle: 'TestPodcaster EP001',
-        highlights: ['found here'],
+        highlight: ['found here'],
       },
     ];
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({

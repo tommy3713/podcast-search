@@ -30,7 +30,7 @@ describe('GET /api/search', () => {
         uploadDate: '20231215',
         episode: 'EP001',
         fullTitle: 'TestPodcaster EP001',
-        highlights: ['...keyword found here...'],
+        highlight: ['...keyword found here...'],
       },
     ];
     search.mockResolvedValue(fakeResults);

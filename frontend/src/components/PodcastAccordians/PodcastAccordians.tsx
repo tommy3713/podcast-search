@@ -7,7 +7,7 @@ interface SearchResult {
   episode: string;
   podcaster: string;
   title: string;
-  highlights: string[];
+  highlight?: string[];
 }
 
 function SearchResultCard({ result }: { result: SearchResult }) {
@@ -23,28 +23,17 @@ function SearchResultCard({ result }: { result: SearchResult }) {
           {result.title}
         </p>
       </div>
-      <div className={`space-y-1 ${!expanded ? 'line-clamp-3 overflow-hidden' : ''}`}>
-        {result.highlights.map((highlight, index) => (
-          <p key={index} className="text-sm text-gray-600 leading-relaxed">
-            {highlight
-              .split(/({{HIGHLIGHT}}.*?{{\/HIGHLIGHT}})/g)
-              .map((part, i) => {
-                const match = part.match(/{{HIGHLIGHT}}(.*?){{\/HIGHLIGHT}}/);
-                if (match) {
-                  return (
-                    <mark
-                      key={i}
-                      className="bg-[#fbf3db] text-[#7a5800] rounded-sm px-0.5"
-                    >
-                      {match[1]}
-                    </mark>
-                  );
-                }
-                return <span key={i}>{part}</span>;
-              })}
-          </p>
-        ))}
-      </div>
+      {result.highlight && result.highlight.length > 0 && (
+        <div className={`space-y-1 ${!expanded ? 'line-clamp-3 overflow-hidden' : ''}`}>
+          {result.highlight.map((fragment, index) => (
+            <p
+              key={index}
+              className="text-sm text-gray-600 leading-relaxed [&_em]:font-medium [&_em]:text-gray-800 [&_em]:not-italic"
+              dangerouslySetInnerHTML={{ __html: fragment }}
+            />
+          ))}
+        </div>
+      )}
       <div className="flex items-center justify-between mt-2">
         <button
           onClick={() => setExpanded((v) => !v)}

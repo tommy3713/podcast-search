@@ -10,7 +10,7 @@ export interface Result {
   uploadDate: string;
   episode: string;
   fullTitle: string;
-  highlights: Array<string>;
+  highlight?: string[];
 }
 
 type SearchResults = Array<Result>;
