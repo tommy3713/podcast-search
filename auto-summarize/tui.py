@@ -12,6 +12,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+from check_new import run_diff
+
 # Ensure imports from main.py work when run from anywhere
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -321,6 +323,28 @@ def main() -> None:
 
     console.print(table)
 
+    # Top-level action choices
+    action_choices = [
+        questionary.Choice("選擇集數處理", value="episodes"),
+        questionary.Choice("RSS 同步 — 查看線上未處理集數", value="rss"),
+        questionary.Choice("── 離開 ──", value=None),
+    ]
+    top_action = questionary.select("\n操作：", choices=action_choices).ask()
+    if not top_action:
+        console.print("[dim]已離開。[/dim]")
+        return
+
+    if top_action == "rss":
+        console.print()
+        try:
+            run_diff(download=True)
+        except KeyboardInterrupt:
+            pass
+        console.print()
+        if questionary.confirm("返回主畫面？", default=True).ask():
+            main()
+        return
+
     # Build episode choices for questionary
     choices = []
     for mp3 in valid_mp3s:
@@ -336,11 +360,11 @@ def main() -> None:
         fmt_date = f"{date[:4]}-{date[4:6]}-{date[6:8]}" if date and len(date) == 8 else date
         label = f"EP{episode:>4}  {fmt_date}  {(title or '')[:38]:<38}  [{flags}]"
         choices.append(questionary.Choice(title=label, value=mp3))
-    choices.append(questionary.Choice(title="── 離開 ──", value=None))
+    choices.append(questionary.Choice(title="── 取消 ──", value=None))
 
     selected_mp3 = questionary.select("\n選擇集數：", choices=choices).ask()
     if not selected_mp3:
-        console.print("[dim]已離開。[/dim]")
+        console.print("[dim]已取消。[/dim]")
         return
 
     date, episode, title = parse_filename(selected_mp3)
