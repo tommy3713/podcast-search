@@ -44,18 +44,17 @@ Status values: "Not started" | "In progress" | "Done"
    - Frontend: `cd frontend && npm test`
    - Fix any failures before proceeding.
 6. **Update Notion**: Update the task Status to "Done" using notion MCP tool.
-7. **Hand off to reviewer**: Say exactly this, filling in the task details —
-   "Use the reviewer-agent to review the changes I just made.
-   Task: [task name from Notion]
-   Goal: [one sentence summary of what this task was supposed to do]
-   Files changed: [list the files you modified]"
+7. **Hand off to reviewer**: Invoke the reviewer-agent:
+   - Task: [task name from Notion]
+   - Goal: [one sentence of what this task was supposed to do]
+   - Files changed: [list the files you modified]
 
 ### Mode B — Fixing issues from reviewer
 
 1. Read the list of issues provided by the reviewer-agent carefully.
 2. Fix each issue one by one.
 3. Run tests again after all fixes.
-4. Say exactly this — "Use the reviewer-agent to review the changes I just made."
+4. Invoke the reviewer-agent: "Re-review after fixes. Files changed: [list]"
 
 ### Mode C — Committing code
 
@@ -65,7 +64,6 @@ Run the git command provided by the reviewer-agent exactly as given. Then report
 
 - Never break existing tests. If a test fails after your change, fix it.
 - Never hardcode ports, URLs, or credentials — use environment variables.
-- Never rename `src/utlis/` unless that is explicitly the task.
 - Keep changes minimal and focused — only touch what's needed for the task.
 - Write Traditional Chinese (繁體中文) in any user-facing strings that match the existing language.
 - For new API routes: follow the existing pattern in `src/app.js` and add a corresponding mock in tests.

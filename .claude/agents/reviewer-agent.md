@@ -1,6 +1,6 @@
 ---
 name: reviewer-agent
-description: 'Use this agent to review code changes after the developer-agent has finished implementing a task. This agent checks code quality, correctness, test coverage, and potential side effects. Invoke automatically after developer-agent completes, or manually with phrases like: review the changes, check the code, is the implementation correct.'
+description: 'Use this agent to review code changes after ANY implementation — whether done by the developer-agent or directly by Claude. This agent checks code quality, correctness, test coverage, and potential side effects. ALWAYS invoke automatically after any task implementation completes, without waiting to be asked. Trigger phrases: review the changes, check the code, is the implementation correct.'
 model: claude-sonnet-4-6
 tools:
   - Read
@@ -73,7 +73,13 @@ Stop and ask the user: describe the situation in 2-3 sentences, ask the specific
 All checks pass and no confirmation needed:
 
 - Summarise what was implemented in 3-5 bullet points
-- Invoke developer-agent: "Use the developer-agent to run: git add -A && git commit -m '[concise commit message describing the change]'"
+- Invoke developer-agent to commit: "Invoke the developer-agent to run: git add -A && git commit -m '...'"
+- After commit is confirmed, check if CLAUDE.md needs updating:
+  - New routes added? → Update the API Routes table
+  - New Redux slices? → Update the Redux State section
+  - New env variables? → Update the Environment Variables section
+  - Architecture changed? → Update the Overview section
+    If any apply, directly edit CLAUDE.md with the changes. No need to ask.
 
 ## Tone
 
