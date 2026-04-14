@@ -41,7 +41,7 @@ def parse_pub_date(pub_date_str: str) -> str:
 def fetch_rss_episodes(url: str) -> list[dict]:
     """
     Fetch RSS and return list of dicts:
-      {episode, title, pub_date, full_title}
+      {episode, title, pub_date, full_title, enclosure_url}
     Only items whose title contains EPxxx are included.
     """
     req = urllib.request.Request(
@@ -63,14 +63,59 @@ def fetch_rss_episodes(url: str) -> list[dict]:
         episode = m.group(1)
         full_title = f"[{pub_date}] {title}" if pub_date else title
 
+        enclosure = item.find("enclosure")
+        enclosure_url = enclosure.get("url", "") if enclosure is not None else ""
+
         items.append({
             "episode": episode,
             "title": title,
             "pub_date": pub_date,
             "full_title": full_title,
+            "enclosure_url": enclosure_url,
         })
 
     return items
+
+
+def sanitize_filename(name: str) -> str:
+    """Remove characters that are illegal in filenames."""
+    return re.sub(r'[/\\:*?"<>|]', "_", name)
+
+
+def download_episode(episode: dict, dest_dir: str) -> str:
+    """
+    Download a single episode MP3 to dest_dir.
+    Returns the local file path. Raises on failure.
+    """
+    url = episode.get("enclosure_url", "")
+    if not url:
+        raise ValueError(f"RSS 中找不到 EP{episode['episode']} 的音檔 URL")
+
+    filename = sanitize_filename(episode["full_title"]) + ".mp3"
+    dest_path = os.path.join(dest_dir, filename)
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; podcast-rss-checker/1.0)"},
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        total = int(resp.headers.get("Content-Length", 0))
+        downloaded = 0
+        chunk_size = 256 * 1024  # 256 KB
+        with open(dest_path, "wb") as f:
+            while True:
+                chunk = resp.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total:
+                    pct = downloaded / total * 100
+                    mb = downloaded / 1024 / 1024
+                    total_mb = total / 1024 / 1024
+                    print(f"\r  {pct:5.1f}%  {mb:.1f} / {total_mb:.1f} MB", end="", flush=True)
+    print()
+    return dest_path
 
 
 def get_local_episode_numbers() -> set[str]:

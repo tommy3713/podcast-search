@@ -26,7 +26,14 @@ def validate_mp3(mp3_path: str) -> None:
             f"建議刪除後重新下載：rm \"{mp3_path}\""
         )
 
-from check_new import run_diff
+from check_new import (
+    load_rss_url,
+    fetch_rss_episodes,
+    get_local_episode_numbers,
+    download_episode,
+    fmt_date as rss_fmt_date,
+    run_diff,
+)
 
 # Ensure imports from main.py work when run from anywhere
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -353,9 +360,84 @@ def main() -> None:
     if top_action == "rss":
         console.print()
         try:
-            run_diff(download=True)
+            with console.status("正在讀取 RSS feed..."):
+                rss_url = load_rss_url()
+                rss_episodes = fetch_rss_episodes(rss_url)
+            local_eps = get_local_episode_numbers()
+            unprocessed = [ep for ep in rss_episodes if ep["episode"] not in local_eps]
+            unprocessed.sort(key=lambda x: x["pub_date"])
+
+            console.print(
+                f"RSS 共 [cyan]{len(rss_episodes)}[/cyan] 集  |  "
+                f"本地已處理 [green]{len(local_eps)}[/green] 集  |  "
+                f"未處理 [yellow]{len(unprocessed)}[/yellow] 集\n"
+            )
+
+            if not unprocessed:
+                console.print("[green]✓ 所有集數已處理完畢！[/green]")
+            else:
+                # Show rich table of unprocessed episodes
+                rss_table = Table(show_header=True, header_style="bold magenta")
+                rss_table.add_column("集數", style="cyan", width=6)
+                rss_table.add_column("日期", width=12)
+                rss_table.add_column("標題", no_wrap=False, max_width=50)
+                for ep in unprocessed:
+                    rss_table.add_row(
+                        f"EP{ep['episode']}",
+                        rss_fmt_date(ep["pub_date"]),
+                        ep["title"],
+                    )
+                console.print(rss_table)
+
+                # Multi-select episodes to process
+                ep_choices = [
+                    questionary.Choice(
+                        title=f"EP{ep['episode']:<6} {rss_fmt_date(ep['pub_date']):<12} {ep['title'][:50]}",
+                        value=ep,
+                    )
+                    for ep in unprocessed
+                ]
+                selected_eps = questionary.checkbox(
+                    "\n選擇要處理的集數（空白鍵選取，Enter 確認）：",
+                    choices=ep_choices,
+                ).ask()
+
+                if selected_eps:
+                    console.print(f"\n已選取 [cyan]{len(selected_eps)}[/cyan] 集，開始處理...\n")
+                    for ep in selected_eps:
+                        mp3_name = ep["full_title"] + ".mp3"
+                        mp3_path = os.path.join(PODCAST_DIR, mp3_name)
+
+                        # Download if not present or too small
+                        needs_download = (
+                            not os.path.exists(mp3_path)
+                            or os.path.getsize(mp3_path) < MIN_MP3_BYTES
+                        )
+                        if needs_download:
+                            console.print(f"[bold]↓  下載 EP{ep['episode']} {ep['title']}...[/bold]")
+                            try:
+                                mp3_path = download_episode(ep, PODCAST_DIR)
+                                mp3_name = os.path.basename(mp3_path)
+                                console.print(f"[green]✓[/green] 下載完成")
+                            except Exception as e:
+                                console.print(f"[red]✗ 下載失敗：{e}[/red]")
+                                continue
+
+                        # Run full pipeline
+                        console.print(f"\n[bold]處理 EP{ep['episode']} {ep['title']}...[/bold]")
+                        try:
+                            run_full_pipeline(mp3_name)
+                        except Exception as e:
+                            console.print(f"[red bold]✗ 處理失敗：{e}[/red bold]")
+                            continue
+
+                    console.print("\n[green bold]全部完成！[/green bold]")
+
         except KeyboardInterrupt:
-            pass
+            console.print("\n[yellow]已中斷。[/yellow]")
+        except Exception as e:
+            console.print(f"\n[red]✗ 錯誤：{e}[/red]")
+
         console.print()
         if questionary.confirm("返回主畫面？", default=True).ask():
             main()
