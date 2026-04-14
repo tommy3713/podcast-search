@@ -321,203 +321,95 @@ def build_table(mp3_files: list) -> tuple:
 def main() -> None:
     console.clear()
     console.print(Panel(
-        "[bold cyan]🎙  Gooaye 音頻處理管線 TUI[/bold cyan]\n"
-        "[dim]D=Downloaded  T=Transcribed  S=Summarized  E=Embedded  I=Indexed[/dim]",
+        "[bold cyan]🎙  Gooaye 音頻處理管線 TUI[/bold cyan]",
         expand=False,
     ))
 
-    if not os.path.isdir(PODCAST_DIR):
-        console.print(f"[red]找不到 Podcast 目錄：{PODCAST_DIR}[/red]")
-        sys.exit(1)
-
-    mp3_files = sorted(
-        [f for f in os.listdir(PODCAST_DIR) if f.endswith(".mp3")],
-        reverse=True,  # newest first
-    )
-    if not mp3_files:
-        console.print("[yellow]找不到任何 MP3 檔案。[/yellow]")
-        sys.exit(0)
-
-    valid_mp3s = [f for f in mp3_files if parse_filename(f)[0]]
-
-    console.print(f"\n正在掃描 {len(valid_mp3s)} 個 MP3（ES 狀態檢查可能需要數秒）...\n")
-    with console.status("建立狀態表格..."):
-        table, statuses = build_table(valid_mp3s)
-
-    console.print(table)
-
-    # Top-level action choices
-    action_choices = [
-        questionary.Choice("選擇集數處理", value="episodes"),
-        questionary.Choice("RSS 同步 — 查看線上未處理集數", value="rss"),
-        questionary.Choice("── 離開 ──", value=None),
-    ]
-    top_action = questionary.select("\n操作：", choices=action_choices).ask()
-    if not top_action:
-        console.print("[dim]已離開。[/dim]")
-        return
-
-    if top_action == "rss":
-        console.print()
-        try:
-            with console.status("正在讀取 RSS feed..."):
-                rss_url = load_rss_url()
-                rss_episodes = fetch_rss_episodes(rss_url)
-            local_eps = get_local_episode_numbers()
-            unprocessed = [ep for ep in rss_episodes if ep["episode"] not in local_eps]
-            unprocessed.sort(key=lambda x: x["pub_date"])
-
-            console.print(
-                f"RSS 共 [cyan]{len(rss_episodes)}[/cyan] 集  |  "
-                f"本地已處理 [green]{len(local_eps)}[/green] 集  |  "
-                f"未處理 [yellow]{len(unprocessed)}[/yellow] 集\n"
-            )
-
-            if not unprocessed:
-                console.print("[green]✓ 所有集數已處理完畢！[/green]")
-            else:
-                # Show rich table of unprocessed episodes
-                rss_table = Table(show_header=True, header_style="bold magenta")
-                rss_table.add_column("集數", style="cyan", width=6)
-                rss_table.add_column("日期", width=12)
-                rss_table.add_column("標題", no_wrap=False, max_width=50)
-                for ep in unprocessed:
-                    rss_table.add_row(
-                        f"EP{ep['episode']}",
-                        rss_fmt_date(ep["pub_date"]),
-                        ep["title"],
-                    )
-                console.print(rss_table)
-
-                # Multi-select episodes to process
-                ep_choices = [
-                    questionary.Choice(
-                        title=f"EP{ep['episode']:<6} {rss_fmt_date(ep['pub_date']):<12} {ep['title'][:50]}",
-                        value=ep,
-                    )
-                    for ep in unprocessed
-                ]
-                selected_eps = questionary.checkbox(
-                    "\n選擇要處理的集數（空白鍵選取，Enter 確認）：",
-                    choices=ep_choices,
-                ).ask()
-
-                if selected_eps:
-                    console.print(f"\n已選取 [cyan]{len(selected_eps)}[/cyan] 集，開始處理...\n")
-                    for ep in selected_eps:
-                        mp3_name = ep["full_title"] + ".mp3"
-                        mp3_path = os.path.join(PODCAST_DIR, mp3_name)
-
-                        # Download if not present or too small
-                        needs_download = (
-                            not os.path.exists(mp3_path)
-                            or os.path.getsize(mp3_path) < MIN_MP3_BYTES
-                        )
-                        if needs_download:
-                            console.print(f"[bold]↓  下載 EP{ep['episode']} {ep['title']}...[/bold]")
-                            try:
-                                mp3_path = download_episode(ep, PODCAST_DIR)
-                                mp3_name = os.path.basename(mp3_path)
-                                console.print(f"[green]✓[/green] 下載完成")
-                            except Exception as e:
-                                console.print(f"[red]✗ 下載失敗：{e}[/red]")
-                                continue
-
-                        # Run full pipeline
-                        console.print(f"\n[bold]處理 EP{ep['episode']} {ep['title']}...[/bold]")
-                        try:
-                            run_full_pipeline(mp3_name)
-                        except Exception as e:
-                            console.print(f"[red bold]✗ 處理失敗：{e}[/red bold]")
-                            continue
-
-                    console.print("\n[green bold]全部完成！[/green bold]")
-
-        except KeyboardInterrupt:
-            console.print("\n[yellow]已中斷。[/yellow]")
-        except Exception as e:
-            console.print(f"\n[red]✗ 錯誤：{e}[/red]")
-
-        console.print()
-        if questionary.confirm("返回主畫面？", default=True).ask():
-            main()
-        return
-
-    # Build episode choices for questionary
-    choices = []
-    for mp3 in valid_mp3s:
-        date, episode, title = parse_filename(mp3)
-        st = statuses.get(mp3, {})
-        flags = "".join([
-            "D" if st.get("D") else "·",
-            "T" if st.get("T") else "·",
-            "S" if st.get("S") else "·",
-            "E" if st.get("E") else "·",
-            "I" if st.get("I") else "·",
-        ])
-        fmt_date = f"{date[:4]}-{date[4:6]}-{date[6:8]}" if date and len(date) == 8 else date
-        label = f"EP{episode:>4}  {fmt_date}  {(title or '')[:38]:<38}  [{flags}]"
-        choices.append(questionary.Choice(title=label, value=mp3))
-    choices.append(questionary.Choice(title="── 取消 ──", value=None))
-
-    selected_mp3 = questionary.select("\n選擇集數：", choices=choices).ask()
-    if not selected_mp3:
-        console.print("[dim]已取消。[/dim]")
-        return
-
-    date, episode, title = parse_filename(selected_mp3)
-    mp3_path = os.path.join(PODCAST_DIR, selected_mp3)
-
-    stage_choices = [
-        questionary.Choice("全流程（轉錄 → 摘要 → 建立 chunks）", value="full"),
-        questionary.Choice("僅轉錄 (Transcribe only)", value="transcribe"),
-        questionary.Choice("僅摘要 + 豐富化 (Summarize only)", value="summarize"),
-        questionary.Choice("僅重建 chunks + embeddings (Rebuild chunks only)", value="chunks"),
-        questionary.Choice("── 取消 ──", value=None),
-    ]
-
-    selected_stage = questionary.select(
-        f"\nEP{episode} {title} — 執行哪些階段？",
-        choices=stage_choices,
-    ).ask()
-
-    if not selected_stage:
-        console.print("[dim]已取消。[/dim]")
-        return
-
-    # Show cost estimate before confirming
-    cost = estimate_cost(mp3_path, selected_stage)
-    console.print(f"\n[yellow]預估 API 費用：{cost}[/yellow]")
-
-    confirmed = questionary.confirm(
-        f"確認對 EP{episode}《{title}》執行「{selected_stage}」？",
-        default=False,
-    ).ask()
-
-    if not confirmed:
-        console.print("[dim]已取消。[/dim]")
-        return
-
-    console.print(f"\n[bold]開始執行「{selected_stage}」...[/bold]\n")
     try:
-        if selected_stage == "transcribe":
-            run_transcribe(selected_mp3)
-        elif selected_stage == "summarize":
-            run_summarize(selected_mp3)
-        elif selected_stage == "chunks":
-            run_rebuild_chunks(selected_mp3)
-        elif selected_stage == "full":
-            run_full_pipeline(selected_mp3)
+        with console.status("正在讀取 RSS feed..."):
+            rss_url = load_rss_url()
+            rss_episodes = fetch_rss_episodes(rss_url)
+        local_eps = get_local_episode_numbers()
+        unprocessed = [ep for ep in rss_episodes if ep["episode"] not in local_eps]
+        unprocessed.sort(key=lambda x: x["pub_date"])
+
+        console.print(
+            f"RSS 共 [cyan]{len(rss_episodes)}[/cyan] 集  |  "
+            f"本地已處理 [green]{len(local_eps)}[/green] 集  |  "
+            f"未處理 [yellow]{len(unprocessed)}[/yellow] 集\n"
+        )
+
+        if not unprocessed:
+            console.print("[green]✓ 所有集數已處理完畢！[/green]")
+            return
+
+        # Show table of unprocessed episodes
+        rss_table = Table(show_header=True, header_style="bold magenta")
+        rss_table.add_column("集數", style="cyan", width=6)
+        rss_table.add_column("日期", width=12)
+        rss_table.add_column("標題", no_wrap=False, max_width=50)
+        for ep in unprocessed:
+            rss_table.add_row(
+                f"EP{ep['episode']}",
+                rss_fmt_date(ep["pub_date"]),
+                ep["title"],
+            )
+        console.print(rss_table)
+
+        # Multi-select episodes to process
+        ep_choices = [
+            questionary.Choice(
+                title=f"EP{ep['episode']:<6} {rss_fmt_date(ep['pub_date']):<12} {ep['title'][:50]}",
+                value=ep,
+            )
+            for ep in unprocessed
+        ]
+        selected_eps = questionary.checkbox(
+            "\n選擇要處理的集數（空白鍵選取，Enter 確認）：",
+            choices=ep_choices,
+        ).ask()
+
+        if not selected_eps:
+            console.print("[dim]已取消。[/dim]")
+            return
+
+        console.print(f"\n已選取 [cyan]{len(selected_eps)}[/cyan] 集，開始處理...\n")
+        for ep in selected_eps:
+            mp3_name = ep["full_title"] + ".mp3"
+            mp3_path = os.path.join(PODCAST_DIR, mp3_name)
+
+            # Download if not present or too small
+            needs_download = (
+                not os.path.exists(mp3_path)
+                or os.path.getsize(mp3_path) < MIN_MP3_BYTES
+            )
+            if needs_download:
+                console.print(f"[bold]↓  下載 EP{ep['episode']} {ep['title']}...[/bold]")
+                try:
+                    mp3_path = download_episode(ep, PODCAST_DIR)
+                    mp3_name = os.path.basename(mp3_path)
+                    console.print("[green]✓[/green] 下載完成")
+                except Exception as e:
+                    console.print(f"[red]✗ 下載失敗：{e}[/red]")
+                    continue
+
+            console.print(f"\n[bold]處理 EP{ep['episode']} {ep['title']}...[/bold]")
+            try:
+                run_full_pipeline(mp3_name)
+            except Exception as e:
+                console.print(f"[red bold]✗ 處理失敗：{e}[/red bold]")
+                continue
+
+        console.print("\n[green bold]全部完成！[/green bold]")
+
     except KeyboardInterrupt:
         console.print("\n[yellow]已中斷。[/yellow]")
         return
     except Exception as e:
-        console.print(f"\n[red bold]✗ 執行失敗：{e}[/red bold]")
+        console.print(f"\n[red]✗ 錯誤：{e}[/red]")
         return
 
-    console.print("\n[green bold]完成！[/green bold]")
-
-    if questionary.confirm("返回主畫面？", default=True).ask():
+    if questionary.confirm("\n再次執行？", default=False).ask():
         main()
 
 
