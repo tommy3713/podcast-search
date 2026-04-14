@@ -12,6 +12,20 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+MIN_MP3_BYTES = 100 * 1024  # 100 KB — anything smaller is likely a corrupted/failed download
+
+
+def validate_mp3(mp3_path: str) -> None:
+    """Raise ValueError if the MP3 file is missing or suspiciously small."""
+    if not os.path.exists(mp3_path):
+        raise ValueError(f"找不到 MP3 檔案：{mp3_path}")
+    size = os.path.getsize(mp3_path)
+    if size < MIN_MP3_BYTES:
+        raise ValueError(
+            f"MP3 檔案過小（{size} bytes），可能是下載失敗的殘檔。\n"
+            f"建議刪除後重新下載：rm \"{mp3_path}\""
+        )
+
 from check_new import run_diff
 
 # Ensure imports from main.py work when run from anywhere
@@ -94,6 +108,7 @@ def estimate_cost(mp3_path: str, stage: str) -> str:
 def run_transcribe(mp3_name: str) -> None:
     """Transcribe MP3 and write/update the content field in the JSON note."""
     mp3_path = os.path.join(PODCAST_DIR, mp3_name)
+    validate_mp3(mp3_path)
     date, episode, title = parse_filename(mp3_name)
     full_title = os.path.splitext(mp3_name)[0]
     json_path = os.path.join(NOTES_DIR, full_title + ".json")
@@ -200,6 +215,7 @@ def run_rebuild_chunks(mp3_name: str) -> None:
 def run_full_pipeline(mp3_name: str) -> None:
     """Full pipeline: transcribe → summarize → upsert ES → rebuild chunks → save JSON."""
     mp3_path = os.path.join(PODCAST_DIR, mp3_name)
+    validate_mp3(mp3_path)
     date, episode, title = parse_filename(mp3_name)
     full_title = os.path.splitext(mp3_name)[0]
 
