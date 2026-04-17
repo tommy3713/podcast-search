@@ -1,11 +1,12 @@
 import express from 'express';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import {
   search,
   getPodcastByPodcasterAndEpisode,
   getPodcasts,
   getPodcastChunks,
+  getPodcastTranscript,
   askWithContext,
   chatWithContext,
   getThemesTimeline,
@@ -93,6 +94,29 @@ app.get('/api/podcast/chunks', verifyGoogleToken, async (req, res) => {
   }
 });
 
+app.get('/api/podcast/transcript', verifyGoogleToken, async (req, res) => {
+  const { podcaster, episode } = req.query;
+
+  if (!podcaster) {
+    return res.status(400).json({ error: 'podcaster is required' });
+  }
+  if (!episode) {
+    return res.status(400).json({ error: 'episode is required' });
+  }
+
+  try {
+    const content = await getPodcastTranscript(podcaster, episode);
+    if (content !== null) {
+      res.json({ content });
+    } else {
+      res.status(404).json({ error: 'Transcript not found' });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.get('/api/podcast/all', async (req, res) => {
   const { page = 1, limit = 10 } = req.query;
 
@@ -108,7 +132,7 @@ app.get('/api/podcast/all', async (req, res) => {
 const askRateLimiter = rateLimit({
   windowMs: 24 * 60 * 60 * 1000, // 24 hours
   max: 20,
-  keyGenerator: (req) => req.user?.sub ?? req.ip,
+  keyGenerator: (req) => req.user?.sub ?? ipKeyGenerator(req),
   handler: (req, res) => {
     res.status(429).json({ error: '每日提問次數已達上限（20 次），請明天再試。' });
   },
@@ -178,7 +202,7 @@ app.post('/api/stock/ask', verifyGoogleToken, askRateLimiter, async (req, res) =
 const chatRateLimiter = rateLimit({
   windowMs: 24 * 60 * 60 * 1000, // 24 hours
   max: 30,
-  keyGenerator: (req) => req.user?.sub ?? req.ip,
+  keyGenerator: (req) => req.user?.sub ?? ipKeyGenerator(req),
   handler: (req, res) => {
     res.status(429).json({ error: '每日對話次數已達上限（30 次），請明天再試。' });
   },

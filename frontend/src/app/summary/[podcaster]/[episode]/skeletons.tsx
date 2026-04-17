@@ -8,6 +8,19 @@ export function MetadataSkeleton() {
   );
 }
 
+export function TranscriptSkeleton() {
+  return (
+    <div className="space-y-2 animate-pulse">
+      {Array.from({ length: 12 }).map((_, i) => (
+        <div
+          key={i}
+          className={`h-4 bg-gray-200 rounded ${i % 5 === 4 ? 'w-3/5' : 'w-full'}`}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function SummarySkeleton() {
   return (
     <div className="space-y-3 animate-pulse">

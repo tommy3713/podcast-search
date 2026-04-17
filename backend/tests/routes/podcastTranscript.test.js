@@ -7,6 +7,7 @@ vi.mock('../../src/service.js', () => ({
   getPodcasts: vi.fn(),
   getPodcastByPodcasterAndEpisode: vi.fn(),
   getPodcastChunks: vi.fn(),
+  getPodcastTranscript: vi.fn(),
 }));
 
 vi.mock('google-auth-library', () => ({
@@ -17,7 +18,7 @@ vi.mock('google-auth-library', () => ({
 
 import request from 'supertest';
 import app from '../../src/app.js';
-import { getPodcastChunks } from '../../src/service.js';
+import { getPodcastTranscript } from '../../src/service.js';
 
 const validPayload = { sub: '123', email: 'user@example.com' };
 
@@ -25,7 +26,7 @@ function withAuth(req) {
   return req.set('Authorization', 'Bearer valid-token');
 }
 
-describe('GET /api/podcast/chunks', () => {
+describe('GET /api/podcast/transcript', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockVerifyIdToken.mockResolvedValue({
@@ -35,7 +36,7 @@ describe('GET /api/podcast/chunks', () => {
 
   it('returns 401 when Authorization header is missing', async () => {
     const res = await request(app)
-      .get('/api/podcast/chunks?podcaster=TestPodcaster&episode=EP001');
+      .get('/api/podcast/transcript?podcaster=TestPodcaster&episode=EP001');
 
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: 'Missing or invalid Authorization header' });
@@ -43,7 +44,7 @@ describe('GET /api/podcast/chunks', () => {
 
   it('returns 400 when podcaster is missing', async () => {
     const res = await withAuth(
-      request(app).get('/api/podcast/chunks?episode=EP001')
+      request(app).get('/api/podcast/transcript?episode=EP001')
     );
 
     expect(res.status).toBe(400);
@@ -52,49 +53,42 @@ describe('GET /api/podcast/chunks', () => {
 
   it('returns 400 when episode is missing', async () => {
     const res = await withAuth(
-      request(app).get('/api/podcast/chunks?podcaster=TestPodcaster')
+      request(app).get('/api/podcast/transcript?podcaster=TestPodcaster')
     );
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'episode is required' });
   });
 
-  it('returns 200 with paginated chunks', async () => {
-    const fakeResult = {
-      chunks: [
-        { chunk_index: 0, chunk_text: 'First chunk text' },
-        { chunk_index: 1, chunk_text: 'Second chunk text' },
-      ],
-      total: 42,
-      page: 1,
-      hasMore: true,
-    };
-    getPodcastChunks.mockResolvedValue(fakeResult);
+  it('returns 200 with transcript content', async () => {
+    const fakeContent = '今天我們來聊聊美股的走勢...';
+    getPodcastTranscript.mockResolvedValue(fakeContent);
 
     const res = await withAuth(
-      request(app).get('/api/podcast/chunks?podcaster=TestPodcaster&episode=EP001&page=1')
+      request(app).get('/api/podcast/transcript?podcaster=TestPodcaster&episode=EP001')
     );
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(fakeResult);
-    expect(getPodcastChunks).toHaveBeenCalledWith('TestPodcaster', 'EP001', 1);
+    expect(res.body).toEqual({ content: fakeContent });
+    expect(getPodcastTranscript).toHaveBeenCalledWith('TestPodcaster', 'EP001');
   });
 
-  it('defaults to page 1 when page param is omitted', async () => {
-    getPodcastChunks.mockResolvedValue({ chunks: [], total: 0, page: 1, hasMore: false });
+  it('returns 404 when service returns null', async () => {
+    getPodcastTranscript.mockResolvedValue(null);
 
-    await withAuth(
-      request(app).get('/api/podcast/chunks?podcaster=TestPodcaster&episode=EP001')
+    const res = await withAuth(
+      request(app).get('/api/podcast/transcript?podcaster=TestPodcaster&episode=EP001')
     );
 
-    expect(getPodcastChunks).toHaveBeenCalledWith('TestPodcaster', 'EP001', 1);
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Transcript not found' });
   });
 
   it('returns 500 when service throws', async () => {
-    getPodcastChunks.mockRejectedValue(new Error('DB error'));
+    getPodcastTranscript.mockRejectedValue(new Error('DB error'));
 
     const res = await withAuth(
-      request(app).get('/api/podcast/chunks?podcaster=TestPodcaster&episode=EP001')
+      request(app).get('/api/podcast/transcript?podcaster=TestPodcaster&episode=EP001')
     );
 
     expect(res.status).toBe(500);

@@ -36,6 +36,9 @@ describe('summarySlice', () => {
       chunksPage: 0,
       chunksTotal: 0,
       chunksHasMore: false,
+      transcript: null,
+      transcriptStatus: 'idle',
+      transcriptError: undefined,
     });
   });
 

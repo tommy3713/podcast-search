@@ -15,6 +15,7 @@ services:
       - elasticnet
     command: >
       bash -c "
+        elasticsearch-plugin list | grep -q analysis-icu ||
         elasticsearch-plugin install --batch analysis-icu &&
         /usr/local/bin/docker-entrypoint.sh elasticsearch
       "

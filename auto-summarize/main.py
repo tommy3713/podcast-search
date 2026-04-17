@@ -4,6 +4,7 @@ import re
 import subprocess
 import textwrap
 import mlx_whisper
+import opencc
 from openai import OpenAI
 import json
 from elasticsearch import Elasticsearch
@@ -73,6 +74,9 @@ def fix_transcription(text):
         text = text.replace(wrong, correct)
     return text
 
+# OpenCC converter: Simplified Chinese → Traditional Chinese (Taiwan standard)
+_s2tw = opencc.OpenCC('s2twp')
+
 # Function: Transcribe audio using mlx-whisper (local, Apple Silicon)
 def transcribe_audio(file_path):
     print(f"Transcribing {os.path.basename(file_path)}...")
@@ -83,7 +87,8 @@ def transcribe_audio(file_path):
         initial_prompt=WHISPER_PROMPT,
     )
     print("Transcription completed.")
-    return fix_transcription(result["text"])
+    text = _s2tw.convert(result["text"])
+    return fix_transcription(text)
 
 
 MAX_TRANSCRIPTION_CHARS = 120000  # ~60k tokens for Chinese text, safely under gpt-4o-mini's 128k limit

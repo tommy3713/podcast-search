@@ -80,6 +80,27 @@ export const getPodcastByPodcasterAndEpisode = async (podcaster, episode) => {
 
 const CHUNKS_PAGE_SIZE = 10;
 
+export const getPodcastTranscript = async (podcaster, episode) => {
+  const result = await client.search({
+    index: INDEX,
+    body: {
+      query: {
+        bool: {
+          must: [
+            { term: { podcaster: podcaster } },
+            { term: { episode: episode } },
+          ],
+        },
+      },
+      _source: ['content'],
+      size: 1,
+    },
+  });
+  const hit = result.hits.hits[0];
+  if (!hit) return null;
+  return hit._source.content ?? null;
+};
+
 export const getPodcastChunks = async (podcaster, episode, page = 1) => {
   const result = await client.search({
     index: CHUNKS_INDEX,

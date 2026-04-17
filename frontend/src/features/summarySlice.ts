@@ -39,6 +39,9 @@ interface SummaryState {
   chunksPage: number;
   chunksTotal: number;
   chunksHasMore: boolean;
+  transcript: string | null;
+  transcriptStatus: 'idle' | 'loading' | 'succeeded' | 'failed';
+  transcriptError?: string;
 }
 
 const initialState: SummaryState = {
@@ -51,6 +54,9 @@ const initialState: SummaryState = {
   chunksPage: 0,
   chunksTotal: 0,
   chunksHasMore: false,
+  transcript: null,
+  transcriptStatus: 'idle',
+  transcriptError: undefined,
 };
 
 export const fetchSummary = createAsyncThunk(
@@ -114,6 +120,29 @@ export const loadMoreChunks = createAsyncThunk<
   }
 );
 
+export const fetchTranscript = createAsyncThunk<
+  string,
+  { podcaster: string; episode: string },
+  { rejectValue: string }
+>(
+  'summary/fetchTranscript',
+  async ({ podcaster, episode }, { rejectWithValue }) => {
+    try {
+      const res = await fetchWithAuth(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/podcast/transcript?podcaster=${podcaster}&episode=${episode}`
+      );
+      if (!res.ok) {
+        const e = await res.json().catch(() => null);
+        throw new Error(e?.error || 'Failed to fetch transcript');
+      }
+      const data: { content: string } = await res.json();
+      return data.content;
+    } catch (err) {
+      return rejectWithValue((err as Error).message);
+    }
+  }
+);
+
 const summarySlice = createSlice({
   name: 'summary',
   initialState,
@@ -123,6 +152,9 @@ const summarySlice = createSlice({
       .addCase(fetchSummary.pending, (state) => {
         state.status = 'loading';
         state.error = undefined;
+        state.transcript = null;
+        state.transcriptStatus = 'idle';
+        state.transcriptError = undefined;
       })
       .addCase(fetchSummary.fulfilled, (state, { payload }) => {
         state.status = 'succeeded';
@@ -164,6 +196,18 @@ const summarySlice = createSlice({
       .addCase(loadMoreChunks.rejected, (state, { payload }) => {
         state.chunksStatus = 'failed';
         state.chunksError = payload as string;
+      })
+      .addCase(fetchTranscript.pending, (state) => {
+        state.transcriptStatus = 'loading';
+        state.transcriptError = undefined;
+      })
+      .addCase(fetchTranscript.fulfilled, (state, { payload }) => {
+        state.transcriptStatus = 'succeeded';
+        state.transcript = payload;
+      })
+      .addCase(fetchTranscript.rejected, (state, { payload }) => {
+        state.transcriptStatus = 'failed';
+        state.transcriptError = payload as string;
       });
   },
 });
