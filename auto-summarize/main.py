@@ -63,7 +63,9 @@ def download_podcasts():
 # punctuation to set the output style, with proper nouns that get misheard.
 WHISPER_PROMPT = "歡迎收聽股癌，我是謝孟恭。今天聊聊台股、美股，Fed 跟聯準會的升息、降息，還有通膨、殖利率、ETF。半導體方面有台積電、輝達 NVIDIA、蘋果、Google、Meta、特斯拉、SiFive。"
 
-WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
+# Full large-v3 rather than turbo: in eval_asr.py turbo dropped phrases and produced
+# ~30s segments; large-v3 kept every phrase with finer timestamps, at ~2-4x the time.
+WHISPER_MODEL = "mlx-community/whisper-large-v3-mlx"
 
 # Known Whisper transcription errors — add new ones as they're discovered
 TRANSCRIPTION_FIXES = {
