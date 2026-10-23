@@ -50,7 +50,7 @@ Three parts, developed and deployed independently:
 
 ### Data Setup
 
-Source of truth is `notes/gooaye/*.json` (gitignored; one file per episode, ~85 episodes through EP686). Each file contains `title`, `uploadDate` (`YYYYMMDD`), `episode`, `fullTitle`, `podcaster`, `content` (raw transcript), `note` (GPT summary), `embeddings`, plus enrichment fields `themes`, `mentioned_stocks`, `stock_sentiments`, `investment_thesis`, `market_sentiment`, `glossary_terms`.
+Source of truth is `notes/gooaye/*.json` (gitignored; one file per episode, ~85 episodes through EP686). Each file contains `title`, `uploadDate` (`YYYYMMDD`), `episode`, `fullTitle`, `podcaster`, `content` (raw transcript), `segments` (`[{ start, end, text }]` Whisper timestamps in seconds; only on episodes transcribed or re-transcribed since timestamps were added), `note` (GPT summary), `embeddings`, plus enrichment fields `themes`, `mentioned_stocks`, `stock_sentiments`, `investment_thesis`, `market_sentiment`, `glossary_terms`.
 
 To build ES from scratch (empty volume):
 
@@ -66,7 +66,7 @@ All routes and middleware are defined directly in `src/app.js`. The service laye
 
 **Database: Elasticsearch only** (MongoDB was removed). Two indices:
 
-- `podcast` — one doc per episode. `icu_analyzer` on `content`, `note`, `title`; `podcaster`, `episode`, `fullTitle`, `uploadDate` mapped as `keyword`. Enrichment fields are dynamically mapped, so stock queries use `mentioned_stocks.keyword`.
+- `podcast` — one doc per episode. `icu_analyzer` on `content`, `note`, `title`; `podcaster`, `episode`, `fullTitle`, `uploadDate` mapped as `keyword`. Enrichment fields are dynamically mapped, so stock queries use `mentioned_stocks.keyword`. `segments` is mapped `{ type: object, enabled: false }` (stored, not indexed) by `ensure_podcast_mapping()` in `main.py`; `search` and `summary` exclude it from `_source`.
 - `podcast_chunks` — `{ fullTitle, podcaster, episode, uploadDate, chunk_index, content, embedding }`, used for kNN.
 
 Timeline/aggregate queries (`themes`, `sentiment`, `stocks`, `glossary`) fetch with `size: 200` and aggregate in JS — bump this when the episode count approaches 200.
@@ -80,7 +80,7 @@ Route → Service call mapping:
 | `GET /api/search` | `search(keyword)` — BM25 full-text on `podcast` index |
 | `GET /api/podcast/all` | `getPodcasts(page, limit)` — returns `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `note` |
 | `GET /api/podcast/summary` _(auth)_ | `getPodcastByPodcasterAndEpisode(podcaster, episode)` |
-| `GET /api/podcast/transcript` _(auth)_ | `getPodcastTranscript(podcaster, episode)` — returns `{ content }` (raw transcript), 404 if missing |
+| `GET /api/podcast/transcript` _(auth)_ | `getPodcastTranscript(podcaster, episode)` — returns `{ content, segments }` (`segments` is `null` for episodes without timestamps), 404 if missing |
 | `GET /api/podcast/chunks` _(auth)_ | `getPodcastChunks(podcaster, episode, page)` — 10 chunks/page sorted by `chunk_index`; `{ chunks: [{ chunk_index, chunk_text }], total, page, hasMore }` |
 | `POST /api/ask` _(auth, 20/day)_ | `askWithContext()` — embed → kNN on `podcast_chunks` → SSE |
 | `POST /api/stock/ask` _(auth, shares 20/day)_ | `askAboutStock(ticker)` — AI opinion timeline for a ticker, SSE |
@@ -103,7 +103,7 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit (`src/
 **Redux slices** (`src/features/`):
 
 - `searchSlice` — search results, driven by `fetchSearchResults(keyword)`
-- `summarySlice` — episode summary + transcript; `fetchChunks` + `loadMoreChunks` fetch paginated chunks (kept for future use but not rendered)
+- `summarySlice` — episode summary + transcript (`transcript` text plus `transcriptSegments`, `null` when the episode has no timestamps); `fetchChunks` + `loadMoreChunks` fetch paginated chunks (kept for future use but not rendered)
 - `podcastListSlice` — fetches all episodes at once (limit 200); the page component manages a local `visibleCount` for load-more (20 per step) and client-side year/month filtering
 - `askSlice` — Q&A and stock-ask state (`question`, `answer`, `sources`, `status`); persisted so the answer survives navigation
 - `chatSlice` — multi-turn chat messages
@@ -117,7 +117,7 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit (`src/
 - `/` — home
 - `/search` — search interface
 - `/podcast-list/[podcaster]` — episode list for a podcaster
-- `/summary/[podcaster]/[episode]` — episode detail (auth-gated): 摘要 tab + 逐字稿 tab (raw transcript with keyword search)
+- `/summary/[podcaster]/[episode]` — episode detail (auth-gated): 摘要 tab + 逐字稿 tab (keyword search; segments are merged into ~30s paragraphs with `[m:ss]` timestamps via `src/utils/transcript.ts`, plain text when an episode has none)
 - `/ask` — Q&A streaming (auth-gated, 20/day) with a 查股票 tab for per-ticker opinion timelines
 - `/chat` — multi-turn chat (auth-gated, 30/day)
 - `/stocks`, `/stocks/[ticker]` — stock mention tracker and per-ticker detail with opinion drift
@@ -151,13 +151,17 @@ python tui.py              # Interactive TUI: diff RSS vs notes/, pick episodes,
 python check_new.py        # List RSS episodes not yet in notes/gooaye/
 python main.py local       # Process latest episode only (run-local.sh wraps this with logging to logs/)
 python main.py reindex     # Re-index notes/gooaye/ into ES (always rebuilds chunks, backfills missing fields)
+python main.py retranscribe [EP ...]  # Re-download + re-transcribe notes (default: all without `segments`)
+python eval_asr.py <ep.mp3> --out data/asr_compare --clip 0:180   # Compare Whisper configs on clips; CER vs a hand-made reference.txt
 ```
 
-**Flow:** Download via RSS (needs a browser User-Agent or the feed returns 403) → validate MP3 size → transcribe locally via `mlx-whisper` (whisper-large-v3-turbo, Apple Silicon only) → post-process known misheard terms (`TRANSCRIPTION_FIXES`) → GPT-4o-mini summary → enrichment (`classify_themes`, `extract_stocks`, `extract_investment_thesis`, `extract_sentiment_score`, `extract_glossary_terms`) → sentence-boundary chunking (target 600 chars, hard cap 1500) of the `note` field → embed via `text-embedding-3-small` → write `podcast` + `podcast_chunks` → save JSON to `notes/gooaye/`.
+**Flow:** Download via RSS (needs a browser User-Agent or the feed returns 403) → validate MP3 size → transcribe locally via `mlx-whisper` (`WHISPER_MODEL` = whisper-large-v3, Apple Silicon only, ~0.3–0.45× real time; turbo dropped phrases in `eval_asr.py`) keeping per-segment timestamps → OpenCC `s2tw` (not `s2twp`, whose phrase conversion rewrites words like 代碼→程式碼) + known misheard terms (`TRANSCRIPTION_FIXES`, incl. 臺→台) + half-width punctuation next to CJK widened → GPT-4o-mini summary → enrichment (`classify_themes`, `extract_stocks`, `extract_investment_thesis`, `extract_sentiment_score`, `extract_glossary_terms`) → sentence-boundary chunking (target 600 chars, hard cap 1500) of the `note` field → embed via `text-embedding-3-small` → write `podcast` + `podcast_chunks` → save JSON to `notes/gooaye/`.
 
 In the TUI's full pipeline, the JSON is saved **before** any ES write, so an ES outage never loses transcription/summary work; a failed ES write only warns, and the index can be backfilled later with `main.py reindex`.
 
 **`reindex` mode** always deletes and rebuilds `podcast_chunks` from the `note` field (re-embeds every chunk). Does not re-transcribe or re-summarize.
+
+**`retranscribe` mode** downloads each episode's MP3 from RSS (all 700+ episodes are still in the feed) into `data/retranscribe/`, replaces only `content` + `segments` in the JSON, upserts the `podcast` doc, and deletes the MP3. `note`, enrichment and chunks are untouched. Changing `content` changes the transcript hash, so `analyze_company.py` will re-extract those episodes on its next run.
 
 ### Cross-episode company analysis (`auto-summarize/`, CLI only)
 

@@ -58,4 +58,5 @@ store_notes.py
 /notes
 aws-ec2/.env.production
 .claude/settings.local.json
+.claude/worktrees/
 .env
