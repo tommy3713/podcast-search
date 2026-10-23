@@ -612,7 +612,7 @@ def reindex_from_notes():
 
 # Function: Re-transcribe episodes already in notes/gooaye/ (e.g. to add timestamps).
 # Downloads each MP3 from RSS into a temp dir, replaces `content` + `segments` in the JSON,
-# updates the ES podcast doc in place, then deletes the MP3. Summary and enrichment fields
+# upserts the ES podcast doc from the JSON, then deletes the MP3. Summary and enrichment fields
 # are untouched, so no re-summarize or re-embed. Defaults to every note without `segments`.
 def retranscribe_notes(episodes=None):
     from check_new import load_rss_url, fetch_rss_episodes, download_episode
@@ -659,8 +659,10 @@ def retranscribe_notes(episodes=None):
             json.dump(data, f, ensure_ascii=False, indent=4)
         print(f"  Saved {len(segments)} segments to {note_path}")
 
+        # Upsert the whole doc like reindex does, so episodes missing from ES get indexed too
         try:
-            elastic_client.update(index=INDEX_NAME, id=data["fullTitle"], doc={"content": content, "segments": segments})
+            doc = {k: v for k, v in data.items() if k != "embeddings"}
+            elastic_client.index(index=INDEX_NAME, id=data["fullTitle"], document=doc)
         except Exception as e:
             print(f"  ES update failed ({e}); run `python main.py reindex` later to sync")
 
