@@ -52,6 +52,8 @@ from main import (
     extract_glossary_terms,
     save_to_notes,
     index_chunks,
+    chunk_text_by_sentence,
+    embed_text,
     elastic_client,
     ensure_podcast_mapping,
 )
@@ -223,17 +225,59 @@ def run_rebuild_chunks(mp3_name: str) -> None:
     console.print(f"[green]✓[/green] Chunks 已重建（{len(embeddings)} 個 chunks）。")
 
 
+def compute_chunk_embeddings(text: str) -> tuple:
+    """Chunk text and embed each chunk WITHOUT touching ES.
+
+    Returns (chunks, embeddings). Embedding uses OpenAI only, so the result can
+    be saved to JSON even when Elasticsearch is unreachable.
+    """
+    chunks = chunk_text_by_sentence(text)
+    embeddings = [embed_text(chunk) for chunk in chunks]
+    return chunks, embeddings
+
+
+def push_to_es(full_title: str, episode: str, upload_date: str, doc: dict,
+               chunks: list, embeddings: list) -> None:
+    """Upsert the podcast doc and rebuild podcast_chunks. Raises on ES failure."""
+    # Upsert podcast doc (force overwrite via id=full_title)
+    ensure_podcast_mapping()
+    elastic_client.index(index=INDEX_NAME, id=full_title, document={
+        k: v for k, v in doc.items() if k != "embeddings"
+    })
+    # Rebuild chunks
+    elastic_client.delete_by_query(
+        index="podcast_chunks",
+        body={"query": {"term": {"fullTitle": full_title}}},
+    )
+    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        elastic_client.index(index="podcast_chunks", document={
+            "fullTitle": full_title,
+            "podcaster": "Gooaye",
+            "episode": episode,
+            "uploadDate": upload_date,
+            "chunk_index": i,
+            "content": chunk,
+            "embedding": embedding,
+        })
+
+
 def run_full_pipeline(mp3_name: str) -> None:
-    """Full pipeline: transcribe → summarize → upsert ES → rebuild chunks → save JSON."""
+    """Full pipeline: transcribe → summarize → embed → save JSON → write ES.
+
+    JSON is saved BEFORE any ES write, so an Elasticsearch outage never discards
+    the expensive transcription/summary/embedding work. If the ES write fails,
+    we warn and return normally so the batch can continue with the next episode;
+    the missing index can be backfilled later via `python main.py reindex`.
+    """
     mp3_path = os.path.join(PODCAST_DIR, mp3_name)
     validate_mp3(mp3_path)
     date, episode, title = parse_filename(mp3_name)
     full_title = os.path.splitext(mp3_name)[0]
 
-    console.print("[bold]步驟 1/4：轉錄...[/bold]")
+    console.print("[bold]步驟 1/5：轉錄...[/bold]")
     transcription, segments = transcribe_audio(mp3_path)
 
-    console.print("[bold]步驟 2/4：摘要 + 資料豐富化...[/bold]")
+    console.print("[bold]步驟 2/5：摘要 + 資料豐富化...[/bold]")
     summary = summarize_transcription(transcription)
     themes = classify_themes(summary)
     mentioned_stocks, stock_sentiments = extract_stocks(summary)
@@ -241,7 +285,19 @@ def run_full_pipeline(mp3_name: str) -> None:
     market_sentiment = extract_sentiment_score(summary)
     glossary_terms = extract_glossary_terms(summary)
 
-    console.print("[bold]步驟 3/4：寫入 ES podcast index...[/bold]")
+    console.print("[bold]步驟 3/5：計算 chunks + embeddings...[/bold]")
+    chunks, embeddings = compute_chunk_embeddings(summary)
+
+    console.print("[bold]步驟 4/5：存回 notes JSON...[/bold]")
+    save_to_notes(
+        mp3_name, "Gooaye", title, episode, date, transcription, summary,
+        embeddings=embeddings, themes=themes, mentioned_stocks=mentioned_stocks,
+        stock_sentiments=stock_sentiments, investment_thesis=investment_thesis,
+        market_sentiment=market_sentiment, glossary_terms=glossary_terms,
+        segments=segments,
+    )
+
+    console.print("[bold]步驟 5/5：寫入 ES（podcast + chunks）...[/bold]")
     doc = {
         "podcaster": "Gooaye",
         "title": title,
@@ -258,25 +314,15 @@ def run_full_pipeline(mp3_name: str) -> None:
         "market_sentiment": market_sentiment,
         "glossary_terms": glossary_terms,
     }
-    # Upsert (force overwrite)
-    ensure_podcast_mapping()
-    elastic_client.index(index=INDEX_NAME, id=full_title, document=doc)
-
-    console.print("[bold]步驟 4/4：重建 chunks + embeddings...[/bold]")
-    elastic_client.delete_by_query(
-        index="podcast_chunks",
-        body={"query": {"term": {"fullTitle": full_title}}},
-    )
-    embeddings = index_chunks(full_title, "Gooaye", episode, date, summary)
-
-    save_to_notes(
-        mp3_name, "Gooaye", title, episode, date, transcription, summary,
-        embeddings=embeddings, themes=themes, mentioned_stocks=mentioned_stocks,
-        stock_sentiments=stock_sentiments, investment_thesis=investment_thesis,
-        market_sentiment=market_sentiment, glossary_terms=glossary_terms,
-        segments=segments,
-    )
-    console.print(f"[green bold]✓ 全流程完成：{full_title}[/green bold]")
+    try:
+        push_to_es(full_title, episode, date, doc, chunks, embeddings)
+        console.print(f"[green bold]✓ 全流程完成：{full_title}[/green bold]")
+    except Exception as e:
+        console.print(
+            f"[yellow]⚠ ES 寫入失敗：{e}[/yellow]\n"
+            f"[yellow]  資料已存回 JSON（含 embeddings），稍後可用 "
+            f"`python main.py reindex` 補上索引。[/yellow]"
+        )
 
 
 # ── Main TUI ──────────────────────────────────────────────────────────────────
