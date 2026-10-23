@@ -4,6 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+### Local dev (full stack)
+
+```bash
+docker compose up -d elasticsearch   # ES on :9200 (data persists in the podcast-search_esdata volume)
+cd backend && npm start              # :3002 locally (PORT=3002 in backend/.env; code default is 3000)
+cd frontend && npm run dev           # :3001
+```
+
+Locally the backend runs on 3002 because another project occupies 3000; `frontend/.env` points `NEXT_PUBLIC_BACKEND_URL` at `http://localhost:3002`. Docker compose and k8s still use 3000.
+
+Run backend/frontend on the host (not via `docker compose up`) for dev — the compose `frontend` service bakes `NEXT_PUBLIC_BACKEND_URL` at build time and is slow to rebuild.
+
 ### Backend
 
 ```bash
@@ -28,51 +40,74 @@ npx vitest run tests/features/searchSlice.test.ts  # Run a single test file
 
 ### Overview
 
-Two separate Node.js apps — an Express backend and a Next.js frontend — that are developed and deployed independently.
+Three parts, developed and deployed independently:
 
 - **Backend** (`backend/`): Express + TypeScript, ESM (`"type": "module"`), listens on port 3000
 - **Frontend** (`frontend/`): Next.js 14 App Router + TypeScript, runs on port 3001
+- **Ingestion** (`auto-summarize/`): Python pipeline + TUI that turns new episodes into ES documents
+
+`deployment/` holds k8s manifests; `aws-ec2/` holds EC2 deploy material. Root-level `*.py` scripts other than `seed-es.py` (`generate-summary.py`, `merge-data.py`, `store_notes.py`, `main.py`) are legacy.
 
 ### Data Setup
 
-The `podcast` Elasticsearch index is seeded from `notes/gooaye/*.json` (29 episodes). Each file contains `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `content`, `note`, and `embeddings` fields. Run this once after standing up Elasticsearch:
+Source of truth is `notes/gooaye/*.json` (gitignored; one file per episode, ~85 episodes through EP686). Each file contains `title`, `uploadDate` (`YYYYMMDD`), `episode`, `fullTitle`, `podcaster`, `content` (raw transcript), `note` (GPT summary), `embeddings`, plus enrichment fields `themes`, `mentioned_stocks`, `stock_sentiments`, `investment_thesis`, `market_sentiment`, `glossary_terms`.
 
-```bash
-pip install "elasticsearch>=8,<9" python-dotenv
-ELASTIC_URL=http://localhost:9200 ELASTIC_USERNAME=elastic ELASTIC_PASSWORD=<pw> python seed-es.py
-```
+To build ES from scratch (empty volume):
 
-The ES container installs the `analysis-icu` plugin on first start (Traditional Chinese tokenization) — wait ~60s before seeding.
+1. Start ES and wait ~60s — the container installs the `analysis-icu` plugin on first start (Traditional Chinese tokenization).
+2. Create the indices with correct mappings. `seed-es.py` creates `podcast` (`icu_analyzer` on text fields) and `podcast_chunks` (`embedding` as 1536-dim `dense_vector`) if missing. Without it, ES dynamic-maps `embedding` as plain floats and kNN breaks.
+3. Populate with `cd auto-summarize && python main.py reindex` — uses `id=fullTitle`, backfills any missing enrichment fields, and chunks the `note` field.
+
+Caveat: `seed-es.py`'s seeding loop is out of date — it chunks `content` (not `note`), uses random doc ids (duplicates with `reindex`), and overwrites the cached `embeddings` in the JSON. Prefer only its index-creation section, then `reindex`.
 
 ### Backend
 
-All routes and middleware are defined directly in `src/app.js`. The service layer (`src/service.js`) holds all database logic and is the only file that talks to Elasticsearch.
+All routes and middleware are defined directly in `src/app.js`. The service layer (`src/service.js`) holds all database logic and is the only file that talks to Elasticsearch and OpenAI. `dotenv` is loaded in `service.js`.
 
-**Database: Elasticsearch only** — single `podcast` index with `icu_analyzer` on `content`, `note`, and `title` fields. Identifier fields (`podcaster`, `episode`, `fullTitle`, `uploadDate`) are mapped as `keyword`.
+**Database: Elasticsearch only** (MongoDB was removed). Two indices:
 
-- **`src/middleware/verifyGoogleToken.js`** — validates Google OAuth Bearer tokens; applied to `/api/podcast/summary`, `/api/podcast/chunks`, and `/api/ask`
+- `podcast` — one doc per episode. `icu_analyzer` on `content`, `note`, `title`; `podcaster`, `episode`, `fullTitle`, `uploadDate` mapped as `keyword`. Enrichment fields are dynamically mapped, so stock queries use `mentioned_stocks.keyword`.
+- `podcast_chunks` — `{ fullTitle, podcaster, episode, uploadDate, chunk_index, content, embedding }`, used for kNN.
+
+Timeline/aggregate queries (`themes`, `sentiment`, `stocks`, `glossary`) fetch with `size: 200` and aggregate in JS — bump this when the episode count approaches 200.
+
+- **`src/middleware/verifyGoogleToken.js`** — validates Google OAuth Bearer tokens; sets `req.user`
+- Rate limits (per `req.user.sub`, skipped when `NODE_ENV=test`): `/api/ask` + `/api/stock/ask` share a 20 req/day limiter; `/api/chat` has its own 30 req/day limiter
 
 Route → Service call mapping:
 | Route | Service function |
 |---|---|
 | `GET /api/search` | `search(keyword)` — BM25 full-text on `podcast` index |
 | `GET /api/podcast/all` | `getPodcasts(page, limit)` — returns `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `note` |
-| `GET /api/podcast/summary` _(auth required)_ | `getPodcastByPodcasterAndEpisode(podcaster, episode)` |
-| `GET /api/podcast/chunks` _(auth required)_ | `getPodcastChunks(podcaster, episode, page)` — returns 10 chunks/page from `podcast_chunks`, sorted by `chunk_index`; response: `{ chunks: [{ chunk_index, chunk_text }], total, page, hasMore }` |
-| `POST /api/ask` _(auth required, 20 req/day/user)_ | `askWithContext()` — embed → kNN on `podcast_chunks` → SSE: first emits `{ sources: [...] }` (deduplicated episodes from kNN hits), then streams `{ content }` chunks, finally `[DONE]` |
+| `GET /api/podcast/summary` _(auth)_ | `getPodcastByPodcasterAndEpisode(podcaster, episode)` |
+| `GET /api/podcast/transcript` _(auth)_ | `getPodcastTranscript(podcaster, episode)` — returns `{ content }` (raw transcript), 404 if missing |
+| `GET /api/podcast/chunks` _(auth)_ | `getPodcastChunks(podcaster, episode, page)` — 10 chunks/page sorted by `chunk_index`; `{ chunks: [{ chunk_index, chunk_text }], total, page, hasMore }` |
+| `POST /api/ask` _(auth, 20/day)_ | `askWithContext()` — embed → kNN on `podcast_chunks` → SSE |
+| `POST /api/stock/ask` _(auth, shares 20/day)_ | `askAboutStock(ticker)` — AI opinion timeline for a ticker, SSE |
+| `POST /api/chat` _(auth, 30/day)_ | `chatWithContext(question, messages)` — multi-turn RAG chat, SSE |
+| `GET /api/themes/timeline` | `getThemesTimeline()` — `{ timeline: { "YYYY-MM": { theme: count } }, episodes }` |
+| `GET /api/sentiment/timeline` | `getSentimentTimeline()` — per-episode `{ score, label, reason }` from `market_sentiment` |
+| `GET /api/stocks` | `getStocksList()` — tickers aggregated from `mentioned_stocks` with first/last mention dates |
+| `GET /api/stocks/:ticker` | `getStockDetail(ticker)` |
+| `GET /api/stocks/:ticker/drift` | `getStockDrift(ticker)` — sentiment + matching bullish/bearish thesis per episode |
+| `GET /api/glossary` | `getGlossary()` — `glossary_terms` aggregated by term across episodes |
+
+All SSE endpoints share one protocol: first `data: { sources: [...] }`, then `data: { content }` chunks, finally `data: [DONE]` (or `data: { error }`).
 
 ### Frontend
 
-Uses the Next.js App Router. State is managed globally with Redux Toolkit and persisted to `localStorage` via `redux-persist`.
+Uses the Next.js App Router. State is managed globally with Redux Toolkit (`src/app/store.ts`) and persisted to `localStorage` via `redux-persist`. Persisted state can be stale/empty after a backend change — pages refetch when persisted data is empty.
 
 **Key path alias:** `@/*` → `src/*`. Utils folder is at `src/utils/`.
 
 **Redux slices** (`src/features/`):
 
 - `searchSlice` — search results, driven by `fetchSearchResults(keyword)`
-- `summarySlice` — episode summary only (transcript tab removed); `fetchSummary` fetches summary; `fetchChunks` + `loadMoreChunks` fetch paginated chunks from `/api/podcast/chunks` (kept for future use but not rendered); state fields: `chunks`, `chunksPage`, `chunksTotal`, `chunksHasMore`, `chunksStatus`, `chunksError`
-- `podcastListSlice` — podcast list; fetches all episodes at once (limit 200); the page component manages a local `visibleCount` for load-more (20 per step) and client-side year/month filtering
-- `askSlice` — Q&A state (`question`, `answer`, `sources`, `status`); persisted via redux-persist so answer survives navigation
+- `summarySlice` — episode summary + transcript; `fetchChunks` + `loadMoreChunks` fetch paginated chunks (kept for future use but not rendered)
+- `podcastListSlice` — fetches all episodes at once (limit 200); the page component manages a local `visibleCount` for load-more (20 per step) and client-side year/month filtering
+- `askSlice` — Q&A and stock-ask state (`question`, `answer`, `sources`, `status`); persisted so the answer survives navigation
+- `chatSlice` — multi-turn chat messages
+- `themesSlice`, `sentimentSlice`, `stocksSlice`, `glossarySlice` — data for the corresponding analytics pages
 - `helloSlice` — legacy, not actively used
 
 **Auth pattern:** `src/utils/fetchWithAuth.ts` wraps `fetch`, pulling the `id_token` from the NextAuth session and injecting `Authorization: Bearer <token>`. Any component calling a protected endpoint must use this utility. NextAuth is configured at `src/app/api/auth/[...nextauth]/route.ts`, with `authOptions` extracted to `src/lib/authOptions.ts`. The JWT callback auto-refreshes the Google ID token before expiry using the stored refresh token.
@@ -82,8 +117,13 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit and pe
 - `/` — home
 - `/search` — search interface
 - `/podcast-list/[podcaster]` — episode list for a podcaster
-- `/summary/[podcaster]/[episode]` — episode detail with summary (auth-gated); transcript tab removed
-- `/ask` — Q&A streaming interface (auth-gated, 20 req/day limit)
+- `/summary/[podcaster]/[episode]` — episode detail (auth-gated): 摘要 tab + 逐字稿 tab (raw transcript with keyword search)
+- `/ask` — Q&A streaming (auth-gated, 20/day) with a 查股票 tab for per-ticker opinion timelines
+- `/chat` — multi-turn chat (auth-gated, 30/day)
+- `/stocks`, `/stocks/[ticker]` — stock mention tracker and per-ticker detail with opinion drift
+- `/themes` — theme trend timeline
+- `/sentiment` — market sentiment timeline
+- `/glossary` — investment concept glossary
 
 ### Mobile UI Notes
 
@@ -95,41 +135,67 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit and pe
 
 ### Testing
 
-**Backend tests** (`backend/tests/`) use supertest against the real Express app with `vi.mock('../../src/service.js')` to stub the service layer. The `google-auth-library` mock uses `vi.hoisted()` to expose `mockVerifyIdToken` to the factory.
+**Backend tests** (`backend/tests/`) use supertest against the real Express app with `vi.mock('../../src/service.js')` to stub the service layer. The `google-auth-library` mock uses `vi.hoisted()` to expose `mockVerifyIdToken` to the factory. There is one test file per route group in `tests/routes/`.
 
-**Frontend tests** (`frontend/tests/`) use fresh `configureStore` instances (no redux-persist) per test. `summarySlice` tests mock `@/utils/fetchWithAuth` via `vi.hoisted()`. `askSlice` has no dedicated test file yet.
+**Frontend tests** (`frontend/tests/`) use fresh `configureStore` instances (no redux-persist) per test. `summarySlice` tests mock `@/utils/fetchWithAuth` via `vi.hoisted()`. Only `search`, `summary`, `podcastList`, and `glossary` slices have tests so far.
 
 No real network calls are made in any test — all external dependencies are mocked.
 
 ### Ingestion Pipeline (`auto-summarize/`)
 
-Python script that downloads, transcribes, and indexes new episodes.
+Python pipeline that downloads, transcribes, enriches, and indexes new episodes. Uses the `openai-env/` virtualenv at the repo root.
 
 ```bash
 cd auto-summarize
-python main.py local       # Process latest episode only
-python main.py reindex     # Re-index from notes/gooaye/ into ES (always rebuilds chunks)
+python tui.py              # Interactive TUI: diff RSS vs notes/, pick episodes, download + run full pipeline
+python check_new.py        # List RSS episodes not yet in notes/gooaye/
+python main.py local       # Process latest episode only (run-local.sh wraps this with logging to logs/)
+python main.py reindex     # Re-index notes/gooaye/ into ES (always rebuilds chunks, backfills missing fields)
 ```
 
-**Flow:** Download via RSS → check `notes/gooaye/` for duplicates → transcribe locally via `mlx-whisper` (whisper-large-v3-turbo, Apple Silicon only) → post-process known misheard terms (`TRANSCRIPTION_FIXES`) → GPT-4o-mini summary → sentence-boundary chunking (target 600 chars, hard cap 1500) from `note` field (not raw transcript) → embed via `text-embedding-3-small` → write to `podcast` + `podcast_chunks` → cache embeddings back to `notes/gooaye/*.json`.
+**Flow:** Download via RSS (needs a browser User-Agent or the feed returns 403) → validate MP3 size → transcribe locally via `mlx-whisper` (whisper-large-v3-turbo, Apple Silicon only) → post-process known misheard terms (`TRANSCRIPTION_FIXES`) → GPT-4o-mini summary → enrichment (`classify_themes`, `extract_stocks`, `extract_investment_thesis`, `extract_sentiment_score`, `extract_glossary_terms`) → sentence-boundary chunking (target 600 chars, hard cap 1500) of the `note` field → embed via `text-embedding-3-small` → write `podcast` + `podcast_chunks` → save JSON to `notes/gooaye/`.
 
-**`reindex` mode** always deletes and rebuilds `podcast_chunks` from the `note` field. Does not re-transcribe or re-summarize.
+In the TUI's full pipeline, the JSON is saved **before** any ES write, so an ES outage never loses transcription/summary work; a failed ES write only warns, and the index can be backfilled later with `main.py reindex`.
+
+**`reindex` mode** always deletes and rebuilds `podcast_chunks` from the `note` field (re-embeds every chunk). Does not re-transcribe or re-summarize.
+
+### Cross-episode company analysis (`auto-summarize/`, CLI only)
+
+```bash
+python analyze_company.py NVDA --range 1y         # quote only: which episodes are already analyzed + estimated cost
+python analyze_company.py NVDA --range 1y --yes   # extract missing episodes, re-match threads, write the matrix page
+```
+
+- `companies.json` — company key → prompt name + extra aliases (misheard spellings). Add a company here before analyzing it.
+- `extract_reasons.py` — per episode, LLM extracts self-contained reasons about the company from the raw `content` (whole episode in one gpt-5.5 call by default), each with a verbatim `reference` and `focus` (主角/背景).
+- `match_threads.py` — groups reasons across episodes into neutral topic threads and labels each 新增/重複/更新/反轉 (gpt-5.5, one call per reason).
+- `render_threads.py` — pure code; thread × episode matrix HTML.
+- Records live in `analysis/<KEY>/extractions/EP*.json` (gitignored) with the transcript hash, prompt hash and model; an episode is re-extracted only when one of those changes. Zero-reason episodes are recorded too; failed calls are not. Thread matching is not cached yet and re-runs over the whole range, which dominates the quote.
 
 ### Environment Variables
 
-Backend `.env`:
+Backend `backend/.env`:
 
 ```
 ELASTIC_URL, ELASTIC_USERNAME, ELASTIC_PASSWORD
 GOOGLE_CLIENT_ID
 FRONTEND_URL
-OPENAI_API_KEY   # used by /api/ask for embeddings + GPT-4o-mini streaming
+OPENAI_API_KEY   # used by /api/ask, /api/stock/ask, /api/chat for embeddings + GPT-4o-mini streaming
 ```
 
-Frontend `.env.local`:
+Frontend `frontend/.env`:
 
 ```
 NEXT_PUBLIC_BACKEND_URL   # e.g. http://localhost:3000
 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
-NEXTAUTH_SECRET
+NEXTAUTH_SECRET, NEXTAUTH_URL
 ```
+
+Ingestion `auto-summarize/.env` (note the different names):
+
+```
+OPENAI_API_KEY
+ELASTICSEARCH_HOST, ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD
+```
+
+Root `.env` is read by `docker-compose.yml` (`ELASTIC_PASSWORD`, `ELASTIC_USERNAME`, `ELASTICSEARCH_SERVICEACCOUNTTOKEN`, `OPENAI_API_KEY`, Google/NextAuth secrets).
