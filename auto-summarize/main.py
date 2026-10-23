@@ -492,7 +492,8 @@ def parse_filename(file_name):
     pattern = r"\[(\d{8})\]\s*EP(\d+)\s*(.*?)\.mp3$"
     match = re.match(pattern, file_name)
     if match:
-        return match.group(1), match.group(2), match.group(3).strip()
+        # RSS titles are "EP686 | 🕸️"; sanitize_filename turns "|" into "_", so drop that separator
+        return match.group(1), match.group(2), match.group(3).strip().lstrip("_|").strip()
     return None, None, None
 
 
