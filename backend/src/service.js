@@ -30,7 +30,7 @@ export const search = async (keyword) => {
           note: { number_of_fragments: 1, fragment_size: 120, pre_tags: ['<em>'], post_tags: ['</em>'] },
         },
       },
-      _source: { excludes: ['content'] },
+      _source: { excludes: ['content', 'segments'] },
     },
   });
   return result.hits.hits.map((hit) => {
@@ -61,7 +61,7 @@ export const getPodcastByPodcasterAndEpisode = async (podcaster, episode) => {
           ],
         },
       },
-      _source: { excludes: ['content'] },
+      _source: { excludes: ['content', 'segments'] },
       size: 1,
     },
   });
@@ -92,13 +92,13 @@ export const getPodcastTranscript = async (podcaster, episode) => {
           ],
         },
       },
-      _source: ['content'],
+      _source: ['content', 'segments'],
       size: 1,
     },
   });
   const hit = result.hits.hits[0];
-  if (!hit) return null;
-  return hit._source.content ?? null;
+  if (!hit || hit._source.content == null) return null;
+  return { content: hit._source.content, segments: hit._source.segments ?? null };
 };
 
 export const getPodcastChunks = async (podcaster, episode, page = 1) => {

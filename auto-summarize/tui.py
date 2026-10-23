@@ -53,6 +53,7 @@ from main import (
     save_to_notes,
     index_chunks,
     elastic_client,
+    ensure_podcast_mapping,
 )
 
 console = Console()
@@ -120,12 +121,13 @@ def run_transcribe(mp3_name: str) -> None:
     full_title = os.path.splitext(mp3_name)[0]
     json_path = os.path.join(NOTES_DIR, full_title + ".json")
 
-    transcription = transcribe_audio(mp3_path)
+    transcription, segments = transcribe_audio(mp3_path)
 
     if os.path.exists(json_path):
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         data["content"] = transcription
+        data["segments"] = segments
     else:
         os.makedirs(NOTES_DIR, exist_ok=True)
         data = {
@@ -135,6 +137,7 @@ def run_transcribe(mp3_name: str) -> None:
             "fullTitle": full_title,
             "podcaster": "Gooaye",
             "content": transcription,
+            "segments": segments,
             "note": "",
         }
 
@@ -182,6 +185,7 @@ def run_summarize(mp3_name: str) -> None:
 
     # Upsert to podcast index (force overwrite by using id=full_title)
     doc = {k: v for k, v in data.items() if k != "embeddings"}
+    ensure_podcast_mapping()
     elastic_client.index(index=INDEX_NAME, id=full_title, document=doc)
     console.print("[green]✓[/green] 摘要已完成並寫入 ES。")
 
@@ -227,7 +231,7 @@ def run_full_pipeline(mp3_name: str) -> None:
     full_title = os.path.splitext(mp3_name)[0]
 
     console.print("[bold]步驟 1/4：轉錄...[/bold]")
-    transcription = transcribe_audio(mp3_path)
+    transcription, segments = transcribe_audio(mp3_path)
 
     console.print("[bold]步驟 2/4：摘要 + 資料豐富化...[/bold]")
     summary = summarize_transcription(transcription)
@@ -245,6 +249,7 @@ def run_full_pipeline(mp3_name: str) -> None:
         "episode": episode,
         "fullTitle": full_title,
         "content": transcription,
+        "segments": segments,
         "note": summary,
         "themes": themes,
         "mentioned_stocks": mentioned_stocks,
@@ -254,6 +259,7 @@ def run_full_pipeline(mp3_name: str) -> None:
         "glossary_terms": glossary_terms,
     }
     # Upsert (force overwrite)
+    ensure_podcast_mapping()
     elastic_client.index(index=INDEX_NAME, id=full_title, document=doc)
 
     console.print("[bold]步驟 4/4：重建 chunks + embeddings...[/bold]")
@@ -268,6 +274,7 @@ def run_full_pipeline(mp3_name: str) -> None:
         embeddings=embeddings, themes=themes, mentioned_stocks=mentioned_stocks,
         stock_sentiments=stock_sentiments, investment_thesis=investment_thesis,
         market_sentiment=market_sentiment, glossary_terms=glossary_terms,
+        segments=segments,
     )
     console.print(f"[green bold]✓ 全流程完成：{full_title}[/green bold]")
 

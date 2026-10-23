@@ -60,17 +60,31 @@ describe('GET /api/podcast/transcript', () => {
     expect(res.body).toEqual({ error: 'episode is required' });
   });
 
-  it('returns 200 with transcript content', async () => {
-    const fakeContent = '今天我們來聊聊美股的走勢...';
-    getPodcastTranscript.mockResolvedValue(fakeContent);
+  it('returns 200 with transcript content and segments', async () => {
+    const fakeTranscript = {
+      content: '今天我們來聊聊美股的走勢...',
+      segments: [{ start: 0, end: 3.2, text: '今天我們來聊聊美股的走勢...' }],
+    };
+    getPodcastTranscript.mockResolvedValue(fakeTranscript);
 
     const res = await withAuth(
       request(app).get('/api/podcast/transcript?podcaster=TestPodcaster&episode=EP001')
     );
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ content: fakeContent });
+    expect(res.body).toEqual(fakeTranscript);
     expect(getPodcastTranscript).toHaveBeenCalledWith('TestPodcaster', 'EP001');
+  });
+
+  it('returns null segments for episodes transcribed without timestamps', async () => {
+    getPodcastTranscript.mockResolvedValue({ content: '舊的逐字稿', segments: null });
+
+    const res = await withAuth(
+      request(app).get('/api/podcast/transcript?podcaster=TestPodcaster&episode=EP001')
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ content: '舊的逐字稿', segments: null });
   });
 
   it('returns 404 when service returns null', async () => {

@@ -8,6 +8,7 @@ import { AppDispatch, RootState } from '@/app/store';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatDate } from '@/utils';
+import { formatTimestamp, groupSegments } from '@/utils/transcript';
 import { MetadataSkeleton, SummarySkeleton, TranscriptSkeleton } from './skeletons';
 
 type Tab = 'summary' | 'transcript';
@@ -34,9 +35,15 @@ export default function EpisodeSummaryPage() {
     episode: string;
   };
   const dispatch = useDispatch<AppDispatch>();
-  const { result, status, error, transcript, transcriptStatus, transcriptError } = useSelector(
-    (state: RootState) => state.summary
-  );
+  const {
+    result,
+    status,
+    error,
+    transcript,
+    transcriptSegments,
+    transcriptStatus,
+    transcriptError,
+  } = useSelector((state: RootState) => state.summary);
   const [activeTab, setActiveTab] = useState<Tab>('summary');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -55,6 +62,11 @@ export default function EpisodeSummaryPage() {
     const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return (transcript.match(new RegExp(escaped, 'gi')) ?? []).length;
   }, [transcript, searchTerm]);
+
+  const paragraphs = useMemo(
+    () => (transcriptSegments?.length ? groupSegments(transcriptSegments) : null),
+    [transcriptSegments]
+  );
 
   useEffect(() => {
     if (podcaster && episode) {
@@ -231,7 +243,20 @@ export default function EpisodeSummaryPage() {
                     </span>
                   )}
                 </div>
-                {transcript ? (
+                {paragraphs ? (
+                  <div className="space-y-4">
+                    {paragraphs.map((para) => (
+                      <div key={para.start} className="flex gap-3">
+                        <span className="w-14 shrink-0 pt-0.5 text-xs text-[#c4c2b8] tabular-nums">
+                          {formatTimestamp(para.start)}
+                        </span>
+                        <p className="text-sm text-gray-700 leading-relaxed">
+                          {highlightText(para.text, searchTerm)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : transcript ? (
                   <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
                     {highlightText(transcript, searchTerm)}
                   </p>

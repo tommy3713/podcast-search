@@ -11,6 +11,7 @@ import summaryReducer, {
   fetchSummary,
   fetchChunks,
   loadMoreChunks,
+  fetchTranscript,
 } from '@/features/summarySlice';
 
 describe('summarySlice', () => {
@@ -37,6 +38,7 @@ describe('summarySlice', () => {
       chunksTotal: 0,
       chunksHasMore: false,
       transcript: null,
+      transcriptSegments: null,
       transcriptStatus: 'idle',
       transcriptError: undefined,
     });
@@ -141,6 +143,47 @@ describe('summarySlice', () => {
     expect(state.chunks).toHaveLength(2);
     expect(state.chunksPage).toBe(2);
     expect(state.chunksHasMore).toBe(false);
+  });
+
+  it('fetchTranscript fulfilled stores content and segments', async () => {
+    const fakeTranscript = {
+      content: '歡迎收聽股癌。',
+      segments: [{ start: 0, end: 2.5, text: '歡迎收聽股癌。' }],
+    };
+    mockFetchWithAuth.mockResolvedValue({ ok: true, json: async () => fakeTranscript });
+
+    const store = makeStore();
+    await store.dispatch(fetchTranscript({ podcaster: 'TestPodcaster', episode: 'EP001' }));
+
+    const state = store.getState().summary;
+    expect(state.transcriptStatus).toBe('succeeded');
+    expect(state.transcript).toBe('歡迎收聽股癌。');
+    expect(state.transcriptSegments).toEqual(fakeTranscript.segments);
+  });
+
+  it('fetchTranscript sets segments to null when the response has none', async () => {
+    mockFetchWithAuth.mockResolvedValue({ ok: true, json: async () => ({ content: '舊的逐字稿' }) });
+
+    const store = makeStore();
+    await store.dispatch(fetchTranscript({ podcaster: 'TestPodcaster', episode: 'EP001' }));
+
+    const state = store.getState().summary;
+    expect(state.transcript).toBe('舊的逐字稿');
+    expect(state.transcriptSegments).toBeNull();
+  });
+
+  it('fetchTranscript rejected sets transcriptStatus to failed', async () => {
+    mockFetchWithAuth.mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'Transcript not found' }),
+    });
+
+    const store = makeStore();
+    await store.dispatch(fetchTranscript({ podcaster: 'TestPodcaster', episode: 'EP001' }));
+
+    const state = store.getState().summary;
+    expect(state.transcriptStatus).toBe('failed');
+    expect(state.transcriptError).toBe('Transcript not found');
   });
 
   it('summary success and chunks failure coexist independently', async () => {

@@ -74,6 +74,7 @@ if not es.indices.exists(index=INDEX_NAME):
                 "fullTitle":  {"type": "keyword"},
                 "content":    {"type": "text", "analyzer": "icu_analyzer"},
                 "note":       {"type": "text", "analyzer": "icu_analyzer"},
+                "segments":   {"type": "object", "enabled": False},
             }
         }
     })

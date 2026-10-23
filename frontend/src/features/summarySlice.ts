@@ -1,5 +1,6 @@
 import { RootState } from '@/app/store';
 import { fetchWithAuth } from '@/utils/fetchWithAuth';
+import { TranscriptSegment } from '@/utils/transcript';
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
 interface InvestmentThesisItem {
@@ -40,6 +41,8 @@ interface SummaryState {
   chunksTotal: number;
   chunksHasMore: boolean;
   transcript: string | null;
+  // null for episodes transcribed before timestamps were recorded
+  transcriptSegments: TranscriptSegment[] | null;
   transcriptStatus: 'idle' | 'loading' | 'succeeded' | 'failed';
   transcriptError?: string;
 }
@@ -55,6 +58,7 @@ const initialState: SummaryState = {
   chunksTotal: 0,
   chunksHasMore: false,
   transcript: null,
+  transcriptSegments: null,
   transcriptStatus: 'idle',
   transcriptError: undefined,
 };
@@ -121,7 +125,7 @@ export const loadMoreChunks = createAsyncThunk<
 );
 
 export const fetchTranscript = createAsyncThunk<
-  string,
+  { content: string; segments: TranscriptSegment[] | null },
   { podcaster: string; episode: string },
   { rejectValue: string }
 >(
@@ -135,8 +139,8 @@ export const fetchTranscript = createAsyncThunk<
         const e = await res.json().catch(() => null);
         throw new Error(e?.error || 'Failed to fetch transcript');
       }
-      const data: { content: string } = await res.json();
-      return data.content;
+      const data: { content: string; segments?: TranscriptSegment[] | null } = await res.json();
+      return { content: data.content, segments: data.segments ?? null };
     } catch (err) {
       return rejectWithValue((err as Error).message);
     }
@@ -153,6 +157,7 @@ const summarySlice = createSlice({
         state.status = 'loading';
         state.error = undefined;
         state.transcript = null;
+        state.transcriptSegments = null;
         state.transcriptStatus = 'idle';
         state.transcriptError = undefined;
       })
@@ -203,7 +208,8 @@ const summarySlice = createSlice({
       })
       .addCase(fetchTranscript.fulfilled, (state, { payload }) => {
         state.transcriptStatus = 'succeeded';
-        state.transcript = payload;
+        state.transcript = payload.content;
+        state.transcriptSegments = payload.segments;
       })
       .addCase(fetchTranscript.rejected, (state, { payload }) => {
         state.transcriptStatus = 'failed';

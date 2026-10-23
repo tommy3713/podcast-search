@@ -58,37 +58,70 @@ def download_podcasts():
     print("Podcasts downloaded.")
 
 
-# Proper nouns hint for Whisper — add any terms that get consistently misheard
-WHISPER_PROMPT = "股癌，謝孟恭，Gooaye，台股，美股，Fed，聯準會，ETF，殖利率，通膨，升息，降息，半導體，台積電，輝達，NVIDIA，蘋果，Google，Meta，特斯拉，股海，SiFive"
+# Prompt for Whisper. Only conditions the first 30s window (later windows condition on
+# previous output), so it's written as natural Traditional Chinese with full-width
+# punctuation to set the output style, with proper nouns that get misheard.
+WHISPER_PROMPT = "歡迎收聽股癌，我是謝孟恭。今天聊聊台股、美股，Fed 跟聯準會的升息、降息，還有通膨、殖利率、ETF。半導體方面有台積電、輝達 NVIDIA、蘋果、Google、Meta、特斯拉、SiFive。"
+
+WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 
 # Known Whisper transcription errors — add new ones as they're discovered
 TRANSCRIPTION_FIXES = {
     "聖風宮": "謝孟恭",
     "謝夢恭": "謝孟恭",
+    "沈夢恭": "謝孟恭",
     "谷海": "股癌",
+    "古愛": "股癌",
     "孫悟空": "謝孟恭",
+    # OpenCC turns 台 into 臺; Taiwan usage (台股, 台積電) is 台
+    "臺": "台",
 }
+
+# Half-width punctuation next to a CJK character → full-width
+_HALF_TO_FULL_PUNCT = {",": "，", "?": "？", "!": "！", ":": "：", ";": "；"}
+_CJK_PUNCT_RE = re.compile(r"(?<=[一-鿿])[,?!:;]|[,?!:;](?=[一-鿿])")
 
 def fix_transcription(text):
     for wrong, correct in TRANSCRIPTION_FIXES.items():
         text = text.replace(wrong, correct)
-    return text
+    return _CJK_PUNCT_RE.sub(lambda m: _HALF_TO_FULL_PUNCT[m.group()], text)
 
-# OpenCC converter: Simplified Chinese → Traditional Chinese (Taiwan standard)
-_s2tw = opencc.OpenCC('s2twp')
+# OpenCC converter: Simplified → Traditional characters only. Not s2twp: its phrase
+# conversion rewrites what the speaker actually said (代碼→程式碼, 信息→資訊).
+_s2tw = opencc.OpenCC('s2tw')
+
+def normalize_transcript_text(text):
+    return fix_transcription(_s2tw.convert(text))
 
 # Function: Transcribe audio using mlx-whisper (local, Apple Silicon)
-def transcribe_audio(file_path):
+# Returns (text, segments) where segments = [{"start", "end", "text"}] with times in seconds.
+def transcribe_audio(file_path, model=WHISPER_MODEL, initial_prompt=WHISPER_PROMPT):
     print(f"Transcribing {os.path.basename(file_path)}...")
     result = mlx_whisper.transcribe(
         file_path,
-        path_or_hf_repo="mlx-community/whisper-large-v3-turbo",
+        path_or_hf_repo=model,
         language="zh",
-        initial_prompt=WHISPER_PROMPT,
+        initial_prompt=initial_prompt,
     )
     print("Transcription completed.")
-    text = _s2tw.convert(result["text"])
-    return fix_transcription(text)
+    segments = []
+    for seg in result["segments"]:
+        seg_text = normalize_transcript_text(seg["text"].strip())
+        if seg_text:
+            segments.append({
+                "start": round(seg["start"], 1),
+                "end": round(seg["end"], 1),
+                "text": seg_text,
+            })
+    text = "".join(seg["text"] for seg in segments)
+    return text, segments
+
+
+# `segments` holds per-utterance timestamps for display only; don't index its contents
+PODCAST_SEGMENTS_MAPPING = {"segments": {"type": "object", "enabled": False}}
+
+def ensure_podcast_mapping():
+    elastic_client.indices.put_mapping(index=INDEX_NAME, properties=PODCAST_SEGMENTS_MAPPING)
 
 
 MAX_TRANSCRIPTION_CHARS = 120000  # ~60k tokens for Chinese text, safely under gpt-4o-mini's 128k limit
@@ -260,7 +293,7 @@ def extract_investment_thesis(note_text):
 
 
 # Function: Save final result to notes/gooaye/ in the project's standard JSON format
-def save_to_notes(file_name, podcaster, title, episode, upload_date, content, note, embeddings=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None, market_sentiment=None, glossary_terms=None):
+def save_to_notes(file_name, podcaster, title, episode, upload_date, content, note, embeddings=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None, market_sentiment=None, glossary_terms=None, segments=None):
     os.makedirs(NOTES_DIR, exist_ok=True)
     note_name = os.path.splitext(file_name)[0]  # strip .mp3
     note_path = os.path.join(NOTES_DIR, f"{note_name}.json")
@@ -273,6 +306,8 @@ def save_to_notes(file_name, podcaster, title, episode, upload_date, content, no
         "content": content,
         "note": note,
     }
+    if segments is not None:
+        data["segments"] = segments
     if embeddings is not None:
         data["embeddings"] = embeddings
     if themes is not None:
@@ -415,7 +450,7 @@ def index_chunks(file_name, podcaster, episode, upload_date, text):
 
 
 # Function: Index transcription in Elasticsearch
-def index_transcription(file_name, podcaster, title, episode, full_transcription_text, uploadDate, note=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None, market_sentiment=None, glossary_terms=None):
+def index_transcription(file_name, podcaster, title, episode, full_transcription_text, uploadDate, note=None, themes=None, mentioned_stocks=None, stock_sentiments=None, investment_thesis=None, market_sentiment=None, glossary_terms=None, segments=None):
     document = {
         'podcaster': podcaster,
         'title': title,
@@ -424,6 +459,8 @@ def index_transcription(file_name, podcaster, title, episode, full_transcription
         'fullTitle': file_name,
         'content': full_transcription_text,
     }
+    if segments:
+        document['segments'] = segments
     if note:
         document['note'] = note
     if themes:
@@ -475,7 +512,7 @@ def test_process():
         file_path = os.path.join(PODCAST_DIR, file_name)
 
         # Transcribe locally with mlx-whisper
-        full_transcription_text = transcribe_audio(file_path)
+        full_transcription_text, segments = transcribe_audio(file_path)
 
         # Summarize
         summary = summarize_transcription(full_transcription_text)
@@ -488,11 +525,12 @@ def test_process():
         glossary_terms = extract_glossary_terms(summary)
 
         # Index in ES
-        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis, market_sentiment=market_sentiment, glossary_terms=glossary_terms)
+        ensure_podcast_mapping()
+        index_transcription(file_name, "Gooaye", title, episode, full_transcription_text, date, note=summary, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis, market_sentiment=market_sentiment, glossary_terms=glossary_terms, segments=segments)
         embeddings = index_chunks(file_name, "Gooaye", episode, date, summary)
 
         # Save to notes/gooaye/ (with embeddings cached)
-        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis, market_sentiment=market_sentiment, glossary_terms=glossary_terms)
+        save_to_notes(file_name, "Gooaye", title, episode, date, full_transcription_text, summary, embeddings=embeddings, themes=themes, mentioned_stocks=mentioned_stocks, stock_sentiments=stock_sentiments, investment_thesis=investment_thesis, market_sentiment=market_sentiment, glossary_terms=glossary_terms, segments=segments)
 
         break  # Process only the first file for testing
 
@@ -504,6 +542,7 @@ def test_process():
 def reindex_from_notes():
     notes = sorted(os.listdir(NOTES_DIR))
     print(f"Found {len(notes)} notes to index.")
+    ensure_podcast_mapping()
     for note_file in notes:
         if not note_file.endswith(".json"):
             continue
@@ -569,10 +608,67 @@ def reindex_from_notes():
     print("Reindex from notes complete.")
 
 
+# Function: Re-transcribe episodes already in notes/gooaye/ (e.g. to add timestamps).
+# Downloads each MP3 from RSS into a temp dir, replaces `content` + `segments` in the JSON,
+# updates the ES podcast doc in place, then deletes the MP3. Summary and enrichment fields
+# are untouched, so no re-summarize or re-embed. Defaults to every note without `segments`.
+def retranscribe_notes(episodes=None):
+    from check_new import load_rss_url, fetch_rss_episodes, download_episode
+
+    targets = []
+    for note_file in sorted(os.listdir(NOTES_DIR)):
+        if not note_file.endswith(".json"):
+            continue
+        note_path = os.path.join(NOTES_DIR, note_file)
+        with open(note_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        episode = data.get("episode", "")
+        if episodes is not None and episode not in episodes:
+            continue
+        if episodes is None and "segments" in data:
+            continue
+        targets.append((note_path, episode))
+    print(f"{len(targets)} episodes to re-transcribe.")
+    if not targets:
+        return
+
+    rss_by_episode = {ep["episode"]: ep for ep in fetch_rss_episodes(load_rss_url())}
+    temp_dir = "./data/retranscribe"
+    os.makedirs(temp_dir, exist_ok=True)
+    ensure_podcast_mapping()
+
+    for note_path, episode in targets:
+        rss_ep = rss_by_episode.get(episode)
+        if not rss_ep:
+            print(f"EP{episode}: not in RSS, skipping")
+            continue
+        print(f"EP{episode}: downloading...")
+        mp3_path = download_episode(rss_ep, temp_dir)
+        try:
+            content, segments = transcribe_audio(mp3_path)
+        finally:
+            os.remove(mp3_path)
+
+        with open(note_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["content"] = content
+        data["segments"] = segments
+        with open(note_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        print(f"  Saved {len(segments)} segments to {note_path}")
+
+        try:
+            elastic_client.update(index=INDEX_NAME, id=data["fullTitle"], doc={"content": content, "segments": segments})
+        except Exception as e:
+            print(f"  ES update failed ({e}); run `python main.py reindex` later to sync")
+
+    print("Re-transcription complete.")
+
+
 # Main process based on argument
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python main.py <local|test|reindex>")
+        print("Usage: python main.py <local|test|reindex|retranscribe [EP ...]>")
         sys.exit(1)
 
     mode = sys.argv[1].lower()
@@ -582,6 +678,10 @@ if __name__ == "__main__":
     elif mode == "reindex":
         print("Reindexing from notes/gooaye/...")
         reindex_from_notes()
+    elif mode == "retranscribe":
+        # e.g. `retranscribe 685 686`; no episode numbers = every note without segments
+        episodes = {ep.upper().removeprefix("EP") for ep in sys.argv[2:]} or None
+        retranscribe_notes(episodes)
     else:
-        print("Invalid argument. Use 'local' or 'reindex'.")
+        print("Invalid argument. Use 'local', 'reindex' or 'retranscribe'.")
         sys.exit(1)

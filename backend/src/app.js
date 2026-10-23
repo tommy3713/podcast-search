@@ -105,9 +105,9 @@ app.get('/api/podcast/transcript', verifyGoogleToken, async (req, res) => {
   }
 
   try {
-    const content = await getPodcastTranscript(podcaster, episode);
-    if (content !== null) {
-      res.json({ content });
+    const transcript = await getPodcastTranscript(podcaster, episode);
+    if (transcript !== null) {
+      res.json(transcript);
     } else {
       res.status(404).json({ error: 'Transcript not found' });
     }
