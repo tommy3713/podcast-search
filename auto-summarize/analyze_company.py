@@ -7,13 +7,15 @@ prompt changed since. An episode with zero reasons is a valid record too.
 
 Without --yes this only prints which episodes are already analyzed and what the
 rest would cost. With --yes it extracts the missing episodes, re-runs thread
-matching over the whole range, and writes the matrix page.
+matching over the whole range, writes the matrix page, and publishes the result
+to the `company_threads` ES index for the website's /analysis/<KEY> page.
 
 Companies live in companies.json (key → prompt name + extra aliases).
 
 Usage:
     python analyze_company.py NVDA --range 1y        # quote only
     python analyze_company.py NVDA --range all --yes # run
+    python analyze_company.py NVDA --publish analysis/NVDA/threads_1y.json --range 1y  # re-publish a saved result
 """
 import os
 import sys
@@ -24,6 +26,7 @@ import argparse
 from datetime import date, datetime, timedelta
 
 import tiktoken
+from elasticsearch import Elasticsearch
 
 import extract_reasons
 import match_threads
@@ -33,6 +36,7 @@ HERE = os.path.dirname(__file__)
 COMPANIES_FILE = os.path.join(HERE, "companies.json")
 ANALYSIS_DIR = os.path.join(HERE, "analysis")
 RANGES = {"6m": 183, "1y": 365, "all": None}
+ES_INDEX = "company_threads"
 
 # USD per 1M tokens (input, output). From third-party listings checked 2026-10-23,
 # not OpenAI's own pricing page — confirm there before trusting the quote to the cent.
@@ -164,13 +168,63 @@ def quote(company, model, to_run, cached_records, notes_by_ep):
     return extract_usd, match_usd, {"input_tokens": input_tokens, "out_per_ep": out_per_ep, "reasons": n}
 
 
+def publish(key, range_label, matched):
+    """Write one doc per company to ES; the latest analysis replaces the previous one."""
+    es = Elasticsearch(
+        [os.getenv("ELASTICSEARCH_HOST")],
+        basic_auth=(os.getenv("ELASTICSEARCH_USERNAME"), os.getenv("ELASTICSEARCH_PASSWORD")),
+    )
+    if not es.indices.exists(index=ES_INDEX):
+        es.indices.create(index=ES_INDEX, mappings={
+            "properties": {
+                "key": {"type": "keyword"},
+                "company": {"type": "keyword"},
+                "range": {"type": "keyword"},
+                "generated_at": {"type": "date"},
+                "episode_count": {"type": "integer"},
+                "thread_count": {"type": "integer"},
+                "reason_count": {"type": "integer"},
+                "first_episode": {"type": "keyword"},
+                "last_episode": {"type": "keyword"},
+                "first_date": {"type": "keyword"},
+                "last_date": {"type": "keyword"},
+                # Read back whole by the backend, never queried
+                "episodes": {"type": "object", "enabled": False},
+                "threads": {"type": "object", "enabled": False},
+            }
+        })
+    episodes = matched["episodes"]
+    es.index(index=ES_INDEX, id=key, document={
+        "key": key,
+        "company": matched["company"],
+        "range": range_label,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "episode_count": len(episodes),
+        "thread_count": len(matched["threads"]),
+        "reason_count": sum(len(t["history"]) for t in matched["threads"]),
+        "first_episode": episodes[0]["episode"] if episodes else None,
+        "last_episode": episodes[-1]["episode"] if episodes else None,
+        "first_date": episodes[0]["date"] if episodes else None,
+        "last_date": episodes[-1]["date"] if episodes else None,
+        "episodes": episodes,
+        "threads": matched["threads"],
+    })
+    print(f"已發布到 ES（{ES_INDEX}/{key}），網站：/analysis/{key}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Quote, then run, a cross-episode analysis for one company.")
     parser.add_argument("key", help="Company key in companies.json, e.g. NVDA")
     parser.add_argument("--range", choices=RANGES, default="1y", help="Episodes uploaded in the last 6 months, year, or all")
     parser.add_argument("--model", default=extract_reasons.MODEL)
     parser.add_argument("--yes", action="store_true", help="Run after quoting (default: quote only)")
+    parser.add_argument("--publish", metavar="THREADS_JSON", help="Only publish an existing match result to ES, then exit")
     args = parser.parse_args()
+    if args.publish:
+        load_company(args.key)
+        with open(args.publish, "r", encoding="utf-8") as f:
+            publish(args.key, args.range, json.load(f))
+        return
     for m in (args.model, match_threads.MODEL):
         if m not in PRICES:
             sys.exit(f"No price for {m}; add it to PRICES first.")
@@ -248,6 +302,7 @@ def main():
         json.dump(matched, f, ensure_ascii=False, indent=2)
     with open(out_base + ".html", "w", encoding="utf-8") as f:
         f.write(render_threads.render(matched))
+    publish(args.key, args.range, matched)
 
     spent = sum(
         (u["prompt_tokens"] * PRICES[m][0] + u["completion_tokens"] * PRICES[m][1]) / 1e6

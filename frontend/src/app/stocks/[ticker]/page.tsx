@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useAppDispatch, useAppSelector } from '@/app/hook';
 import { fetchStockDetail } from '@/features/stocksSlice';
+import { fetchAnalysisList } from '@/features/analysisSlice';
 import Link from 'next/link';
 
 const SENTIMENT_LABEL: Record<string, string> = {
@@ -66,6 +67,7 @@ export default function StockDetailPage() {
   const { ticker } = useParams<{ ticker: string }>();
   const dispatch = useAppDispatch();
   const { detail, detailStatus } = useAppSelector((s) => s.stocks);
+  const analysisList = useAppSelector((s) => s.analysis.list);
 
   const [driftData, setDriftData] = useState<DriftData | null>(null);
   const [driftStatus, setDriftStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
@@ -73,6 +75,10 @@ export default function StockDetailPage() {
   useEffect(() => {
     if (ticker) dispatch(fetchStockDetail(decodeURIComponent(ticker)));
   }, [dispatch, ticker]);
+
+  useEffect(() => {
+    dispatch(fetchAnalysisList());
+  }, [dispatch]);
 
   const handleFetchDrift = async () => {
     if (!ticker) return;
@@ -117,6 +123,8 @@ export default function StockDetailPage() {
   const firstDate = dates.length ? formatDate([...dates].sort()[0]) : '—';
   const lastDate = dates.length ? formatDate([...dates].sort().reverse()[0]) : '—';
 
+  const analysis = analysisList.find((a) => a.key === detail.ticker.toUpperCase());
+
   const driftTimelineRows = driftData?.timeline.filter((e) => e.reason !== '') ?? [];
   const hasEnoughData = driftTimelineRows.length >= 2;
 
@@ -129,6 +137,21 @@ export default function StockDetailPage() {
         </Link>
       </div>
       <h1 className="text-2xl font-bold text-gray-800 mt-2">{detail.ticker}</h1>
+
+      {analysis && (
+        <Link
+          href={`/analysis/${encodeURIComponent(analysis.key)}`}
+          className="flex items-center justify-between mt-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 hover:border-blue-400 transition"
+        >
+          <div>
+            <p className="text-sm font-medium text-blue-700">跨集數論點分析</p>
+            <p className="text-xs text-blue-500 mt-0.5">
+              已分析 {analysis.first_episode}–{analysis.last_episode}（{analysis.episode_count} 集）· {analysis.thread_count} 個主題
+            </p>
+          </div>
+          <span className="text-blue-500">→</span>
+        </Link>
+      )}
 
       {/* Stats row */}
       <div className="flex gap-6 mt-3 mb-5 flex-wrap text-sm text-gray-600">

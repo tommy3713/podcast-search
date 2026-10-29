@@ -64,10 +64,11 @@ Caveat: `seed-es.py`'s seeding loop is out of date — it chunks `content` (not 
 
 All routes and middleware are defined directly in `src/app.js`. The service layer (`src/service.js`) holds all database logic and is the only file that talks to Elasticsearch and OpenAI. `dotenv` is loaded in `service.js`.
 
-**Database: Elasticsearch only** (MongoDB was removed). Two indices:
+**Database: Elasticsearch only** (MongoDB was removed). Indices:
 
 - `podcast` — one doc per episode. `icu_analyzer` on `content`, `note`, `title`; `podcaster`, `episode`, `fullTitle`, `uploadDate` mapped as `keyword`. Enrichment fields are dynamically mapped, so stock queries use `mentioned_stocks.keyword`. `segments` is mapped `{ type: object, enabled: false }` (stored, not indexed) by `ensure_podcast_mapping()` in `main.py`; `search` and `summary` exclude it from `_source`.
 - `podcast_chunks` — `{ fullTitle, podcaster, episode, uploadDate, chunk_index, content, embedding }`, used for kNN.
+- `company_threads` — written by `auto-summarize/analyze_company.py`, not by ingestion; `episodes`/`threads` are stored with `enabled: false`.
 
 Timeline/aggregate queries (`themes`, `sentiment`, `stocks`, `glossary`) fetch with `size: 200` and aggregate in JS — bump this when the episode count approaches 200.
 
@@ -91,6 +92,8 @@ Route → Service call mapping:
 | `GET /api/stocks/:ticker` | `getStockDetail(ticker)` |
 | `GET /api/stocks/:ticker/drift` | `getStockDrift(ticker)` — sentiment + matching bullish/bearish thesis per episode |
 | `GET /api/glossary` | `getGlossary()` — `glossary_terms` aggregated by term across episodes |
+| `GET /api/analysis` | `getCompanyAnalysisList()` — published cross-episode analyses (metadata only, no threads); `[]` before the index exists |
+| `GET /api/analysis/:key` _(auth)_ | `getCompanyAnalysis(key)` — one company's `{ episodes, threads, ... }` from `company_threads`; 404 if never analyzed |
 
 All SSE endpoints share one protocol: first `data: { sources: [...] }`, then `data: { content }` chunks, finally `data: [DONE]` (or `data: { error }`).
 
@@ -108,6 +111,7 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit (`src/
 - `askSlice` — Q&A and stock-ask state (`question`, `answer`, `sources`, `status`); persisted so the answer survives navigation
 - `chatSlice` — multi-turn chat messages
 - `themesSlice`, `sentimentSlice`, `stocksSlice`, `glossarySlice` — data for the corresponding analytics pages
+- `analysisSlice` — cross-episode analysis list + current company; blacklisted from redux-persist (can be megabytes)
 - `helloSlice` — legacy, not actively used
 
 **Auth pattern:** `src/utils/fetchWithAuth.ts` wraps `fetch`, pulling the `id_token` from the NextAuth session and injecting `Authorization: Bearer <token>`. Any component calling a protected endpoint must use this utility. NextAuth is configured at `src/app/api/auth/[...nextauth]/route.ts`, with `authOptions` extracted to `src/lib/authOptions.ts`. The JWT callback auto-refreshes the Google ID token before expiry using the stored refresh token.
@@ -124,6 +128,7 @@ Uses the Next.js App Router. State is managed globally with Redux Toolkit (`src/
 - `/themes` — theme trend timeline
 - `/sentiment` — market sentiment timeline
 - `/glossary` — investment concept glossary
+- `/analysis/[key]` — cross-episode thread analysis (auth-gated): 最近變化 feed, 主題總覽 matrix (per-episode columns up to 12 episodes, monthly beyond; dormant and background-only threads collapsed), per-thread timeline. Logic in `src/utils/analysis.ts`. `/stocks/[ticker]` links here when an analysis exists
 
 ### Mobile UI Notes
 
@@ -173,7 +178,8 @@ python analyze_company.py NVDA --range 1y --yes   # extract missing episodes, re
 - `companies.json` — company key → prompt name + extra aliases (misheard spellings). Add a company here before analyzing it.
 - `extract_reasons.py` — per episode, LLM extracts self-contained reasons about the company from the raw `content` (whole episode in one gpt-5.5 call by default), each with a verbatim `reference` and `focus` (主角/背景).
 - `match_threads.py` — groups reasons across episodes into neutral topic threads and labels each 新增/重複/更新/反轉 (gpt-5.5, one call per reason).
-- `render_threads.py` — pure code; thread × episode matrix HTML.
+- `render_threads.py` — pure code; thread × episode matrix HTML (local preview).
+- `--yes` also publishes the result to the `company_threads` ES index (one doc per company key, latest run wins), which the website reads; `--publish FILE --range R` re-publishes a saved result without re-running.
 - Records live in `analysis/<KEY>/extractions/EP*.json` (gitignored) with the transcript hash, prompt hash and model; an episode is re-extracted only when one of those changes. Zero-reason episodes are recorded too; failed calls are not. Thread matching is not cached yet and re-runs over the whole range, which dominates the quote.
 
 ### Environment Variables

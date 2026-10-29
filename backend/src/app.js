@@ -16,6 +16,8 @@ import {
   getSentimentTimeline,
   getGlossary,
   askAboutStock,
+  getCompanyAnalysisList,
+  getCompanyAnalysis,
 } from './service.js';
 import verifyGoogleToken from './middleware/verifyGoogleToken.js';
 
@@ -297,6 +299,31 @@ app.get('/api/glossary', async (req, res) => {
   try {
     const result = await getGlossary();
     res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/analysis', async (req, res) => {
+  try {
+    const result = await getCompanyAnalysisList();
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Auth-gated like the transcript endpoint: every reason carries a verbatim transcript quote
+app.get('/api/analysis/:key', verifyGoogleToken, async (req, res) => {
+  try {
+    const result = await getCompanyAnalysis(req.params.key);
+    if (result !== null) {
+      res.json(result);
+    } else {
+      res.status(404).json({ error: 'Analysis not found' });
+    }
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

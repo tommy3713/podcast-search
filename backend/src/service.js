@@ -14,6 +14,8 @@ const client = new Client({
 
 const INDEX = 'podcast';
 const CHUNKS_INDEX = 'podcast_chunks';
+// Written by auto-summarize/analyze_company.py; one doc per company key, latest run wins
+const ANALYSIS_INDEX = 'company_threads';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -636,4 +638,34 @@ export const getPodcasts = async (page = 1, limit = 10) => {
   });
 
   return result.hits.hits.map((hit) => hit._source);
+};
+
+const isNotFound = (error) => error?.meta?.statusCode === 404;
+
+export const getCompanyAnalysisList = async () => {
+  try {
+    const result = await client.search({
+      index: ANALYSIS_INDEX,
+      body: {
+        size: 200,
+        sort: [{ generated_at: { order: 'desc' } }],
+        _source: { excludes: ['threads', 'episodes'] },
+      },
+    });
+    return result.hits.hits.map((h) => h._source);
+  } catch (error) {
+    // The index only exists after the first analysis is published
+    if (isNotFound(error)) return [];
+    throw error;
+  }
+};
+
+export const getCompanyAnalysis = async (key) => {
+  try {
+    const result = await client.get({ index: ANALYSIS_INDEX, id: key.toUpperCase() });
+    return result._source;
+  } catch (error) {
+    if (isNotFound(error)) return null;
+    throw error;
+  }
 };

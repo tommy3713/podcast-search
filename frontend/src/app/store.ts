@@ -12,6 +12,7 @@ import themesReducer from '@/features/themesSlice';
 import stocksReducer from '@/features/stocksSlice';
 import sentimentReducer from '@/features/sentimentSlice';
 import glossaryReducer from '@/features/glossarySlice';
+import analysisReducer from '@/features/analysisSlice';
 import {
   FLUSH,
   REHYDRATE,
@@ -33,12 +34,15 @@ const rootReducer = combineReducers({
   stocks: stocksReducer,
   sentiment: sentimentReducer,
   glossary: glossaryReducer,
+  analysis: analysisReducer,
 });
 
 // Redux Persist configuration
 const persistConfig = {
   key: 'root', // Key for local storage
   storage, // Use local storage
+  // A company analysis can run to megabytes of transcript quotes; always refetch it
+  blacklist: ['analysis'],
 };
 
 // Wrap the root reducer with persistReducer
