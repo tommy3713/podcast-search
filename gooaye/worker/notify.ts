@@ -1,21 +1,16 @@
-// Telegram notifications. Without a bot token (local dev) messages go to stdout.
-export async function notify(text: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) {
-    console.log(`[notify] ${text}`);
+import { type Button, sendMessage, telegramEnabled } from './telegram.ts';
+
+// Without Telegram configured (local dev) messages go to stdout.
+export async function notify(text: string, buttons: Button[][] = []): Promise<void> {
+  if (!telegramEnabled()) {
+    const labels = buttons.flat().map((b) => `[${b.text}]`).join(' ');
+    console.log(`[notify] ${text}${labels ? `\n${labels}` : ''}`);
     return;
   }
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) console.error(`[notify] Telegram ${res.status}: ${await res.text()}`);
+    await sendMessage(text, buttons);
   } catch (err) {
     // A notification failure must never fail the pipeline
-    console.error('[notify] Telegram error', err);
+    console.error('[notify]', err instanceof Error ? err.message : err);
   }
 }

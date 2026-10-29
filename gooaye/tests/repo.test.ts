@@ -23,6 +23,7 @@ const rss = (n: number) => ({
 const vec = (hot: number) => Array.from({ length: EMBEDDING_DIM }, (_, i) => (i === hot ? 1 : 0));
 
 const summary: Summary = {
+  line: '盤勢',
   keys: [{ t: 60, text: '重點' }],
   chapters: [{ t: 0, title: '盤勢', ad: false, bullets: [{ t: 10, text: 'x' }], quote: null }],
   stocks: [{ name: '台積電', code: '2330', t: 100, note: '修正時躲進台積' }],
@@ -47,10 +48,10 @@ describe('episodes', () => {
     insertDiscovered(db, rss(709));
     const id = getEpisode(db, 709)!.id;
     expect(workQueue(db)).toHaveLength(1);
-    markFailed(db, id, 'boom');
-    markFailed(db, id, 'boom');
+    markFailed(db, id, 'boom', 'summarize');
+    markFailed(db, id, 'boom', 'summarize');
     expect(workQueue(db)).toHaveLength(1);
-    expect(markFailed(db, id, 'boom')).toBe(3);
+    expect(markFailed(db, id, 'boom', 'summarize')).toBe(3);
     expect(workQueue(db)).toHaveLength(0);
     expect(getEpisode(db, 709)).toMatchObject({ status: 'failed', error: 'boom', retries: 3 });
   });

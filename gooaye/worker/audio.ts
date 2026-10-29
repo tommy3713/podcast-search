@@ -18,22 +18,26 @@ export async function download(url: string, dest: string): Promise<void> {
   if (size < 1024 * 1024) throw new Error(`downloaded audio is only ${size} bytes`);
 }
 
-export type AudioPart = { file: string; offset: number };
+export type AudioPart = { file: string; offset: number; duration: number };
 
 // Returns the compressed audio, split into parts with their start offsets if needed.
 export async function compress(input: string, workDir: string): Promise<{ parts: AudioPart[]; duration: number }> {
   const out = path.join(workDir, 'audio.mp3');
   await run('ffmpeg', ['-y', '-loglevel', 'error', '-i', input, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '32k', out]);
   const duration = await probeDuration(out);
-  if (fs.statSync(out).size <= MAX_UPLOAD_BYTES) return { parts: [{ file: out, offset: 0 }], duration };
+  if (fs.statSync(out).size <= MAX_UPLOAD_BYTES) return { parts: [{ file: out, offset: 0, duration }], duration };
 
   const parts: AudioPart[] = [];
   for (let offset = 0, i = 0; offset < duration; offset += PART_SECONDS, i++) {
     const file = path.join(workDir, `part${i}.mp3`);
-    await run('ffmpeg', ['-y', '-loglevel', 'error', '-ss', String(offset), '-t', String(PART_SECONDS), '-i', out, '-c', 'copy', file]);
-    parts.push({ file, offset });
+    await cutClip(out, offset, PART_SECONDS, file);
+    parts.push({ file, offset, duration: Math.min(PART_SECONDS, duration - offset) });
   }
   return { parts, duration };
+}
+
+export async function cutClip(input: string, start: number, seconds: number, out: string): Promise<void> {
+  await run('ffmpeg', ['-y', '-loglevel', 'error', '-ss', String(start), '-t', String(seconds), '-i', input, '-c', 'copy', out]);
 }
 
 async function probeDuration(file: string): Promise<number> {

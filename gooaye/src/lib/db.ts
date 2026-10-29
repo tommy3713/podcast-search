@@ -79,6 +79,11 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX ask_log_created ON ask_log (created_at);
   `,
+  // Checkpoints so a retry only re-runs (and re-pays for) the step that failed
+  `
+  ALTER TABLE episodes ADD COLUMN summary_draft_json TEXT; -- summary waiting for embedding + publish
+  ALTER TABLE episodes ADD COLUMN failed_step TEXT;        -- transcribe | summarize | embed
+  `,
 ];
 
 export function defaultDbPath(): string {

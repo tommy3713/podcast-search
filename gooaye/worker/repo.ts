@@ -18,8 +18,12 @@ export type EpisodeRow = {
   error: string | null;
   retries: number;
   segments_json: string | null;
+  summary_draft_json: string | null;
+  failed_step: Step | null;
   cost_usd: number | null;
 };
+
+export type Step = 'transcribe' | 'summarize' | 'embed';
 
 export function maxEpisodeNo(db: DB): number | null {
   return (db.prepare('SELECT MAX(episode_no) AS n FROM episodes').get() as { n: number | null }).n;
@@ -61,15 +65,35 @@ export function saveSegments(db: DB, id: number, segments: Segment[], duration: 
   ).run(JSON.stringify(segments), Math.round(duration), costUsd, id);
 }
 
-export function markFailed(db: DB, id: number, error: string): number {
+// Saved before embedding so a later failure doesn't pay for the summary again
+export function saveDraft(db: DB, id: number, summary: Summary, costUsd: number): void {
+  db.prepare(
+    `UPDATE episodes SET summary_draft_json = ?, cost_usd = COALESCE(cost_usd, 0) + ?,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+     WHERE id = ?`,
+  ).run(JSON.stringify(summary), costUsd, id);
+}
+
+export function markFailed(db: DB, id: number, error: string, step: Step): number {
   const row = db
     .prepare(
-      `UPDATE episodes SET status = 'failed', error = ?, retries = retries + 1,
+      `UPDATE episodes SET status = 'failed', error = ?, failed_step = ?, retries = retries + 1,
          updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
        WHERE id = ? RETURNING retries`,
     )
-    .get(error.slice(0, 2000), id) as { retries: number };
+    .get(error.slice(0, 2000), step, id) as { retries: number };
   return row.retries;
+}
+
+// A failed re-run of a live episode keeps the live version and doesn't use up retries
+export function recordError(db: DB, id: number, error: string, step: Step): void {
+  db.prepare(
+    `UPDATE episodes SET error = ?, failed_step = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`,
+  ).run(error.slice(0, 2000), step, id);
+}
+
+export function recentEpisodes(db: DB, limit: number): EpisodeRow[] {
+  return db.prepare('SELECT * FROM episodes ORDER BY episode_no DESC LIMIT ?').all(limit) as EpisodeRow[];
 }
 
 export function resetRetries(db: DB, id: number): void {
@@ -107,7 +131,7 @@ export function publishEpisode(
     const row = db
       .prepare(
         `UPDATE episodes SET summary_json = ?, cost_usd = COALESCE(cost_usd, 0) + ?, status = 'done', error = NULL,
-           updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+           summary_draft_json = NULL, failed_step = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ? RETURNING cost_usd`,
       )
       .get(JSON.stringify(data.summary), data.costUsd, id) as { cost_usd: number };

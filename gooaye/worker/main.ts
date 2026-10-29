@@ -1,63 +1,40 @@
 import fs from 'node:fs';
 import { type DB, openDb } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
+import { drain, type EpisodeAction, enqueue, poll, runEpisodeAction, seed } from './actions.ts';
+import { runBot } from './bot.ts';
 import { notify } from './notify.ts';
-import { processEpisode } from './pipeline.ts';
-import { getEpisode, insertDiscovered, maxEpisodeNo, resetRetries, workQueue } from './repo.ts';
-import { fetchFeed, parseFeed } from './rss.ts';
+import { getEpisode } from './repo.ts';
 import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } from './schedule.ts';
 
 const USAGE = `usage: worker <command>
-  run                 scheduler: poll RSS Wed/Sat 10:00–23:30 Taipei every 30 min, nightly cleanup
+  run                 scheduler (poll RSS Wed/Sat 10:00–23:30 Taipei every 30 min, nightly
+                      cleanup) plus the Telegram bot for /status, /retry and buttons
   poll                check RSS once and process anything new or retryable
   seed [n]            add the latest n episodes (default 10) and process them
-  ingest <ep> [--segments-file f]
-                      (re)process one episode; resets its retry count.
+  ingest <ep> [--resummarize | --retranscribe] [--segments-file f]
+                      (re)process one episode and reset its retry count. A new or failed
+                      episode resumes from the step that failed; a live one is
+                      re-summarized. --retranscribe redoes everything.
                       --segments-file uses a JSON transcript ([{start,end,text}] or {segments})
                       instead of downloading and transcribing (dev only)
   nightly             delete ask_log rows older than 30 days
   status              list episodes and their state`;
 
-async function poll(db: DB): Promise<void> {
-  const feed = parseFeed(await fetchFeed());
-  const latest = maxEpisodeNo(db);
-  if (latest === null) {
-    console.log('database is empty; run `worker seed` first');
-    return;
-  }
-  // Only episodes newer than what we have; old episodes are never backfilled
-  for (const ep of feed.filter((e) => e.episodeNo > latest)) {
-    if (insertDiscovered(db, ep)) console.log(`found EP${ep.episodeNo} ${ep.title}`);
-  }
-  await drain(db);
-}
-
-async function drain(db: DB): Promise<void> {
-  for (const ep of workQueue(db)) await processEpisode(db, ep);
-}
-
-async function seed(db: DB, n: number): Promise<void> {
-  const feed = parseFeed(await fetchFeed()).slice(0, n);
-  for (const ep of feed) insertDiscovered(db, ep);
-  console.log(`seeded EP${feed.at(-1)?.episodeNo}–EP${feed[0]?.episodeNo}`);
-  await drain(db);
-}
-
-async function ingest(db: DB, episodeNo: number, segmentsFile?: string): Promise<void> {
-  if (!getEpisode(db, episodeNo)) {
-    const ep = parseFeed(await fetchFeed()).find((e) => e.episodeNo === episodeNo);
-    if (!ep) throw new Error(`EP${episodeNo} is not in the RSS feed`);
-    insertDiscovered(db, ep);
-  }
-  const row = getEpisode(db, episodeNo)!;
-  resetRetries(db, row.id);
+async function ingest(db: DB, episodeNo: number, args: string[]): Promise<void> {
+  const row = getEpisode(db, episodeNo);
+  const live = row?.status === 'done' && !row.failed_step;
+  const action: EpisodeAction =
+    args.includes('--retranscribe') || !row ? 'retranscribe' : args.includes('--resummarize') || live ? 'resummarize' : 'retry';
+  const i = args.indexOf('--segments-file');
   let segments: Segment[] | undefined;
-  if (segmentsFile) {
-    const json = JSON.parse(fs.readFileSync(segmentsFile, 'utf8'));
+  if (i >= 0) {
+    const file = args[i + 1]!;
+    const json = JSON.parse(fs.readFileSync(file, 'utf8'));
     segments = Array.isArray(json) ? json : json.segments;
-    if (!segments?.length) throw new Error(`${segmentsFile} has no segments`);
+    if (!segments?.length) throw new Error(`${file} has no segments`);
   }
-  await processEpisode(db, { ...row, retries: 0 }, { segments });
+  await runEpisodeAction(db, action, episodeNo, { segments });
 }
 
 function nightly(db: DB): void {
@@ -80,15 +57,16 @@ async function reportReleaseDay(db: DB, now: Date): Promise<void> {
 
 async function run(db: DB): Promise<void> {
   console.log('worker scheduler started');
+  void runBot(db);
   // Pick up anything a crash or restart left half-done
-  await drain(db);
+  await enqueue('處理未完成的集數', () => drain(db));
   for (;;) {
     const at = nextHalfHour(new Date());
     await new Promise((r) => setTimeout(r, at.getTime() - Date.now()));
     const t = taipeiTime(at);
     try {
       if (isPollSlot(t)) {
-        await poll(db);
+        await enqueue('檢查 RSS', () => poll(db));
         if (isLastPollSlot(t)) await reportReleaseDay(db, at);
       }
       if (isNightlySlot(t)) nightly(db);
@@ -112,15 +90,17 @@ async function main(): Promise<void> {
   switch (cmd) {
     case 'run':
       return run(db);
-    case 'poll':
-      return poll(db);
+    case 'poll': {
+      const { found, latestInFeed } = await poll(db);
+      if (!found.length) console.log(`nothing new; RSS latest is EP${latestInFeed}`);
+      return;
+    }
     case 'seed':
       return seed(db, Number(args[0] ?? 10));
     case 'ingest': {
       const ep = Number(args[0]);
       if (!Number.isInteger(ep)) throw new Error(USAGE);
-      const i = args.indexOf('--segments-file');
-      return ingest(db, ep, i >= 0 ? args[i + 1] : undefined);
+      return ingest(db, ep, args.slice(1));
     }
     case 'nightly':
       return nightly(db);

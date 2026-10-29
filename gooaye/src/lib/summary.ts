@@ -14,6 +14,7 @@ const Ts = z.string().describe('時間戳，照抄逐字稿行首的 m:ss，例�
 const Point = z.object({ t: Ts, text: z.string() });
 
 export const LlmSummary = z.object({
+  line: z.string().describe('一句話總結整集，40 字以內，列表上顯示用'),
   keys: z.array(Point).describe('整集最重要的 3 個重點，每個一句話'),
   chapters: z.array(z.object({
     t: Ts,
@@ -40,6 +41,7 @@ export type LlmSummary = z.infer<typeof LlmSummary>;
 // What is stored in episodes.summary_json and rendered on the episode page.
 export type Point = { t: number; text: string };
 export type Summary = {
+  line: string;
   keys: Point[];
   chapters: { t: number; title: string; ad: boolean; bullets: Point[]; quote: Point | null }[];
   stocks: { name: string; code: string | null; t: number; note: string }[];
@@ -74,6 +76,7 @@ export function sanitizeSummary(raw: LlmSummary, durationSec: number): Summary {
   const nonNull = <T>(x: T | null): x is T => x !== null;
 
   return {
+    line: clean(raw.line, 60),
     keys: raw.keys.map((p) => point(p, 80)).filter(nonNull).slice(0, 3),
     chapters: raw.chapters
       .map((c) => {

@@ -20,6 +20,7 @@ describe('timestamps', () => {
 
 describe('sanitizeSummary', () => {
   const raw: LlmSummary = {
+    line: '本集\n一句話',
     keys: [{ t: '1:00', text: '重點' }, { t: '99:00', text: '超出長度' }],
     chapters: [
       { t: '10:00', title: '盤勢', ad: false, bullets: [{ t: '10:30', text: '多行\n文字' }], quote: null },
@@ -37,6 +38,7 @@ describe('sanitizeSummary', () => {
   });
 
   it('flattens whitespace and normalizes tickers', () => {
+    expect(out.line).toBe('本集 一句話');
     expect(out.chapters[1]!.bullets[0]!.text).toBe('多行 文字');
     expect(out.stocks[1]!.code).toBe('NVDA');
   });

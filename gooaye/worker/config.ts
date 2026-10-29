@@ -31,7 +31,17 @@ export function llmCost(model: string, input: number, cached: number, output: nu
   return ((input - cached) * p.input + cached * p.cached + output * p.output) / 1e6;
 }
 
-export function whisperCost(seconds: number): number {
-  // Groq bills at least 10 seconds per request
-  return (Math.max(seconds, 10) / 3600) * GROQ_WHISPER_PER_HOUR;
+export function whisperCost(billedSeconds: number): number {
+  return (billedSeconds / 3600) * GROQ_WHISPER_PER_HOUR;
+}
+
+// Rough per-minute cost of the summary call, from EP709 (52 min, US$0.30 on gpt-5.5).
+// Only used to label retry buttons.
+const SUMMARY_USD_PER_MINUTE = 0.006;
+
+export function estimateCost(step: 'transcribe' | 'summarize' | 'embed', durationSec: number): number {
+  const summary = (durationSec / 60) * SUMMARY_USD_PER_MINUTE;
+  if (step === 'transcribe') return whisperCost(durationSec) + summary;
+  if (step === 'summarize') return summary;
+  return 0.001;
 }
