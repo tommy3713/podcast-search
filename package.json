@@ -11,6 +11,7 @@
     "start": "next start",
     "worker": "tsx --env-file-if-exists=.env.local worker/main.ts",
     "dev:seed": "tsx scripts/dev-seed.ts data/dev.db",
+    "db:pull": "scripts/pull-prod-db.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

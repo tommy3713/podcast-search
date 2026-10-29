@@ -29,6 +29,7 @@ services:
     image: ghcr.io/tommy3713/gooaye-web:${TAG:-latest}
     env_file: web.env
     environment:
+      APP_ENV: production
       DB_PATH: /data/app.db
       NEXTAUTH_URL: https://gooaye-notes.com
     mem_limit: 512m
@@ -40,6 +41,7 @@ services:
     image: ghcr.io/tommy3713/gooaye-worker:${TAG:-latest}
     env_file: worker.env
     environment:
+      APP_ENV: production
       DB_PATH: /data/app.db
       SITE_URL: https://gooaye-notes.com
     mem_limit: 768m

@@ -4,11 +4,17 @@ import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
 import { AwsClient } from 'aws4fetch';
 import type { DB } from '@/lib/db.ts';
+import { isProduction } from '@/lib/env.ts';
 import { WORK_DIR } from './config.ts';
 
 // Nightly copy of app.db to Cloudflare R2. Old copies are removed by a 30-day
 // lifecycle rule on the bucket, so this only ever writes.
 export async function backupToR2(db: DB, now = new Date()): Promise<string | null> {
+  // A local database must never overwrite the live site's backup for the day
+  if (!isProduction()) {
+    console.log('backup: only runs with APP_ENV=production, skipping');
+    return null;
+  }
   const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET } = process.env;
   if (!R2_ACCOUNT_ID || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET) {
     console.log('backup: R2 is not configured, skipping');

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Nav } from '@/components/Nav';
 import { UserMenu } from '@/components/UserMenu';
 import { currentUser } from '@/lib/auth';
+import { isProduction } from '@/lib/env';
 import './globals.css';
 
 // Body text uses the system CJK font; only headings and timestamps load web fonts.
@@ -28,6 +29,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Link className="brand" href="/">
               <span className="brand-mark">股</span>股癌搜尋
             </Link>
+            {!isProduction() && <span className="pill warn">DEV</span>}
             <Nav variant="desk" />
             <UserMenu name={user?.name ?? null} />
           </div>

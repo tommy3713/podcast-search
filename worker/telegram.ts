@@ -1,6 +1,8 @@
 // Telegram Bot API: notifications, and buttons/commands for retrying episodes.
 // Only the chat in TELEGRAM_CHAT_ID can control the worker.
 
+import { isProduction } from '@/lib/env.ts';
+
 export type Button = { text: string; data: string };
 
 export type Update = {
@@ -53,7 +55,7 @@ export async function sendMessage(text: string, buttons: Button[][] = []): Promi
   if (!c) return;
   await api('sendMessage', {
     chat_id: c.chatId,
-    text,
+    text: isProduction() ? text : `🧪 DEV\n${text}`,
     link_preview_options: { is_disabled: true },
     ...(buttons.length ? { reply_markup: keyboard(buttons) } : {}),
   });

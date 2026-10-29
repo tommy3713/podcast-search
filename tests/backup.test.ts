@@ -15,11 +15,22 @@ afterEach(() => {
 
 describe('backupToR2', () => {
   it('skips when R2 is not configured', async () => {
+    vi.stubEnv('APP_ENV', 'production');
     for (const k of Object.keys(env)) vi.stubEnv(k, '');
     expect(await backupToR2(openDb(':memory:'))).toBeNull();
   });
 
+  it('skips outside production even when R2 is configured', async () => {
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    vi.stubEnv('APP_ENV', '');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await backupToR2(openDb(':memory:'))).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('uploads a gzipped, signed copy of the database', async () => {
+    vi.stubEnv('APP_ENV', 'production');
     for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gooaye-'));
     const db = openDb(path.join(dir, 'app.db'));

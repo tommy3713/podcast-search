@@ -11,6 +11,7 @@ The v1 stack (Express + Elasticsearch backend, Next 14 frontend, Python ingestio
 ```bash
 npm run dev          # web on :3005 against data/dev.db (DB_PATH overrides)
 npm run dev:seed     # fill data/dev.db from scripts/fixtures (no API calls)
+npm run db:pull      # snapshot the live database to data/prod.db (over ssh)
 npm test             # vitest, all tests
 npx vitest run tests/ask.test.ts
 npm run typecheck
@@ -25,7 +26,12 @@ npm run worker -- run                    # scheduler + Telegram bot (production 
 tsx --env-file=.env.local scripts/ask-cli.ts "問題"   # Q&A from the terminal, no quota
 ```
 
-Secrets are in gitignored `.env.local` (see `.env.example`). **Never run `worker run` locally with the production `TELEGRAM_BOT_TOKEN`**: only one process may poll the bot, and production's worker already does.
+## Environments
+
+- **Production** is the VPS. `deploy/compose.yml` sets `APP_ENV=production`; secrets are in `/opt/gooaye/web.env` and `worker.env`.
+- **Local dev** is everything else: no `APP_ENV`, secrets in gitignored `.env.local` (see `.env.example`). `src/lib/env.ts` `isProduction()` gates what must only happen live: R2 backups are skipped, Telegram messages are prefixed `🧪 DEV`, and the header shows a DEV badge.
+- Local keys must be dev-only: an OpenAI project key with its own budget, a separate Telegram bot (only one process may poll a bot, and production's worker already polls the live one), no R2 credentials.
+- Databases: `data/dev.db` (fixtures, `npm run dev:seed`) or `data/prod.db`, a snapshot of the live database without `ask_log` / `ask_usage` (`npm run db:pull`, then `DB_PATH=data/prod.db npm run dev` or `DB_PATH=data/prod.db npm run worker -- ...`). Nothing local ever writes to the live database.
 
 `.npmrc` sets `legacy-peer-deps`; vitest is pinned to 4.x because npm 10.9 crashes on vitest 5's peers. Dependencies use exact versions.
 
