@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 股癌搜尋 (https://gooaye-notes.com): an unofficial site with per-episode summaries, timestamped transcripts and cross-episode Q&A for the podcast《股癌 Gooaye》. One package: a Next.js app (`src/`) and an ingest worker (`worker/`) sharing one SQLite database.
 
-The v1 stack (Express + Elasticsearch backend, Next 14 frontend, Python ingestion, k8s/EC2) was removed; it lives at tag `v1-es-final`. Its local-only leftovers (old `.env` files, venvs, data) are parked in the gitignored `_v1-local/`, and the v1 episode JSON in gitignored `notes/gooaye/`.
+The v1 stack (Express + Elasticsearch backend, Next 14 frontend, Python ingestion, k8s/EC2) was removed; it lives at tag `v1-es-final`. The v1 episode JSON is kept locally in gitignored `notes/gooaye/`.
 
 ## Commands
 

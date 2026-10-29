@@ -1,5 +1,5 @@
 # Allowlist: the images need only the app sources. The repo root also holds docs and
-# local-only data (data/, notes/, _v1-local/, .env.local) that must never reach a build.
+# local-only data (data/, notes/, .env.local) that must never reach a build.
 *
 !package.json
 !package-lock.json

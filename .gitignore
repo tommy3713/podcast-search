@@ -9,8 +9,7 @@ data/
 .DS_Store
 *.pem
 
-# Local only: v1 leftovers (secrets, venvs, old data) and the v1 episode JSON
-/_v1-local/
+# Local only: the v1 episode JSON
 /notes/
 
 .claude/settings.local.json
