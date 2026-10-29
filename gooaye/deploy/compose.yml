@@ -1,0 +1,49 @@
+# Lives at /opt/gooaye on the VPS next to Caddyfile, web.env, worker.env and data/.
+# Deploy: docker compose pull && docker compose up -d
+name: gooaye
+
+x-app: &app
+  restart: unless-stopped
+  # The deploy user (uid 1001) owns /opt/gooaye/data
+  user: "1001:1001"
+  volumes:
+    - ./data:/data
+  # No ports: only Caddy is reachable from outside (Docker-published ports bypass ufw)
+
+services:
+  caddy:
+    image: caddy:2.11
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web]
+
+  web:
+    <<: *app
+    image: ghcr.io/tommy3713/gooaye-web:${TAG:-latest}
+    env_file: web.env
+    environment:
+      DB_PATH: /data/app.db
+      NEXTAUTH_URL: https://gooaye-notes.com
+    mem_limit: 512m
+    # The worker creates and migrates the database
+    depends_on: [worker]
+
+  worker:
+    <<: *app
+    image: ghcr.io/tommy3713/gooaye-worker:${TAG:-latest}
+    env_file: worker.env
+    environment:
+      DB_PATH: /data/app.db
+      SITE_URL: https://gooaye-notes.com
+    mem_limit: 768m
+
+volumes:
+  caddy_data:
+  caddy_config:

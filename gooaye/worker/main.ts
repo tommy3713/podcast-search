@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { type DB, openDb } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { drain, type EpisodeAction, enqueue, poll, runEpisodeAction, seed } from './actions.ts';
+import { backupToR2 } from './backup.ts';
 import { runBot } from './bot.ts';
 import { notify } from './notify.ts';
 import { getEpisode } from './repo.ts';
@@ -18,7 +19,7 @@ const USAGE = `usage: worker <command>
                       re-summarized. --retranscribe redoes everything.
                       --segments-file uses a JSON transcript ([{start,end,text}] or {segments})
                       instead of downloading and transcribing (dev only)
-  nightly             delete ask_log rows older than 30 days
+  nightly             delete ask_log rows older than 30 days, back up app.db to R2
   status              list episodes and their state`;
 
 async function ingest(db: DB, episodeNo: number, args: string[]): Promise<void> {
@@ -37,10 +38,16 @@ async function ingest(db: DB, episodeNo: number, args: string[]): Promise<void> 
   await runEpisodeAction(db, action, episodeNo, { segments });
 }
 
-function nightly(db: DB): void {
+async function nightly(db: DB): Promise<void> {
   const r = db.prepare(`DELETE FROM ask_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days')`).run();
   db.prepare(`DELETE FROM ask_usage WHERE date < date('now', '-7 days')`).run();
   console.log(`nightly: deleted ${r.changes} ask_log rows`);
+  try {
+    await backupToR2(db);
+  } catch (err) {
+    console.error('backup failed', err);
+    await notify(`❌ 每晚備份失敗：${err instanceof Error ? err.message : String(err)}`.slice(0, 600));
+  }
 }
 
 // At the last poll of a release day, say so if nothing published today went live
@@ -69,7 +76,7 @@ async function run(db: DB): Promise<void> {
         await enqueue('檢查 RSS', () => poll(db));
         if (isLastPollSlot(t)) await reportReleaseDay(db, at);
       }
-      if (isNightlySlot(t)) nightly(db);
+      if (isNightlySlot(t)) await enqueue('每晚清理與備份', () => nightly(db));
     } catch (err) {
       console.error('scheduled task failed', err);
       await notify(`❌ worker 排程錯誤：${err instanceof Error ? err.message : String(err)}`.slice(0, 600));

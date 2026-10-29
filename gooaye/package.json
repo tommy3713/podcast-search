@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "aws4fetch": "1.0.20",
     "better-sqlite3": "13.0.3",
     "fast-xml-parser": "5.11.2",
     "next": "16.4.1",
@@ -25,13 +26,13 @@
     "react": "19.2.9",
     "react-dom": "19.2.9",
     "sqlite-vec": "0.1.9",
+    "tsx": "4.23.15",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
-    "tsx": "4.23.15",
     "typescript": "6.0.3",
     "vitest": "4.1.12"
   }
