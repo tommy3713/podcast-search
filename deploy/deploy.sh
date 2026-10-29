@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy the latest images from ghcr to the VPS. Run after GitHub Actions goes green:
-#   gooaye/deploy/deploy.sh            # latest
-#   TAG=<git sha> gooaye/deploy/deploy.sh   # a specific build (rollback)
+#   deploy/deploy.sh                   # latest
+#   TAG=<git sha> deploy/deploy.sh     # a specific build (rollback)
 # A changed worker image restarts the worker and interrupts the episode it is on (a retry
 # resumes from the saved checkpoint), so check /status in Telegram first.
 set -euo pipefail

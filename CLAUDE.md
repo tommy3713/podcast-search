@@ -2,210 +2,74 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+股癌搜尋 (https://gooaye-notes.com): an unofficial site with per-episode summaries, timestamped transcripts and cross-episode Q&A for the podcast《股癌 Gooaye》. One package: a Next.js app (`src/`) and an ingest worker (`worker/`) sharing one SQLite database.
+
+The v1 stack (Express + Elasticsearch backend, Next 14 frontend, Python ingestion, k8s/EC2) was removed; it lives at tag `v1-es-final`. Its local-only leftovers (old `.env` files, venvs, data) are parked in the gitignored `_v1-local/`, and the v1 episode JSON in gitignored `notes/gooaye/`.
+
 ## Commands
 
-### Local dev (full stack)
-
 ```bash
-docker compose up -d elasticsearch   # ES on :9200 (data persists in the podcast-search_esdata volume)
-cd backend && npm start              # :3002 locally (PORT=3002 in backend/.env; code default is 3000)
-cd frontend && npm run dev           # :3001
+npm run dev          # web on :3005 against data/dev.db (DB_PATH overrides)
+npm run dev:seed     # fill data/dev.db from scripts/fixtures (no API calls)
+npm test             # vitest, all tests
+npx vitest run tests/ask.test.ts
+npm run typecheck
+npm run build
+
+npm run worker -- status                 # episode statuses and costs
+npm run worker -- poll                   # check RSS once and process new episodes
+npm run worker -- ingest 709 [--resummarize|--retranscribe] [--segments-file f]
+npm run worker -- seed 10                # process the latest n episodes
+npm run worker -- nightly                # purge old ask logs, back up to R2
+npm run worker -- run                    # scheduler + Telegram bot (production entry point)
+tsx --env-file=.env.local scripts/ask-cli.ts "問題"   # Q&A from the terminal, no quota
 ```
 
-Locally the backend runs on 3002 because another project occupies 3000; `frontend/.env` points `NEXT_PUBLIC_BACKEND_URL` at `http://localhost:3002`. Docker compose and k8s still use 3000.
+Secrets are in gitignored `.env.local` (see `.env.example`). **Never run `worker run` locally with the production `TELEGRAM_BOT_TOKEN`**: only one process may poll the bot, and production's worker already does.
 
-Run backend/frontend on the host (not via `docker compose up`) for dev — the compose `frontend` service bakes `NEXT_PUBLIC_BACKEND_URL` at build time and is slow to rebuild.
-
-### Backend
-
-```bash
-cd backend
-npm start          # Run dev server (port 3000)
-npm test           # Run all tests (vitest)
-npm run test:watch # Watch mode
-npx vitest run tests/routes/search.test.js  # Run a single test file
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm run dev        # Run dev server (port 3001)
-npm test           # Run all tests (vitest)
-npm run test:watch # Watch mode
-npx vitest run tests/features/searchSlice.test.ts  # Run a single test file
-```
+`.npmrc` sets `legacy-peer-deps`; vitest is pinned to 4.x because npm 10.9 crashes on vitest 5's peers. Dependencies use exact versions.
 
 ## Architecture
 
-### Overview
+### Database (`src/lib/db.ts`)
 
-Three parts, developed and deployed independently:
+SQLite via better-sqlite3 plus the sqlite-vec extension; migrations run in `openDb(..., { migrate: true })`, which only the worker does. Tables: `episodes` (status `pending → transcribing → summarizing → done | failed`, `segments_json`, `summary_json`, `summary_draft_json`, `failed_step`, `cost_usd`), `chunks` + `chunks_fts` (FTS5 trigram) + `chunks_vec` (vec0, 1536 dims), `mentions` (category, name, code, detail, quote, start_sec), `ask_usage`, `ask_log`.
 
-- **Backend** (`backend/`): Express + TypeScript, ESM (`"type": "module"`), listens on port 3000
-- **Frontend** (`frontend/`): Next.js 14 App Router + TypeScript, runs on port 3001
-- **Ingestion** (`auto-summarize/`): Python pipeline + TUI that turns new episodes into ES documents
+vec0 rowids must be bound as `BigInt`. Trigram FTS needs 3+ characters, so shorter search terms fall back to `LIKE` (`src/lib/ask/search.ts`).
 
-`deployment/` holds k8s manifests; `aws-ec2/` holds EC2 deploy material. Root-level `*.py` scripts other than `seed-es.py` (`generate-summary.py`, `merge-data.py`, `store_notes.py`, `main.py`) are legacy.
+The web reads through `readDb()` (readonly) and writes only `ask_usage` / `ask_log` through `writeDb()` (`src/lib/server-db.ts`).
 
-### Data Setup
+### Worker (`worker/`)
 
-Source of truth is `notes/gooaye/*.json` (gitignored; one file per episode, ~85 episodes through EP686). Each file contains `title`, `uploadDate` (`YYYYMMDD`), `episode`, `fullTitle`, `podcaster`, `content` (raw transcript), `segments` (`[{ start, end, text }]` Whisper timestamps in seconds; only on episodes transcribed or re-transcribed since timestamps were added), `note` (GPT summary), `embeddings`, plus enrichment fields `themes`, `mentioned_stocks`, `stock_sentiments`, `investment_thesis`, `market_sentiment`, `glossary_terms`.
+`pipeline.ts` processes one episode in three checkpointed steps, each saved before the next starts, so a retry resumes from `failed_step` and never pays for a finished step twice:
 
-To build ES from scratch (empty volume):
+1. **Transcribe** (`audio.ts`, `transcribe.ts`): download from RSS (needs a browser-like User-Agent or SoundOn returns 403), compress and split with ffmpeg, Groq `whisper-large-v3`. Gaps of 12 s+ in the result are re-transcribed on their own (Groq drops windows); a window counts as silence only when `no_speech_prob > 0.6` and `avg_logprob < -1`. `text.ts` converts with OpenCC `s2tw` (not `s2twp`) and applies known misheard-term fixes.
+2. **Summarize** (`summarize.ts`): one gpt-5.5 call → `LlmSummary` (zod, `src/lib/summary.ts`): one-line summary, key points, chapters, stocks, mentions (food, sports, travel, media, games, products). `sanitizeSummary` caps lengths and drops out-of-range timestamps. Ads and non-investment brands are kept out of `stocks`.
+3. **Embed and publish** (`chunk.ts`, `embed.ts`, `repo.ts`): ~600-character chunks on segment boundaries (adjacent chunks share a segment), `text-embedding-3-small`, then one transaction that swaps the episode live. Re-running a live episode keeps the old version visible until the new one publishes; a failed re-run leaves it untouched.
 
-1. Start ES and wait ~60s — the container installs the `analysis-icu` plugin on first start (Traditional Chinese tokenization).
-2. Create the indices with correct mappings. `seed-es.py` creates `podcast` (`icu_analyzer` on text fields) and `podcast_chunks` (`embedding` as 1536-dim `dense_vector`) if missing. Without it, ES dynamic-maps `embedding` as plain floats and kNN breaks.
-3. Populate with `cd auto-summarize && python main.py reindex` — uses `id=fullTitle`, backfills any missing enrichment fields, and chunks the `note` field.
+`schedule.ts`: RSS is polled every 30 min, 10:00–23:30 Taipei, on Wednesdays and Saturdays (release days); `nightly` runs at 03:00 (ask-log purge after 30 days, gzip backup to R2 under `backups/`, deleted by a bucket lifecycle rule after 30 days).
 
-Caveat: `seed-es.py`'s seeding loop is out of date — it chunks `content` (not `note`), uses random doc ids (duplicates with `reindex`), and overwrites the cached `embeddings` in the JSON. Prefer only its index-creation section, then `reindex`.
+`bot.ts`: Telegram commands `/status`, `/poll`, `/retry N`, `/resummarize N`, `/retranscribe N`, and inline buttons (`action:N`). Only `TELEGRAM_CHAT_ID` is obeyed. All jobs run one at a time through `enqueue` in `actions.ts`. Success and failure notifications include the episode's running cost.
 
-### Backend
+### Web (`src/app`)
 
-All routes and middleware are defined directly in `src/app.js`. The service layer (`src/service.js`) holds all database logic and is the only file that talks to Elasticsearch and OpenAI. `dotenv` is loaded in `service.js`.
+- `/` episode list (20 per page, `?ep=` jumps to an episode), `/ep/[no]` summary + transcript (`?t=` seconds jumps the player and transcript, `?tab=tx`), `/ask`, `/about`.
+- `/api/ask` (SSE): JSON content type and same-origin check → Google login (next-auth, JWT keeps only `sub` and name) → zod (≤300 chars) → quota (20 per user and 500 site-wide per Taipei day, charged up front, refunded only if nothing streamed) → OpenAI moderation → `answer()`. 30 s timeout; every request is logged to `ask_log`.
+- `src/lib/ask/agent.ts`: Responses API tool loop (`ASK_MODEL`, default gpt-5.4-mini; at most 4 tool calls; `store: false` with encrypted reasoning passed back). Tools `search_transcript` (keyword + vector, RRF) and `search_mentions`. The server numbers sources; the model may only cite `[n]`, and `render.ts` drops unknown numbers and allows only `- ` lists and `**bold**`. `toInputItem` strips the SDK's `parsed_arguments` / `parsed` fields, which the API rejects as input.
 
-**Database: Elasticsearch only** (MongoDB was removed). Indices:
+### Prompt-safety rules (keep these when editing prompts)
 
-- `podcast` — one doc per episode. `icu_analyzer` on `content`, `note`, `title`; `podcaster`, `episode`, `fullTitle`, `uploadDate` mapped as `keyword`. Enrichment fields are dynamically mapped, so stock queries use `mentioned_stocks.keyword`. `segments` is mapped `{ type: object, enabled: false }` (stored, not indexed) by `ensure_podcast_mapping()` in `main.py`; `search` and `summary` exclude it from `_source`.
-- `podcast_chunks` — `{ fullTitle, podcaster, episode, uploadDate, chunk_index, content, embedding }`, used for kNN.
-- `company_threads` — written by `auto-summarize/analyze_company.py`, not by ingestion; `episodes`/`threads` are stored with `enabled: false`.
+- System prompt holds rules and server facts only; user input goes in the user role inside `<question>`, never concatenated into the system prompt. Transcripts are untrusted too (listener messages are read on air): tool results are wrapped in `<transcript>` / `<mention>` with `<>` escaped to full-width (`escapeTags`), and the prompt says tag contents are data. The most important rules go last.
+- No market-sentiment tags, no bullish/bearish or 正面/負面/樂觀/保守 labels, no investment advice: only report what the host said and let listeners judge.
 
-Timeline/aggregate queries (`themes`, `sentiment`, `stocks`, `glossary`) fetch with `size: 200` and aggregate in JS — bump this when the episode count approaches 200.
+## Deploy
 
-- **`src/middleware/verifyGoogleToken.js`** — validates Google OAuth Bearer tokens; sets `req.user`
-- Rate limits (per `req.user.sub`, skipped when `NODE_ENV=test`): `/api/ask` + `/api/stock/ask` share a 20 req/day limiter; `/api/chat` has its own 30 req/day limiter
+- Vultr VPS (Ubuntu 24.04, 1 vCPU / 2 GB). `/opt/gooaye` holds `compose.yml`, `Caddyfile`, `web.env`, `worker.env` (chmod 600) and `data/app.db`. Containers: `caddy` (TLS, security headers, www → apex), `web`, `worker`; only Caddy publishes ports.
+- Push to `main` → `.github/workflows/gooaye-images.yml` runs typecheck and tests, then builds `ghcr.io/tommy3713/gooaye-{web,worker}` (`:latest` and `:<sha>`) from the `Dockerfile` targets. Never build on the VPS.
+- After CI is green: `deploy/deploy.sh` (or `TAG=<sha> deploy/deploy.sh` to roll back). Check `/status` in Telegram first: a new worker image restarts the worker mid-episode.
+- `.dockerignore` is an allowlist; add new top-level source directories to it. `next.config.ts` forces sqlite-vec's platform package into the standalone output (tracing can't see it) and excludes `data/` and `.env*`.
+- Never prefix secrets with `NEXT_PUBLIC_`.
 
-Route → Service call mapping:
-| Route | Service function |
-|---|---|
-| `GET /api/search` | `search(keyword)` — BM25 full-text on `podcast` index |
-| `GET /api/podcast/all` | `getPodcasts(page, limit)` — returns `title`, `uploadDate`, `episode`, `fullTitle`, `podcaster`, `note` |
-| `GET /api/podcast/summary` _(auth)_ | `getPodcastByPodcasterAndEpisode(podcaster, episode)` |
-| `GET /api/podcast/transcript` _(auth)_ | `getPodcastTranscript(podcaster, episode)` — returns `{ content, segments }` (`segments` is `null` for episodes without timestamps), 404 if missing |
-| `GET /api/podcast/chunks` _(auth)_ | `getPodcastChunks(podcaster, episode, page)` — 10 chunks/page sorted by `chunk_index`; `{ chunks: [{ chunk_index, chunk_text }], total, page, hasMore }` |
-| `POST /api/ask` _(auth, 20/day)_ | `askWithContext()` — embed → kNN on `podcast_chunks` → SSE |
-| `POST /api/stock/ask` _(auth, shares 20/day)_ | `askAboutStock(ticker)` — AI opinion timeline for a ticker, SSE |
-| `POST /api/chat` _(auth, 30/day)_ | `chatWithContext(question, messages)` — multi-turn RAG chat, SSE |
-| `GET /api/themes/timeline` | `getThemesTimeline()` — `{ timeline: { "YYYY-MM": { theme: count } }, episodes }` |
-| `GET /api/sentiment/timeline` | `getSentimentTimeline()` — per-episode `{ score, label, reason }` from `market_sentiment` |
-| `GET /api/stocks` | `getStocksList()` — tickers aggregated from `mentioned_stocks` with first/last mention dates |
-| `GET /api/stocks/:ticker` | `getStockDetail(ticker)` |
-| `GET /api/stocks/:ticker/drift` | `getStockDrift(ticker)` — sentiment + matching bullish/bearish thesis per episode |
-| `GET /api/glossary` | `getGlossary()` — `glossary_terms` aggregated by term across episodes |
-| `GET /api/analysis` | `getCompanyAnalysisList()` — published cross-episode analyses (metadata only, no threads); `[]` before the index exists |
-| `GET /api/analysis/:key` _(auth)_ | `getCompanyAnalysis(key)` — one company's `{ episodes, threads, ... }` from `company_threads`; 404 if never analyzed |
+## Testing
 
-All SSE endpoints share one protocol: first `data: { sources: [...] }`, then `data: { content }` chunks, finally `data: [DONE]` (or `data: { error }`).
-
-### Frontend
-
-Uses the Next.js App Router. State is managed globally with Redux Toolkit (`src/app/store.ts`) and persisted to `localStorage` via `redux-persist`. Persisted state can be stale/empty after a backend change — pages refetch when persisted data is empty.
-
-**Key path alias:** `@/*` → `src/*`. Utils folder is at `src/utils/`.
-
-**Redux slices** (`src/features/`):
-
-- `searchSlice` — search results, driven by `fetchSearchResults(keyword)`
-- `summarySlice` — episode summary + transcript (`transcript` text plus `transcriptSegments`, `null` when the episode has no timestamps); `fetchChunks` + `loadMoreChunks` fetch paginated chunks (kept for future use but not rendered)
-- `podcastListSlice` — fetches all episodes at once (limit 200); the page component manages a local `visibleCount` for load-more (20 per step) and client-side year/month filtering
-- `askSlice` — Q&A and stock-ask state (`question`, `answer`, `sources`, `status`); persisted so the answer survives navigation
-- `chatSlice` — multi-turn chat messages
-- `themesSlice`, `sentimentSlice`, `stocksSlice`, `glossarySlice` — data for the corresponding analytics pages
-- `analysisSlice` — cross-episode analysis list + current company; blacklisted from redux-persist (can be megabytes)
-- `helloSlice` — legacy, not actively used
-
-**Auth pattern:** `src/utils/fetchWithAuth.ts` wraps `fetch`, pulling the `id_token` from the NextAuth session and injecting `Authorization: Bearer <token>`. Any component calling a protected endpoint must use this utility. NextAuth is configured at `src/app/api/auth/[...nextauth]/route.ts`, with `authOptions` extracted to `src/lib/authOptions.ts`. The JWT callback auto-refreshes the Google ID token before expiry using the stored refresh token.
-
-**Pages:**
-
-- `/` — home
-- `/search` — search interface
-- `/podcast-list/[podcaster]` — episode list for a podcaster
-- `/summary/[podcaster]/[episode]` — episode detail (auth-gated): 摘要 tab + 逐字稿 tab (keyword search; segments are merged into ~30s paragraphs with `[m:ss]` timestamps via `src/utils/transcript.ts`, plain text when an episode has none)
-- `/ask` — Q&A streaming (auth-gated, 20/day) with a 查股票 tab for per-ticker opinion timelines
-- `/chat` — multi-turn chat (auth-gated, 30/day)
-- `/stocks`, `/stocks/[ticker]` — stock mention tracker and per-ticker detail with opinion drift
-- `/themes` — theme trend timeline
-- `/sentiment` — market sentiment timeline
-- `/glossary` — investment concept glossary
-- `/analysis/[key]` — cross-episode thread analysis (auth-gated): 最近變化 feed, 主題總覽 matrix (per-episode columns up to 12 episodes, monthly beyond; dormant and background-only threads collapsed), per-thread timeline. Logic in `src/utils/analysis.ts`. `/stocks/[ticker]` links here when an analysis exists
-
-### Mobile UI Notes
-
-- Bottom nav height is `h-14` (56px) with `pb-safe` class for iPhone home indicator; `.pb-safe { padding-bottom: env(safe-area-inset-bottom) }` is defined in `globals.css`
-- Each nav item has `min-h-[44px]` touch target
-- Search result cards (`PodcastAccordians.tsx`): highlights default to `line-clamp-3 overflow-hidden`; per-card expand/collapse button with separate "查看集數 →" link to avoid tap conflicts
-- All text inputs guard `onKeyDown` Enter with `e.nativeEvent.isComposing` to prevent IME (Chinese/Japanese/Korean) composition from triggering search prematurely
-- Ko-fi link in footer (no copyright text)
-
-### Testing
-
-**Backend tests** (`backend/tests/`) use supertest against the real Express app with `vi.mock('../../src/service.js')` to stub the service layer. The `google-auth-library` mock uses `vi.hoisted()` to expose `mockVerifyIdToken` to the factory. There is one test file per route group in `tests/routes/`.
-
-**Frontend tests** (`frontend/tests/`) use fresh `configureStore` instances (no redux-persist) per test. `summarySlice` tests mock `@/utils/fetchWithAuth` via `vi.hoisted()`. Only `search`, `summary`, `podcastList`, and `glossary` slices have tests so far.
-
-No real network calls are made in any test — all external dependencies are mocked.
-
-### Ingestion Pipeline (`auto-summarize/`)
-
-Python pipeline that downloads, transcribes, enriches, and indexes new episodes. Uses the `openai-env/` virtualenv at the repo root.
-
-```bash
-cd auto-summarize
-python tui.py              # Interactive TUI: diff RSS vs notes/, pick episodes, download + run full pipeline
-python check_new.py        # List RSS episodes not yet in notes/gooaye/
-python main.py local       # Process latest episode only (run-local.sh wraps this with logging to logs/)
-python main.py reindex     # Re-index notes/gooaye/ into ES (always rebuilds chunks, backfills missing fields)
-python main.py retranscribe [EP ...]  # Re-download + re-transcribe notes (default: all without `segments`)
-python eval_asr.py <ep.mp3> --out data/asr_compare --clip 0:180   # Compare Whisper configs on clips; CER vs a hand-made reference.txt
-```
-
-**Flow:** Download via RSS (needs a browser User-Agent or the feed returns 403) → validate MP3 size → transcribe locally via `mlx-whisper` (`WHISPER_MODEL` = whisper-large-v3, Apple Silicon only, ~0.3–0.45× real time; turbo dropped phrases in `eval_asr.py`) keeping per-segment timestamps → OpenCC `s2tw` (not `s2twp`, whose phrase conversion rewrites words like 代碼→程式碼) + known misheard terms (`TRANSCRIPTION_FIXES`, incl. 臺→台) + half-width punctuation next to CJK widened → GPT-4o-mini summary → enrichment (`classify_themes`, `extract_stocks`, `extract_investment_thesis`, `extract_sentiment_score`, `extract_glossary_terms`) → sentence-boundary chunking (target 600 chars, hard cap 1500) of the `note` field → embed via `text-embedding-3-small` → write `podcast` + `podcast_chunks` → save JSON to `notes/gooaye/`.
-
-In the TUI's full pipeline, the JSON is saved **before** any ES write, so an ES outage never loses transcription/summary work; a failed ES write only warns, and the index can be backfilled later with `main.py reindex`.
-
-**`reindex` mode** always deletes and rebuilds `podcast_chunks` from the `note` field (re-embeds every chunk). Does not re-transcribe or re-summarize.
-
-**`retranscribe` mode** downloads each episode's MP3 from RSS (all 700+ episodes are still in the feed) into `data/retranscribe/`, replaces only `content` + `segments` in the JSON, upserts the `podcast` doc, and deletes the MP3. `note`, enrichment and chunks are untouched. Changing `content` changes the transcript hash, so `analyze_company.py` will re-extract those episodes on its next run.
-
-### Cross-episode company analysis (`auto-summarize/`, CLI only)
-
-```bash
-python analyze_company.py NVDA --range 1y         # quote only: which episodes are already analyzed + estimated cost
-python analyze_company.py NVDA --range 1y --yes   # extract missing episodes, re-match threads, write the matrix page
-```
-
-- `companies.json` — company key → prompt name + extra aliases (misheard spellings). Add a company here before analyzing it.
-- `extract_reasons.py` — per episode, LLM extracts self-contained reasons about the company from the raw `content` (whole episode in one gpt-5.5 call by default), each with a verbatim `reference` and `focus` (主角/背景).
-- `match_threads.py` — groups reasons across episodes into neutral topic threads and labels each 新增/重複/更新/反轉 (gpt-5.5, one call per reason).
-- `render_threads.py` — pure code; thread × episode matrix HTML (local preview).
-- `--yes` also publishes the result to the `company_threads` ES index (one doc per company key, latest run wins), which the website reads; `--publish FILE --range R` re-publishes a saved result without re-running.
-- Records live in `analysis/<KEY>/extractions/EP*.json` (gitignored) with the transcript hash, prompt hash and model; an episode is re-extracted only when one of those changes. Zero-reason episodes are recorded too; failed calls are not. Thread matching is not cached yet and re-runs over the whole range, which dominates the quote.
-
-### Environment Variables
-
-Backend `backend/.env`:
-
-```
-ELASTIC_URL, ELASTIC_USERNAME, ELASTIC_PASSWORD
-GOOGLE_CLIENT_ID
-FRONTEND_URL
-OPENAI_API_KEY   # used by /api/ask, /api/stock/ask, /api/chat for embeddings + GPT-4o-mini streaming
-```
-
-Frontend `frontend/.env`:
-
-```
-NEXT_PUBLIC_BACKEND_URL   # e.g. http://localhost:3000
-GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
-NEXTAUTH_SECRET, NEXTAUTH_URL
-```
-
-Ingestion `auto-summarize/.env` (note the different names):
-
-```
-OPENAI_API_KEY
-ELASTICSEARCH_HOST, ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD
-```
-
-Root `.env` is read by `docker-compose.yml` (`ELASTIC_PASSWORD`, `ELASTIC_USERNAME`, `ELASTICSEARCH_SERVICEACCOUNTTOKEN`, `OPENAI_API_KEY`, Google/NextAuth secrets).
+`tests/` covers RSS parsing, text cleanup, summary validation, scheduling, repo/pipeline checkpoints, web helpers, Q&A search/render, and backup. Tests use in-memory SQLite and stub every network call (OpenAI, Groq, Telegram, R2).

@@ -2,8 +2,8 @@ name: gooaye images
 
 on:
   push:
-    branches: [slim, main]
-    paths: ['gooaye/**', '.github/workflows/gooaye-images.yml']
+    branches: [main]
+    paths-ignore: ['docs/**', '**.md', 'memory/**', '.claude/**', 'deploy/**']
   workflow_dispatch:
 
 permissions:
@@ -13,16 +13,12 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: gooaye
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: gooaye/package-lock.json
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -43,7 +39,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
-          context: gooaye
+          context: .
           target: ${{ matrix.target }}
           platforms: linux/amd64
           push: true

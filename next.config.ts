@@ -7,7 +7,7 @@ const config: NextConfig = {
   output: 'standalone',
   // sqlite-vec loads a platform-specific native extension at runtime
   serverExternalPackages: ['sqlite-vec'],
-  // The repo has other lockfiles (v1 frontend/backend); pin the app root
+  // Pin the app root so a lockfile in a parent directory is never picked up
   outputFileTracingRoot: root,
   // The database is mounted at runtime; never bake a local copy into the image
   outputFileTracingExcludes: { '/*': ['./data/**/*', './.env*'] },
