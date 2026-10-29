@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Mono, Noto_Serif_TC } from 'next/font/google';
 import Link from 'next/link';
 import { Nav } from '@/components/Nav';
+import { UserMenu } from '@/components/UserMenu';
+import { currentUser } from '@/lib/auth';
 import './globals.css';
 
 // Body text uses the system CJK font; only headings and timestamps load web fonts.
@@ -16,7 +18,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { viewportFit: 'cover' };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const user = await currentUser();
   return (
     <html lang="zh-Hant-TW" className={`${serif.variable} ${mono.variable}`}>
       <body>
@@ -26,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span className="brand-mark">股</span>股癌搜尋
             </Link>
             <Nav variant="desk" />
+            <UserMenu name={user?.name ?? null} />
           </div>
         </header>
         <main>

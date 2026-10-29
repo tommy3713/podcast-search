@@ -90,8 +90,9 @@ export function defaultDbPath(): string {
   return process.env.DB_PATH ?? path.resolve('data/app.db');
 }
 
-// The worker opens read-write and runs migrations; web request handlers open readonly.
-export function openDb(file = defaultDbPath(), opts: { readonly?: boolean } = {}): DB {
+// The worker opens read-write and runs migrations. The web app opens readonly for pages
+// and Q&A tools, plus one read-write connection (migrate: false) for quota and ask_log.
+export function openDb(file = defaultDbPath(), opts: { readonly?: boolean; migrate?: boolean } = {}): DB {
   if (!opts.readonly && file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new Database(file, { readonly: opts.readonly ?? false, fileMustExist: opts.readonly ?? false });
   sqliteVec.load(db);
@@ -100,7 +101,7 @@ export function openDb(file = defaultDbPath(), opts: { readonly?: boolean } = {}
   if (!opts.readonly) {
     db.pragma('journal_mode = WAL');
     db.pragma('synchronous = NORMAL');
-    migrate(db);
+    if (opts.migrate ?? true) migrate(db);
   }
   return db;
 }

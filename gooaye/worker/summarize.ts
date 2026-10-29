@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import type { Segment } from '@/lib/segments.ts';
 import { formatTimestamp, LlmSummary, MENTION_CATEGORIES, sanitizeSummary, type Summary } from '@/lib/summary.ts';
+import { escapeTags } from '@/lib/tags.ts';
 import { llmCost, SUMMARY_MODEL } from './config.ts';
 import { joinSegments } from './chunk.ts';
 
@@ -67,8 +68,4 @@ export function transcriptLines(segs: Segment[], lineSeconds = LINE_SECONDS): st
   }
   flush();
   return lines.join('\n');
-}
-
-export function escapeTags(s: string): string {
-  return s.replace(/</g, '＜').replace(/>/g, '＞');
 }

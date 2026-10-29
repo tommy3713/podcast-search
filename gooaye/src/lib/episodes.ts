@@ -1,16 +1,7 @@
-import { connection } from 'next/server';
 import { cache } from 'react';
-import { type DB, defaultDbPath, openDb } from './db.ts';
 import type { Segment } from './segments.ts';
+import { readDb } from './server-db.ts';
 import type { Summary } from './summary.ts';
-
-// Web requests only read. The worker is the single writer; WAL lets both run at once.
-let db: DB | undefined;
-async function readDb(): Promise<DB> {
-  // better-sqlite3 is synchronous, so without this the queries would run at build time
-  await connection();
-  return (db ??= openDb(defaultDbPath(), { readonly: true }));
-}
 
 export type EpisodeListItem = {
   no: number;

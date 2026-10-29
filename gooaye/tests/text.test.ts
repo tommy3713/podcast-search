@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { chunkSegments, joinSegments } from '../worker/chunk.ts';
-import { escapeTags, transcriptLines } from '../worker/summarize.ts';
+import { escapeTags } from '@/lib/tags.ts';
+import { transcriptLines } from '../worker/summarize.ts';
 import { normalizeText } from '../worker/text.ts';
 import { dropLoops, findGaps, isSilence, retryAfterMs } from '../worker/transcribe.ts';
 
