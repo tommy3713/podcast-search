@@ -1,0 +1,28 @@
+# Lives at /opt/proxy on the VPS next to Caddyfile and sites/. Shared by every app on the VPS:
+# each app joins the external `proxy` network and drops its site block into sites/<app>.caddy.
+# Deploy: deploy/proxy/deploy.sh
+name: proxy
+
+services:
+  caddy:
+    image: caddy:2.11
+    restart: unless-stopped
+    # The only published ports on the VPS (Docker-published ports bypass ufw)
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [proxy]
+
+networks:
+  proxy:
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:

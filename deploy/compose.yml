@@ -1,5 +1,6 @@
-# Lives at /opt/gooaye on the VPS next to Caddyfile, web.env, worker.env and data/.
-# Deploy: docker compose pull && docker compose up -d
+# Lives at /opt/gooaye on the VPS next to web.env, worker.env and data/.
+# Caddy runs separately in /opt/proxy (deploy/proxy) and reaches web over the shared `proxy` network.
+# Deploy: deploy/deploy.sh
 name: gooaye
 
 x-app: &app
@@ -8,22 +9,9 @@ x-app: &app
   user: "1001:1001"
   volumes:
     - ./data:/data
-  # No ports: only Caddy is reachable from outside (Docker-published ports bypass ufw)
+  # No ports: only the shared Caddy is reachable from outside (Docker-published ports bypass ufw)
 
 services:
-  caddy:
-    image: caddy:2.11
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on: [web]
-
   web:
     <<: *app
     image: ghcr.io/tommy3713/gooaye-web:${TAG:-latest}
@@ -35,6 +23,10 @@ services:
     mem_limit: 512m
     # The worker creates and migrates the database
     depends_on: [worker]
+    networks:
+      proxy:
+        # Other apps share this network, so Caddy addresses web by a unique alias
+        aliases: [gooaye-web]
 
   worker:
     <<: *app
@@ -46,6 +38,6 @@ services:
       SITE_URL: https://gooaye-notes.com
     mem_limit: 768m
 
-volumes:
-  caddy_data:
-  caddy_config:
+networks:
+  proxy:
+    external: true
