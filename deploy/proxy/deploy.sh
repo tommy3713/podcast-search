@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy the shared Caddy reverse proxy to /opt/proxy on the VPS. Only needed when
 # deploy/proxy/compose.yml or Caddyfile changes; app deploys upload their own sites/*.caddy.
-# First time only: ssh in and run `sudo install -d -o deploy -g deploy /opt/proxy/sites`.
+# First time only: ssh in and run `sudo install -d -o deploy -g deploy /opt/proxy /opt/proxy/sites`.
 set -euo pipefail
 HOST="${GOOAYE_HOST:-deploy@66.245.221.163}"
 KEY="${GOOAYE_KEY:-$HOME/.ssh/gooaye_vps}"

@@ -2,7 +2,7 @@
 # One-time cutover from the Caddy inside the gooaye compose project to the shared proxy.
 # Copies the issued certificates so nothing is re-requested; the site is down for a few
 # seconds between the old Caddy stopping and the new one starting. Delete this file afterwards.
-# Before running: ssh in and run `sudo install -d -o deploy -g deploy /opt/proxy/sites`.
+# Before running: ssh in and run `sudo install -d -o deploy -g deploy /opt/proxy /opt/proxy/sites`.
 set -euo pipefail
 HOST="${GOOAYE_HOST:-deploy@66.245.221.163}"
 KEY="${GOOAYE_KEY:-$HOME/.ssh/gooaye_vps}"
