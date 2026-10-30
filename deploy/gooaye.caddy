@@ -1,6 +1,7 @@
+# Uploaded by deploy/deploy.sh to /opt/proxy/sites/ and imported by the shared Caddy (deploy/proxy)
 gooaye-notes.com {
 	encode zstd gzip
-	reverse_proxy web:3000
+	reverse_proxy gooaye-web:3000
 
 	header {
 		Strict-Transport-Security "max-age=31536000"

@@ -70,7 +70,8 @@ The web reads through `readDb()` (readonly) and writes only `ask_usage` / `ask_l
 
 ## Deploy
 
-- Vultr VPS (Ubuntu 24.04, 1 vCPU / 2 GB). `/opt/gooaye` holds `compose.yml`, `Caddyfile`, `web.env`, `worker.env` (chmod 600) and `data/app.db`. Containers: `caddy` (TLS, security headers, www → apex), `web`, `worker`; only Caddy publishes ports.
+- Vultr VPS (Ubuntu 24.04, 1 vCPU / 2 GB). `/opt/gooaye` holds `compose.yml`, `web.env`, `worker.env` (chmod 600) and `data/app.db`; containers `web` and `worker`, no published ports.
+- Caddy is shared by every app on the VPS: its own compose project in `/opt/proxy` (`deploy/proxy/`, deployed with `deploy/proxy/deploy.sh`; `deploy/proxy/README.md` explains how an app joins it), the only container that publishes ports (80/443). Apps join the external docker network `proxy` under a unique alias (web is `gooaye-web`) and own their site blocks in `/opt/proxy/sites/<app>.caddy`; gooaye's is `deploy/gooaye.caddy` (TLS, security headers, www → apex), uploaded by `deploy/deploy.sh`.
 - Push to `main` → `.github/workflows/gooaye-images.yml` runs typecheck and tests, then builds `ghcr.io/tommy3713/gooaye-{web,worker}` (`:latest` and `:<sha>`) from the `Dockerfile` targets. Never build on the VPS.
 - After CI is green: `deploy/deploy.sh` (or `TAG=<sha> deploy/deploy.sh` to roll back). Check `/status` in Telegram first: a new worker image restarts the worker mid-episode.
 - `.dockerignore` is an allowlist; add new top-level source directories to it. `next.config.ts` forces sqlite-vec's platform package into the standalone output (tracing can't see it) and excludes `data/` and `.env*`.
