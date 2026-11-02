@@ -16,6 +16,7 @@ npm test             # vitest, all tests
 npx vitest run tests/ask.test.ts
 npm run typecheck
 npm run build
+npm run check        # typecheck + test + build; run before every push
 
 npm run worker -- status                 # episode statuses and costs
 npm run worker -- poll                   # check RSS once and process new episodes
@@ -25,6 +26,16 @@ npm run worker -- nightly                # purge old ask logs, back up to R2
 npm run worker -- run                    # scheduler + Telegram bot (production entry point)
 tsx --env-file=.env.local scripts/ask-cli.ts "問題"   # Q&A from the terminal, no quota
 ```
+
+## Workflow
+
+`main` only changes through pull requests merged on GitHub: a ruleset rejects direct pushes, and the `check`, `image (web)` and `image (worker)` checks must pass. Never commit to `main` locally.
+
+1. Branch from an up-to-date main: `git switch main && git pull && git switch -c feat/<topic>` (prefixes `feat/`, `fix/`, `chore/`, `docs/`).
+2. Before pushing: `npm run check`, then try the change in `npm run dev` (fixtures) or `DB_PATH=data/prod.db npm run dev` (live snapshot, `npm run db:pull` first). Untested UI or worker changes don't go in a PR.
+3. Run `/code-review` on the diff and fix what it finds.
+4. `git push -u origin <branch>`, `gh pr create` (fill in `.github/pull_request_template.md`: how it was tested, whether the worker or `deploy/` changed), then `gh pr merge --auto --squash`. The PR title becomes the squash commit on main, so write it as a conventional commit (`feat: ...`, `fix: ...`).
+5. After it merges: `git switch main && git pull`, then deploy (see Deploy).
 
 ## Environments
 
@@ -72,7 +83,7 @@ The web reads through `readDb()` (readonly) and writes only `ask_usage` / `ask_l
 
 - Vultr VPS (Ubuntu 24.04, 1 vCPU / 2 GB). `/opt/gooaye` holds `compose.yml`, `web.env`, `worker.env` (chmod 600) and `data/app.db`; containers `web` and `worker`, no published ports.
 - Caddy is shared by every app on the VPS: its own compose project in `/opt/proxy` (`deploy/proxy/`, deployed with `deploy/proxy/deploy.sh`; `deploy/proxy/README.md` explains how an app joins it), the only container that publishes ports (80/443). Apps join the external docker network `proxy` under a unique alias (web is `gooaye-web`) and own their site blocks in `/opt/proxy/sites/<app>.caddy`; gooaye's is `deploy/gooaye.caddy` (TLS, security headers, www → apex), uploaded by `deploy/deploy.sh`.
-- Push to `main` → `.github/workflows/gooaye-images.yml` runs typecheck and tests, then builds `ghcr.io/tommy3713/gooaye-{web,worker}` (`:latest` and `:<sha>`) from the `Dockerfile` targets. Never build on the VPS.
+- `.github/workflows/ci.yml` runs typecheck and tests, then builds both `Dockerfile` targets, on every PR (images not pushed) and on every merge to `main`, which pushes `ghcr.io/tommy3713/gooaye-{web,worker}` (`:latest` and `:<sha>`). Never build on the VPS.
 - After CI is green: `deploy/deploy.sh` (or `TAG=<sha> deploy/deploy.sh` to roll back). Check `/status` in Telegram first: a new worker image restarts the worker mid-episode.
 - `.dockerignore` is an allowlist; add new top-level source directories to it. `next.config.ts` forces sqlite-vec's platform package into the standalone output (tracing can't see it) and excludes `data/` and `.env*`.
 - Never prefix secrets with `NEXT_PUBLIC_`.
