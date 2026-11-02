@@ -28,6 +28,7 @@ export function isNightlySlot(t: TaipeiTime): boolean {
   return t.hour === 3 && t.minute === 0;
 }
 
+
 // Next :00 or :30 boundary strictly after `now`
 export function nextHalfHour(now: Date): Date {
   const step = 30 * 60_000;

@@ -84,10 +84,43 @@ const MIGRATIONS: string[] = [
   ALTER TABLE episodes ADD COLUMN summary_draft_json TEXT; -- summary waiting for embedding + publish
   ALTER TABLE episodes ADD COLUMN failed_step TEXT;        -- transcribe | summarize | embed
   `,
+  // Q&A outcomes and cost; rows from before this have NULLs
+  `
+  ALTER TABLE ask_log ADD COLUMN outcome TEXT;        -- see AskOutcome in src/lib/ask/quota.ts
+  ALTER TABLE ask_log ADD COLUMN answer TEXT;         -- final answer text as streamed, [n] citations included
+  ALTER TABLE ask_log ADD COLUMN cited INTEGER;       -- distinct sources the answer cites
+  ALTER TABLE ask_log ADD COLUMN hits INTEGER;        -- results returned by all tool calls
+  ALTER TABLE ask_log ADD COLUMN ms INTEGER;
+  ALTER TABLE ask_log ADD COLUMN input_tokens INTEGER;
+  ALTER TABLE ask_log ADD COLUMN output_tokens INTEGER;
+  ALTER TABLE ask_log ADD COLUMN cost_usd REAL;
+
+  -- Daily totals rolled up from ask_log every night; kept forever (ask_log is purged after 30 days)
+  CREATE TABLE ask_daily (
+    date      TEXT PRIMARY KEY,                   -- YYYY-MM-DD, Asia/Taipei
+    asks      INTEGER NOT NULL,
+    users     INTEGER NOT NULL,
+    answered  INTEGER NOT NULL,
+    no_source INTEGER NOT NULL,
+    moderated INTEGER NOT NULL,
+    quota     INTEGER NOT NULL,
+    failed    INTEGER NOT NULL,                   -- timeout, aborted or error
+    cost_usd  REAL    NOT NULL,
+    avg_ms    INTEGER
+  );
+
+  -- Small facts the worker must remember across restarts (e.g. the last weekly digest)
+  CREATE TABLE worker_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  `,
 ];
 
 export function defaultDbPath(): string {
   return process.env.DB_PATH ?? path.resolve('data/app.db');
+}
+
+// The format of the created_at / updated_at columns, for comparing against them
+export function toDbTime(d: Date): string {
+  return `${d.toISOString().slice(0, 19)}Z`;
 }
 
 // Episodes visible on the site. Shared by the web and the worker's backup checks so

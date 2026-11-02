@@ -1,4 +1,5 @@
-import type { DB } from '../db.ts';
+import { type DB, toDbTime } from '../db.ts';
+import type { ToolCallLog } from './agent.ts';
 
 export const USER_DAILY_LIMIT = 20;
 export const SITE_DAILY_LIMIT = 500;
@@ -38,10 +39,58 @@ export function refundQuota(db: DB, userId: string, now = new Date()): void {
   db.prepare('UPDATE ask_usage SET count = MAX(0, count - 1) WHERE user_id = ? AND date = ?').run(userId, taipeiDate(now));
 }
 
-export function logAsk(db: DB, userId: string, question: string, toolCalls: unknown[]): void {
-  db.prepare('INSERT INTO ask_log (user_id, question, tool_calls_json) VALUES (?, ?, ?)').run(
-    userId,
-    question,
-    JSON.stringify(toolCalls),
-  );
+// answered: cites at least one source. no_source: answered without citing anything,
+// which is how "can't answer that from the show" shows up (or the model ignoring the
+// rules). The rest never produced a full answer.
+export type AskOutcome = 'answered' | 'no_source' | 'moderated' | 'quota' | 'timeout' | 'aborted' | 'error';
+
+export type AskLogEntry = {
+  userId: string;
+  question: string;
+  outcome: AskOutcome;
+  answer?: string;
+  cited?: number;
+  ms?: number;
+  toolCalls?: ToolCallLog[];
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+};
+
+// Never throws: a logging failure must not fail the answer (and the web may write here
+// moments before the worker's migration adds the columns)
+export function logAsk(db: DB, e: AskLogEntry): void {
+  try {
+    const calls = e.toolCalls ?? [];
+    db.prepare(
+      `INSERT INTO ask_log (user_id, question, tool_calls_json, outcome, answer, cited, hits, ms, input_tokens, output_tokens, cost_usd)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      e.userId,
+      e.question,
+      JSON.stringify(calls),
+      e.outcome,
+      e.answer || null,
+      e.cited ?? null,
+      calls.reduce((n, c) => n + c.results, 0),
+      e.ms ?? null,
+      e.inputTokens ?? null,
+      e.outputTokens ?? null,
+      e.costUsd ?? null,
+    );
+  } catch (err) {
+    console.error('[ask_log]', err instanceof Error ? err.message : err);
+  }
+}
+
+// A user over the limit may keep retrying; only the first rejection of their day is kept,
+// so the log stays bounded and `quota` counts people turned away, not retries
+export function logQuotaRejection(db: DB, userId: string, question: string, now = new Date()): void {
+  const dayStart = toDbTime(new Date(`${taipeiDate(now)}T00:00:00+08:00`));
+  try {
+    const seen = db.prepare(`SELECT 1 FROM ask_log WHERE created_at >= ? AND user_id = ? AND outcome = 'quota'`).get(dayStart, userId);
+    if (!seen) logAsk(db, { userId, question, outcome: 'quota' });
+  } catch (err) {
+    console.error('[ask_log]', err instanceof Error ? err.message : err);
+  }
 }
