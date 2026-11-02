@@ -22,7 +22,8 @@ npm run worker -- status                 # episode statuses and costs
 npm run worker -- poll                   # check RSS once and process new episodes
 npm run worker -- ingest 709 [--resummarize|--retranscribe] [--segments-file f]
 npm run worker -- seed 10                # process the latest n episodes
-npm run worker -- nightly                # purge old ask logs, back up to R2
+npm run worker -- nightly                # purge old ask logs, back up to R2, check episode count and disk
+npm run worker -- check-db data/restore.db   # integrity check of a database (restore drill, deploy/restore.md)
 npm run worker -- run                    # scheduler + Telegram bot (production entry point)
 tsx --env-file=.env.local scripts/ask-cli.ts "問題"   # Q&A from the terminal, no quota
 ```
@@ -66,6 +67,8 @@ The web reads through `readDb()` (readonly) and writes only `ask_usage` / `ask_l
 
 `schedule.ts`: RSS is polled every 30 min, 10:00–23:30 Taipei, on Wednesdays and Saturdays (release days); `nightly` runs at 03:00 (ask-log purge after 30 days, gzip backup to R2 under `backups/`, deleted by a bucket lifecycle rule after 30 days).
 
+Monitoring (`monitor.ts`, `backup.ts`): the worker's own Telegram messages can't report the worker or the VPS being down, so external services watch too. A 30-minute timer pings `HC_HEARTBEAT_URL` (Healthchecks.io) unless the shared job queue has had one job running over 2 h (`MAX_JOB_MS`), so a dead process, a blocked event loop and a hung job (scheduled or from Telegram) all stop the heartbeat. Nightly checks free disk (below both 15% and 10 GB) and the live episode count against the highest seen (`<DB_PATH>.backup-state.json`; a drop is reported every night until that file is deleted), then backs up after `integrity_check` on the copy; any problem goes to Telegram and `HC_BACKUP_URL/fail`, success pings `HC_BACKUP_URL`. The worker posts `🔄 worker 已啟動` on every start. UptimeRobot checks the homepage for a keyword from outside. Pings never throw. Restore drill and procedure: `deploy/restore.md`.
+
 `bot.ts`: Telegram commands `/status`, `/poll`, `/retry N`, `/resummarize N`, `/retranscribe N`, and inline buttons (`action:N`). Only `TELEGRAM_CHAT_ID` is obeyed. All jobs run one at a time through `enqueue` in `actions.ts`. Success and failure notifications include the episode's running cost.
 
 ### Web (`src/app`)
@@ -90,4 +93,4 @@ The web reads through `readDb()` (readonly) and writes only `ask_usage` / `ask_l
 
 ## Testing
 
-`tests/` covers RSS parsing, text cleanup, summary validation, scheduling, repo/pipeline checkpoints, web helpers, Q&A search/render, and backup. Tests use in-memory SQLite and stub every network call (OpenAI, Groq, Telegram, R2).
+`tests/` covers RSS parsing, text cleanup, summary validation, scheduling, repo/pipeline checkpoints, web helpers, Q&A search/render, backup, and monitoring (pings, disk, backup checks). Tests use in-memory SQLite and stub every network call (OpenAI, Groq, Telegram, R2).

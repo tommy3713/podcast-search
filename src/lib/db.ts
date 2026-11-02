@@ -90,6 +90,12 @@ export function defaultDbPath(): string {
   return process.env.DB_PATH ?? path.resolve('data/app.db');
 }
 
+// Episodes visible on the site. Shared by the web and the worker's backup checks so
+// "live" means the same thing everywhere.
+export function countLiveEpisodes(db: DB): number {
+  return (db.prepare(`SELECT COUNT(*) AS n FROM episodes WHERE status = 'done'`).get() as { n: number }).n;
+}
+
 // The worker opens read-write and runs migrations. The web app opens readonly for pages
 // and Q&A tools, plus one read-write connection (migrate: false) for quota and ask_log.
 export function openDb(file = defaultDbPath(), opts: { readonly?: boolean; migrate?: boolean } = {}): DB {

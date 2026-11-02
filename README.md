@@ -71,7 +71,7 @@ stateDiagram-v2
 - 每集成本約 US$0.40，記在 `episodes.cost_usd`，Telegram 通知會附上。
 - 重新處理已上線的集數時，舊版本會一直顯示到新版本上線；重跑失敗就保留舊版。
 - 所有工作（排程、Telegram 指令）都排進同一個佇列，一次只跑一個，避免重複處理同一集。
-- 失敗、排程錯誤、備份失敗、發佈日 23:30 還沒有新集數，都會發 Telegram 通知；`/status`、`/retry N`、`/resummarize N`、`/retranscribe N` 可以從手機操作。
+- 失敗、排程錯誤、備份失敗、發佈日 23:30 還沒有新集數，都會發 Telegram 通知；worker 自己掛掉時由外部服務通知（UptimeRobot 檢查網站、Healthchecks.io 收 worker 心跳與每晚備份）。`/status`、`/retry N`、`/resummarize N`、`/retranscribe N` 可以從手機操作。
 
 ## 問答流程
 
@@ -119,7 +119,7 @@ flowchart LR
 
 - 一台 Vultr VPS（1 vCPU / 2 GB）。web 和 worker 在 `/opt/gooaye`，前面是所有 app 共用的 Caddy（`/opt/proxy`，唯一對外開 80/443 的容器）。加入新 app 的方式見 [`deploy/proxy/README.md`](deploy/proxy/README.md)。
 - VPS 不 build，只拉 CI 做好的 image；回退用 `TAG=<git sha> deploy/deploy.sh`。
-- 資料庫每晚 gzip 備份到 Cloudflare R2，保留 30 天。
+- 資料庫每晚 gzip 備份到 Cloudflare R2，保留 30 天；上傳前檢查完整性。還原演練與步驟見 [`deploy/restore.md`](deploy/restore.md)。
 
 ## 本機開發
 
