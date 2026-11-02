@@ -34,8 +34,8 @@ tsx --env-file=.env.local scripts/ask-cli.ts "問題"   # Q&A from the terminal,
 1. Branch from an up-to-date main: `git switch main && git pull && git switch -c feat/<topic>` (prefixes `feat/`, `fix/`, `chore/`, `docs/`).
 2. Before pushing: `npm run check`, then try the change in `npm run dev` (fixtures) or `DB_PATH=data/prod.db npm run dev` (live snapshot, `npm run db:pull` first). Untested UI or worker changes don't go in a PR.
 3. Run `/code-review` on the diff and fix what it finds.
-4. `git push -u origin <branch>`, `gh pr create` (fill in `.github/pull_request_template.md`: how it was tested, whether the worker or `deploy/` changed), then `gh pr merge --auto --squash`. The PR title becomes the squash commit on main, so write it as a conventional commit (`feat: ...`, `fix: ...`).
-5. After it merges: `git switch main && git pull`, then deploy (see Deploy).
+4. `git push -u origin <branch>`, `gh pr create` (fill in `.github/pull_request_template.md`: how it was tested, whether the worker or `deploy/` changed). The PR title becomes the squash commit on main, so write it as a conventional commit (`feat: ...`, `fix: ...`). Then stop: don't merge or enable auto-merge. The owner reviews and merges on GitHub.
+5. After the owner merges: `git switch main && git pull`, then deploy (see Deploy).
 
 ## Environments
 
