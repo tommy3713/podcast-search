@@ -8,6 +8,7 @@ import { fetchFeed, parseFeed, type RssEpisode } from './rss.ts';
 // runs never touch the same episode (or the Groq quota) at once.
 let tail: Promise<unknown> = Promise.resolve();
 let running: string | null = null;
+let runningSince: number | null = null;
 let waiting = 0;
 
 export function enqueue<T>(label: string, job: () => Promise<T>): Promise<T> {
@@ -15,18 +16,20 @@ export function enqueue<T>(label: string, job: () => Promise<T>): Promise<T> {
   const next = tail.then(async () => {
     waiting--;
     running = label;
+    runningSince = Date.now();
     try {
       return await job();
     } finally {
       running = null;
+      runningSince = null;
     }
   });
   tail = next.catch(() => {});
   return next;
 }
 
-export function queueState(): { running: string | null; waiting: number } {
-  return { running, waiting };
+export function queueState(): { running: string | null; runningSince: number | null; waiting: number } {
+  return { running, runningSince, waiting };
 }
 
 export async function poll(db: DB): Promise<{ found: RssEpisode[]; latestInFeed: number | null }> {

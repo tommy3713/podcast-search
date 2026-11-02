@@ -5,6 +5,7 @@ import { gunzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '@/lib/db.ts';
 import { backupToR2 } from '../worker/backup.ts';
+import { WORK_DIR } from '../worker/config.ts';
 
 const env = { R2_ACCOUNT_ID: 'acct', R2_ACCESS_KEY_ID: 'id', R2_SECRET_ACCESS_KEY: 'secret', R2_BUCKET: 'gooaye-backups' };
 
@@ -47,5 +48,7 @@ describe('backupToR2', () => {
     expect(req.headers.get('authorization')).toMatch(/^AWS4-HMAC-SHA256 Credential=id\//);
     const restored = gunzipSync(Buffer.from(await req.arrayBuffer()));
     expect(restored.subarray(0, 15).toString()).toBe('SQLite format 3');
+    // The verified copy is WAL-mode; none of its files may outlive the run
+    for (const f of ['backup.db', 'backup.db-wal', 'backup.db-shm']) expect(fs.existsSync(path.join(WORK_DIR, f))).toBe(false);
   });
 });

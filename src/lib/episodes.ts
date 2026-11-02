@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { countLiveEpisodes } from './db.ts';
 import type { Segment } from './segments.ts';
 import { readDb } from './server-db.ts';
 import type { Summary } from './summary.ts';
@@ -43,8 +44,7 @@ function toListItem(r: ListRow): EpisodeListItem {
 }
 
 export async function countEpisodes(): Promise<number> {
-  const d = await readDb();
-  return (d.prepare(`SELECT COUNT(*) AS n FROM episodes WHERE status = 'done'`).get() as { n: number }).n;
+  return countLiveEpisodes(await readDb());
 }
 
 // Newest first

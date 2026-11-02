@@ -1,10 +1,13 @@
 import fs from 'node:fs';
-import { type DB, openDb } from '@/lib/db.ts';
+import path from 'node:path';
+import { type DB, defaultDbPath, openDb } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
-import { drain, type EpisodeAction, enqueue, poll, runEpisodeAction, seed } from './actions.ts';
-import { backupToR2 } from './backup.ts';
+import { isProduction } from '@/lib/env.ts';
+import { drain, type EpisodeAction, enqueue, poll, queueState, runEpisodeAction, seed } from './actions.ts';
+import { backupToR2, episodeCountDrop, verifyBackup } from './backup.ts';
 import { runBot } from './bot.ts';
 import { notify } from './notify.ts';
+import { diskWarning, ping, queueHealthy } from './monitor.ts';
 import { getEpisode } from './repo.ts';
 import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } from './schedule.ts';
 
@@ -19,8 +22,10 @@ const USAGE = `usage: worker <command>
                       re-summarized. --retranscribe redoes everything.
                       --segments-file uses a JSON transcript ([{start,end,text}] or {segments})
                       instead of downloading and transcribing (dev only)
-  nightly             delete ask_log rows older than 30 days, back up app.db to R2
-  status              list episodes and their state`;
+  nightly             delete ask_log rows older than 30 days, back up app.db to R2, check
+                      the live episode count and free disk space
+  status              list episodes and their state
+  check-db <file>     integrity check and live episode count of a database (restore drills)`;
 
 async function ingest(db: DB, episodeNo: number, args: string[]): Promise<void> {
   const row = getEpisode(db, episodeNo);
@@ -39,14 +44,40 @@ async function ingest(db: DB, episodeNo: number, args: string[]): Promise<void> 
 }
 
 async function nightly(db: DB): Promise<void> {
-  const r = db.prepare(`DELETE FROM ask_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days')`).run();
-  db.prepare(`DELETE FROM ask_usage WHERE date < date('now', '-7 days')`).run();
-  console.log(`nightly: deleted ${r.changes} ask_log rows`);
+  const dbPath = defaultDbPath();
+  const problems: string[] = [];
+  const check = (what: string, fn: () => string | null) => {
+    try {
+      const p = fn();
+      if (p) problems.push(p);
+    } catch (err) {
+      problems.push(`${what}失敗：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  // Before the backup, and each guarded, so a full disk can't stop the report below
+  check('磁碟檢查', () => diskWarning(path.dirname(dbPath)));
+  check('集數檢查', () => episodeCountDrop(db, `${dbPath}.backup-state.json`));
+  check('清理問答紀錄', () => {
+    const r = db.prepare(`DELETE FROM ask_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days')`).run();
+    db.prepare(`DELETE FROM ask_usage WHERE date < date('now', '-7 days')`).run();
+    console.log(`nightly: deleted ${r.changes} ask_log rows`);
+    return null;
+  });
+  let key: string | null = null;
   try {
-    await backupToR2(db);
+    key = await backupToR2(db);
+    if (key === null && isProduction()) problems.push('每晚備份被跳過：R2 沒有設定');
   } catch (err) {
     console.error('backup failed', err);
-    await notify(`❌ 每晚備份失敗：${err instanceof Error ? err.message : String(err)}`.slice(0, 600));
+    problems.push(`每晚備份失敗：${err instanceof Error ? err.message : String(err)}`);
+  }
+  // Healthchecks alerts on a fail ping, or when no ping arrives at all (nightly never ran)
+  if (problems.length) {
+    const msg = problems.join('\n').slice(0, 600);
+    await notify(`❌ ${msg}`);
+    await ping(process.env.HC_BACKUP_URL, 'fail', msg);
+  } else if (key) {
+    await ping(process.env.HC_BACKUP_URL);
   }
 }
 
@@ -64,7 +95,14 @@ async function reportReleaseDay(db: DB, now: Date): Promise<void> {
 
 async function run(db: DB): Promise<void> {
   console.log('worker scheduler started');
+  // Deploys restart the worker too, but an unexpected restart (crash, out of memory) shows up here
+  await notify('🔄 worker 已啟動');
   void runBot(db);
+  const heartbeat = () => {
+    if (queueHealthy(queueState().runningSince)) void ping(process.env.HC_HEARTBEAT_URL);
+  };
+  heartbeat();
+  setInterval(heartbeat, 30 * 60_000);
   // Pick up anything a crash or restart left half-done
   await enqueue('處理未完成的集數', () => drain(db));
   for (;;) {
@@ -93,6 +131,13 @@ function status(db: DB): void {
 
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
+  // Before openDb(), which would migrate (and so change) the file being checked when DB_PATH points at it
+  if (cmd === 'check-db') {
+    if (!args[0]) throw new Error(USAGE);
+    const { episodes } = verifyBackup(args[0]);
+    console.log(`${args[0]}: integrity ok, ${episodes} live episodes`);
+    return;
+  }
   const db = openDb();
   switch (cmd) {
     case 'run':
