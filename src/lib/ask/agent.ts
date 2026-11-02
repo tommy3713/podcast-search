@@ -1,6 +1,7 @@
 import type OpenAI from 'openai';
 import type { ResponseInputItem } from 'openai/resources/responses/responses';
 import { z } from 'zod';
+import type { AskUsage } from '../cost.ts';
 import type { DB } from '../db.ts';
 import { formatTimestamp, MENTION_CATEGORIES, STOCK_CATEGORY } from '../summary.ts';
 import { escapeTags } from '../tags.ts';
@@ -26,6 +27,11 @@ export type AskEvent =
   | { type: 'error'; message: string };
 
 export type ToolCallLog = { name: string; args: unknown; results: number };
+
+// Filled in while answering, so the caller can log tool calls and token use even when
+// the answer fails halfway
+export type AskTrace = AskUsage & { toolCalls: ToolCallLog[] };
+export const newTrace = (): AskTrace => ({ toolCalls: [], inputTokens: 0, cachedTokens: 0, outputTokens: 0, embeddingTokens: 0 });
 
 const TranscriptArgs = z.object({ query: z.string().trim().min(1).max(50) });
 const MentionArgs = z.object({
@@ -95,6 +101,7 @@ type Deps = {
   coverage: Coverage;
   emit: (e: AskEvent) => void;
   signal?: AbortSignal;
+  trace: AskTrace;
 };
 
 class SourceTable {
@@ -133,6 +140,7 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
       { model: 'text-embedding-3-small', input: p.data.query },
       { signal: deps.signal },
     );
+    deps.trace.embeddingTokens += emb.usage?.total_tokens ?? 0;
     const hits = searchTranscript(deps.db, p.data.query, emb.data[0]?.embedding ?? null);
     const lines = hits.map((h) => {
       const s = keep(`t:${h.episodeNo}:${h.startSec}`, { ep: h.episodeNo, t: h.startSec, text: h.text, label: null });
@@ -176,14 +184,15 @@ function toInputItem(item: OpenAI.Responses.ResponseOutputItem): ResponseInputIt
   return item as ResponseInputItem;
 }
 
-// Runs the tool loop and streams the final answer through deps.emit
-export async function answer(question: string, deps: Deps): Promise<ToolCallLog[]> {
+// Runs the tool loop and streams the final answer through deps.emit; tool calls and token
+// use go into deps.trace as they happen
+export async function answer(question: string, deps: Deps): Promise<void> {
   const input: ResponseInputItem[] = [
     { role: 'system', content: systemPrompt(deps.coverage) },
     { role: 'user', content: `<question>${escapeTags(question)}</question>` },
   ];
   const sources = new SourceTable();
-  const logs: ToolCallLog[] = [];
+  const logs = deps.trace.toolCalls;
 
   for (;;) {
     const toolsLeft = MAX_TOOL_CALLS - logs.length;
@@ -209,8 +218,11 @@ export async function answer(question: string, deps: Deps): Promise<ToolCallLog[
       }
     }
     const res = await stream.finalResponse();
+    deps.trace.inputTokens += res.usage?.input_tokens ?? 0;
+    deps.trace.cachedTokens += res.usage?.input_tokens_details?.cached_tokens ?? 0;
+    deps.trace.outputTokens += res.usage?.output_tokens ?? 0;
     const calls = res.output.filter((o) => o.type === 'function_call');
-    if (!calls.length) return logs;
+    if (!calls.length) return;
 
     // Text written before deciding to search again isn't the answer
     if (streamed) deps.emit({ type: 'reset' });

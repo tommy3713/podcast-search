@@ -3,6 +3,7 @@ import { ACTION_LABEL, checkAction, type EpisodeAction, enqueue, poll, queueStat
 import { estimateCost } from './config.ts';
 import { retryButtons, STEP_LABEL } from './pipeline.ts';
 import { type EpisodeRow, getEpisode, recentEpisodes } from './repo.ts';
+import { askStats, formatStats, unanswered } from './stats.ts';
 import {
   answerCallback,
   type Button,
@@ -21,6 +22,7 @@ const COMMANDS = [
   { command: 'retry', description: '從失敗的步驟重試，例如 /retry 710' },
   { command: 'resummarize', description: '只重新整理重點，例如 /resummarize 709' },
   { command: 'retranscribe', description: '重新轉錄並整理，例如 /retranscribe 709' },
+  { command: 'stats', description: '問答統計，預設 7 天，例如 /stats 30' },
 ];
 
 const HELP = `股癌搜尋 worker\n${COMMANDS.map((c) => `/${c.command}　${c.description}`).join('\n')}`;
@@ -83,6 +85,12 @@ async function handle(db: DB, u: Update): Promise<void> {
   switch (c.cmd) {
     case 'status':
       return sendStatus(db);
+    case 'stats': {
+      // ask_log keeps 30 days
+      const days = Math.min(30, Math.max(1, Number(c.arg) || 7));
+      const since = new Date(Date.now() - days * 86_400_000);
+      return sendMessage(formatStats(`最近 ${days} 天問答`, askStats(db, since), unanswered(db, since)));
+    }
     case 'poll':
       await sendMessage('🔍 檢查 RSS 中…');
       enqueue('檢查 RSS', () => poll(db))

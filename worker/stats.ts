@@ -1,0 +1,97 @@
+import { type DB, toDbTime } from '@/lib/db.ts';
+import type { TaipeiTime } from './schedule.ts';
+
+// ask_log.created_at is UTC; days are counted in Taipei time. Only used to label rows:
+// filters compare created_at with UTC bounds, so the ask_log_created index applies.
+const TAIPEI_DAY = `date(created_at, '+8 hours')`;
+const taipeiMidnight = (day: string) => toDbTime(new Date(`${day}T00:00:00+08:00`));
+
+// Rows from before outcomes were recorded have no outcome, cost or timing; counting
+// them would show days with questions but no results
+const RECORDED = `outcome IS NOT NULL`;
+
+const TOTALS = `
+  COUNT(*)                                                    AS asks,
+  COUNT(DISTINCT user_id)                                     AS users,
+  COALESCE(SUM(outcome = 'answered'), 0)                      AS answered,
+  COALESCE(SUM(outcome = 'no_source'), 0)                     AS no_source,
+  COALESCE(SUM(outcome = 'moderated'), 0)                     AS moderated,
+  COALESCE(SUM(outcome = 'quota'), 0)                         AS quota,
+  COALESCE(SUM(outcome IN ('timeout', 'aborted', 'error')), 0) AS failed,
+  COALESCE(SUM(cost_usd), 0)                                  AS cost_usd,
+  CAST(AVG(CASE WHEN outcome IN ('answered', 'no_source') THEN ms END) AS INTEGER) AS avg_ms`;
+
+export type AskStats = {
+  asks: number;
+  users: number;
+  answered: number;
+  no_source: number;
+  moderated: number;
+  quota: number;
+  failed: number;
+  cost_usd: number;
+  avg_ms: number | null;
+};
+
+export function askStats(db: DB, since: Date): AskStats {
+  return db.prepare(`SELECT ${TOTALS} FROM ask_log WHERE created_at >= ? AND ${RECORDED}`).get(toDbTime(since)) as AskStats;
+}
+
+// Questions answered without citing any source: what listeners ask that the show
+// (or the search) doesn't cover
+export function unanswered(db: DB, since: Date, limit = 15): { day: string; question: string }[] {
+  return db
+    .prepare(`SELECT ${TAIPEI_DAY} AS day, question FROM ask_log WHERE outcome = 'no_source' AND created_at >= ? ORDER BY id DESC LIMIT ?`)
+    .all(toDbTime(since), limit) as { day: string; question: string }[];
+}
+
+// Totals per Taipei day into ask_daily, which is kept after ask_log is purged at 30 days.
+// Recomputes the last four weeks of finished days (cheap, and heals a missed night), but
+// never older ones, whose rows the purge may already have thinned out.
+export function rollupAskDaily(db: DB, today: string): void {
+  db.prepare(
+    `INSERT INTO ask_daily (date, asks, users, answered, no_source, moderated, quota, failed, cost_usd, avg_ms)
+     SELECT ${TAIPEI_DAY} AS day, ${TOTALS}
+     FROM ask_log
+     WHERE created_at >= ? AND created_at < ? AND ${RECORDED}
+     GROUP BY day
+     ON CONFLICT (date) DO UPDATE SET
+       asks = excluded.asks, users = excluded.users, answered = excluded.answered, no_source = excluded.no_source,
+       moderated = excluded.moderated, quota = excluded.quota, failed = excluded.failed,
+       cost_usd = excluded.cost_usd, avg_ms = excluded.avg_ms`,
+  ).run(taipeiMidnight(addDays(today, -28)), taipeiMidnight(today));
+}
+
+function addDays(day: string, n: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
+
+// The weekly digest is due from Monday 09:00 until it has gone out for that week, so a
+// busy queue or a restart over 09:00 delays it instead of skipping the week. Returns the
+// week's Monday (the key to remember it by), or null when nothing is due.
+export function digestDue(t: TaipeiTime, lastSent: string | null): string | null {
+  const monday = addDays(t.date, -((t.weekday + 6) % 7));
+  if (t.weekday === 1 && t.hour < 9) return null;
+  return lastSent === monday ? null : monday;
+}
+
+export function getState(db: DB, key: string): string | null {
+  return (db.prepare('SELECT value FROM worker_state WHERE key = ?').get(key) as { value: string } | undefined)?.value ?? null;
+}
+
+export function setState(db: DB, key: string, value: string): void {
+  db.prepare('INSERT INTO worker_state (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run(key, value);
+}
+
+export function formatStats(title: string, s: AskStats, questions: { day: string; question: string }[] = []): string {
+  const lines = [
+    `📊 ${title}`,
+    `共 ${s.asks} 題・${s.users} 人`,
+    `✅ 有出處 ${s.answered}・❓ 沒出處 ${s.no_source}・🚫 不當內容 ${s.moderated}・⛔ 配額已滿 ${s.quota}・❌ 失敗 ${s.failed}`,
+    `成本 US$${s.cost_usd.toFixed(2)}${s.avg_ms !== null ? `・平均 ${(s.avg_ms / 1000).toFixed(1)} 秒` : ''}`,
+  ];
+  if (questions.length) {
+    lines.push('', '❓ 沒有出處的問題：', ...questions.map((q) => `・${q.day.slice(5)} ${q.question.slice(0, 60)}`));
+  }
+  return lines.join('\n');
+}

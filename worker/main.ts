@@ -10,6 +10,7 @@ import { notify } from './notify.ts';
 import { diskWarning, ping, queueHealthy } from './monitor.ts';
 import { getEpisode } from './repo.ts';
 import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } from './schedule.ts';
+import { askStats, digestDue, formatStats, getState, rollupAskDaily, setState, unanswered } from './stats.ts';
 
 const USAGE = `usage: worker <command>
   run                 scheduler (poll RSS Wed/Sat 10:00–23:30 Taipei every 30 min, nightly
@@ -57,6 +58,11 @@ async function nightly(db: DB): Promise<void> {
   // Before the backup, and each guarded, so a full disk can't stop the report below
   check('磁碟檢查', () => diskWarning(path.dirname(dbPath)));
   check('集數檢查', () => episodeCountDrop(db, `${dbPath}.backup-state.json`));
+  // Before the purge below, so the oldest day is still complete
+  check('問答彙總', () => {
+    rollupAskDaily(db, taipeiTime(new Date()).date);
+    return null;
+  });
   check('清理問答紀錄', () => {
     const r = db.prepare(`DELETE FROM ask_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days')`).run();
     db.prepare(`DELETE FROM ask_usage WHERE date < date('now', '-7 days')`).run();
@@ -79,6 +85,11 @@ async function nightly(db: DB): Promise<void> {
   } else if (key) {
     await ping(process.env.HC_BACKUP_URL);
   }
+}
+
+async function weeklyDigest(db: DB, now: Date): Promise<void> {
+  const since = new Date(now.getTime() - 7 * 86_400_000);
+  await notify(formatStats('最近 7 天問答', askStats(db, since), unanswered(db, since)));
 }
 
 // At the last poll of a release day, say so if nothing published today went live
@@ -115,6 +126,11 @@ async function run(db: DB): Promise<void> {
         if (isLastPollSlot(t)) await reportReleaseDay(db, at);
       }
       if (isNightlySlot(t)) await enqueue('每晚清理與備份', () => nightly(db));
+      const week = digestDue(t, getState(db, 'weekly_digest'));
+      if (week) {
+        await weeklyDigest(db, at);
+        setState(db, 'weekly_digest', week);
+      }
     } catch (err) {
       console.error('scheduled task failed', err);
       await notify(`❌ worker 排程錯誤：${err instanceof Error ? err.message : String(err)}`.slice(0, 600));

@@ -71,7 +71,7 @@ stateDiagram-v2
 - 每集成本約 US$0.40，記在 `episodes.cost_usd`，Telegram 通知會附上。
 - 重新處理已上線的集數時，舊版本會一直顯示到新版本上線；重跑失敗就保留舊版。
 - 所有工作（排程、Telegram 指令）都排進同一個佇列，一次只跑一個，避免重複處理同一集。
-- 失敗、排程錯誤、備份失敗、發佈日 23:30 還沒有新集數，都會發 Telegram 通知；worker 自己掛掉時由外部服務通知（UptimeRobot 檢查網站、Healthchecks.io 收 worker 心跳與每晚備份）。`/status`、`/retry N`、`/resummarize N`、`/retranscribe N` 可以從手機操作。
+- 失敗、排程錯誤、備份失敗、發佈日 23:30 還沒有新集數，都會發 Telegram 通知；worker 自己掛掉時由外部服務通知（UptimeRobot 檢查網站、Healthchecks.io 收 worker 心跳與每晚備份）。`/status`、`/retry N`、`/resummarize N`、`/retranscribe N` 可以從手機操作，`/stats` 看問答統計，每週一 09:00 會收到上週摘要。
 
 ## 問答流程
 
@@ -105,7 +105,8 @@ sequenceDiagram
 | `episodes` | 集數、狀態、逐字稿 segments、摘要、失敗的步驟、成本 |
 | `chunks` / `chunks_fts` / `chunks_vec` | 逐字稿切塊，以及它的全文索引（FTS5 trigram）和向量索引（1536 維） |
 | `mentions` | 提到的股票、餐廳、書影音等，附原話和時間點 |
-| `ask_usage` / `ask_log` | 問答配額，以及問答紀錄（30 天後刪除） |
+| `ask_usage` / `ask_log` | 問答配額，以及問答紀錄：問題、回答、結果（有出處／沒出處／被擋／失敗）、耗時、成本，30 天後刪除 |
+| `ask_daily` | 每天的問答統計數字，永久保留 |
 
 ## 部署
 
