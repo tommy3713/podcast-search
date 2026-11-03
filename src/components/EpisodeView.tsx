@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Paragraph } from '@/lib/format';
 import { formatTimestamp, type Summary } from '@/lib/summary';
 
@@ -77,11 +77,24 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
           逐字稿{paragraphs.length > 0 && <span className="count">{paragraphs.length} 段</span>}
         </button>
       </div>
-      {tab === 'summary' ? (
+      {/* Both panels are always rendered, so the transcript is in the server HTML for search
+          engines; the inactive one is hidden */}
+      <div role="tabpanel" hidden={tab !== 'summary'}>
         <SummaryTab summary={summary} onSeek={seek} />
-      ) : (
-        <TranscriptTab paragraphs={paragraphs} chapters={summary.chapters} t={t} playing={playing} flashAt={initialT} onSeek={seek} />
-      )}
+      </div>
+      <div role="tabpanel" hidden={tab !== 'tx'}>
+        {/* While hidden it gets a fixed time, so playback (about 4 updates a second) doesn't
+            re-render the whole transcript */}
+        <TranscriptTab
+          paragraphs={paragraphs}
+          chapters={summary.chapters}
+          t={tab === 'tx' ? t : 0}
+          playing={tab === 'tx' && playing}
+          active={tab === 'tx'}
+          flashAt={initialT}
+          onSeek={seek}
+        />
+      </div>
     </>
   );
 }
@@ -243,15 +256,17 @@ function splitMatches(text: string, q: string): { s: string; hit: boolean }[] {
   return out;
 }
 
-function TranscriptTab(props: {
+const TranscriptTab = memo(function TranscriptTab(props: {
   paragraphs: Paragraph[];
   chapters: Summary['chapters'];
   t: number;
   playing: boolean;
+  // Hidden panels don't scroll the page or flash paragraphs
+  active: boolean;
   flashAt: number | null;
   onSeek: (t: number) => void;
 }) {
-  const { paragraphs, chapters, t, playing, flashAt, onSeek } = props;
+  const { paragraphs, chapters, t, playing, active, flashAt, onSeek } = props;
   const box = useRef<HTMLDivElement>(null);
   const [q, setQ] = useState('');
   const [hit, setHit] = useState(0);
@@ -267,21 +282,21 @@ function TranscriptTab(props: {
     el?.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
   };
 
-  // Arriving from a ?t= link: flash the paragraph that contains it
+  // Arriving from a ?t= link: flash the paragraph that contains it once the panel is shown
   useEffect(() => {
-    if (flashAt === null || !paragraphs.length) return;
+    if (!active || flashAt === null || !paragraphs.length) return;
     const el = box.current?.querySelector(`[data-i="${paragraphAt(paragraphs, flashAt)}"]`);
     el?.classList.add('flash');
     el?.scrollIntoView({ block: 'center' });
-  }, [flashAt, paragraphs]);
+  }, [active, flashAt, paragraphs]);
 
   useEffect(() => {
-    if (playing && follow && !query) scrollTo(box.current?.querySelector(`[data-i="${current}"]`));
-  }, [current, playing, follow, query]);
+    if (active && playing && follow && !query) scrollTo(box.current?.querySelector(`[data-i="${current}"]`));
+  }, [active, current, playing, follow, query]);
 
   useEffect(() => {
-    if (query) scrollTo(box.current?.querySelector(`mark[data-h="${hit}"]`));
-  }, [hit, query]);
+    if (active && query) scrollTo(box.current?.querySelector(`mark[data-h="${hit}"]`));
+  }, [active, hit, query]);
 
   if (!paragraphs.length) {
     return <div className="card placeholder"><p style={{ margin: 0 }}>這一集沒有逐字稿。</p></div>;
@@ -353,4 +368,4 @@ function TranscriptTab(props: {
       </div>
     </>
   );
-}
+});

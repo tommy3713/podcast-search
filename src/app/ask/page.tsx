@@ -6,7 +6,8 @@ import { currentUser } from '@/lib/auth';
 import { countEpisodes } from '@/lib/episodes';
 import { readDb } from '@/lib/server-db';
 
-export const metadata: Metadata = { title: '問答' };
+// Answers need a login and differ per question; nothing here belongs in search results
+export const metadata: Metadata = { title: '問答', robots: { index: false, follow: true } };
 
 const EXAMPLES = ['孟恭最近喜歡做的運動是什麼？', '主委推薦過哪些電影或影集？', '主委對 Anthropic IPO 的看法？'];
 

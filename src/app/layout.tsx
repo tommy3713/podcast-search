@@ -5,6 +5,7 @@ import { Nav } from '@/components/Nav';
 import { UserMenu } from '@/components/UserMenu';
 import { currentUser } from '@/lib/auth';
 import { isProduction } from '@/lib/env';
+import { SITE_NAME, SITE_URL } from '@/lib/seo';
 import './globals.css';
 
 // Body text uses the system CJK font; only headings and timestamps load web fonts.
@@ -12,9 +13,15 @@ import './globals.css';
 const serif = Noto_Serif_TC({ weight: ['600', '700'], preload: false, variable: '--font-serif', display: 'swap' });
 const mono = IBM_Plex_Mono({ weight: ['400', '500'], subsets: ['latin'], variable: '--font-plex-mono', display: 'swap' });
 
+const DESCRIPTION = '《股癌 Gooaye》每集重點、帶時間戳的逐字稿，和跨集數問答。非官方粉絲網站。';
+
+// The share image comes from app/opengraph-image.png and twitter-image.png
 export const metadata: Metadata = {
-  title: { default: '股癌搜尋', template: '%s・股癌搜尋' },
-  description: '《股癌 Gooaye》每集重點、帶時間戳的逐字稿，和跨集數問答。非官方粉絲網站。',
+  metadataBase: new URL(SITE_URL),
+  title: { default: `${SITE_NAME}｜股癌 Gooaye 每集重點・逐字稿`, template: `%s・${SITE_NAME}` },
+  description: DESCRIPTION,
+  openGraph: { siteName: SITE_NAME, locale: 'zh_TW', type: 'website', description: DESCRIPTION },
+  twitter: { card: 'summary_large_image' },
 };
 
 export const viewport: Viewport = { viewportFit: 'cover' };

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Fragment } from 'react';
 import { redirect } from 'next/navigation';
@@ -6,9 +7,21 @@ import { Pager } from '@/components/Pager';
 import { countEpisodes, getEpisode, latestEpisodeNo, listEpisodes, oldestEpisodeNo } from '@/lib/episodes';
 import { formatDate, minutes, monthLabel } from '@/lib/format';
 import { clampPage, PER_PAGE, pageCount, pageOffset } from '@/lib/paging';
+import { SITE_NAME, shareMetadata } from '@/lib/seo';
 import { formatTimestamp } from '@/lib/summary';
 
 type Props = { searchParams: Promise<{ page?: string; ep?: string }> };
+
+// Each list page is its own URL; ?ep= jumps and out-of-range pages point at the page shown.
+// The layout's title template skips this segment (it applies to child routes), so the
+// site name is written out.
+export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+  const total = await countEpisodes();
+  const page = total ? clampPage((await searchParams).page, total) : 1;
+  if (page === 1) return { alternates: { canonical: '/' }, ...shareMetadata(`${SITE_NAME}｜股癌 Gooaye 每集重點・逐字稿`, '/') };
+  const title = `所有集數・第 ${page} 頁・${SITE_NAME}`;
+  return { title: { absolute: title }, alternates: { canonical: `/?page=${page}` }, ...shareMetadata(title, `/?page=${page}`) };
+}
 
 export default async function Home({ searchParams }: Props) {
   const sp = await searchParams;

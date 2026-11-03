@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700&family=IBM+Plex+Mono:wght@500&display=block">
+<style>
+  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+  :root {
+    --og-bg: #101a22; --og-fg: #eef2f5; --og-muted: #8fa1b0; --og-accent: #5bb5dc;
+    --font-display: "Noto Serif TC", "Songti TC", serif;
+    --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  }
+  .og-frame { container-type: inline-size; width: 1200px; height: 630px; }
+  .og { width: 100%; height: 100%; box-sizing: border-box; background: var(--og-bg); color: var(--og-fg); display: grid; grid-template-columns: 1.15fr 1fr; padding: 6.5cqw 6cqw; gap: 4cqw; }
+  .og-left { display: grid; align-content: space-between; min-width: 0; }
+  .og-brand { display: flex; align-items: center; gap: 2.2cqw; }
+  .og-mark { width: 9cqw; height: 9cqw; border-radius: 2cqw; background: var(--og-fg); color: var(--og-bg); display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; font-size: 5.2cqw; }
+  .og-name { font-family: var(--font-display); font-weight: 700; font-size: 6.4cqw; letter-spacing: .03em; }
+  .og-claim { font-family: var(--font-display); font-weight: 600; font-size: 3.6cqw; line-height: 1.45; }
+  .og-claim em { font-style: normal; color: var(--og-accent); }
+  .og-foot { display: grid; gap: .6cqw; font-family: "PingFang TC", sans-serif; font-size: 1.9cqw; color: var(--og-muted); }
+  .og-foot b { color: var(--og-fg); font-family: var(--font-mono); font-weight: 500; font-size: 2.1cqw; letter-spacing: .02em; }
+  .og-right { display: grid; align-content: center; gap: 1.5cqw; min-width: 0; }
+  .og-row { display: grid; grid-template-columns: 7.4cqw 1fr; gap: 1.4cqw; align-items: center; }
+  .og-ts { font-family: var(--font-mono); font-size: 1.85cqw; color: var(--og-accent); background: color-mix(in srgb, var(--og-accent) 14%, transparent); border-radius: .8cqw; padding: .4cqw 0; text-align: center; }
+  .og-bar { height: 1.3cqw; border-radius: 1cqw; background: color-mix(in srgb, var(--og-fg) 16%, transparent); }
+  .og-row:nth-child(1) .og-bar { width: 92%; } .og-row:nth-child(2) .og-bar { width: 74%; }
+  .og-row:nth-child(3) .og-bar { width: 86%; } .og-row:nth-child(4) .og-bar { width: 62%; }
+  .og-row:nth-child(5) .og-bar { width: 80%; } .og-row:nth-child(6) .og-bar { width: 54%; }
+  .og-row.hl .og-bar { background: color-mix(in srgb, var(--og-accent) 55%, transparent); }
+</style>
+</head>
+<body>
+<div class="og-frame"><div class="og">
+  <div class="og-left">
+    <div class="og-brand"><span class="og-mark">股</span><span class="og-name">股癌搜尋</span></div>
+    <div class="og-claim">《股癌 Gooaye》<br>每集<em>重點</em>、<em>逐字稿</em><br>和跨集數問答</div>
+    <div class="og-foot"><b>gooaye-notes.com</b><span>非官方粉絲網站</span></div>
+  </div>
+  <div class="og-right">
+    <div class="og-row"><span class="og-ts">1:30</span><span class="og-bar"></span></div>
+    <div class="og-row"><span class="og-ts">4:12</span><span class="og-bar"></span></div>
+    <div class="og-row hl"><span class="og-ts">12:20</span><span class="og-bar"></span></div>
+    <div class="og-row"><span class="og-ts">18:46</span><span class="og-bar"></span></div>
+    <div class="og-row"><span class="og-ts">27:03</span><span class="og-bar"></span></div>
+    <div class="og-row"><span class="og-ts">41:58</span><span class="og-bar"></span></div>
+  </div>
+</div></div>
+</body>
+</html>
