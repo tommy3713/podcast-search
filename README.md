@@ -30,7 +30,7 @@ flowchart LR
   worker --> r2["Cloudflare R2<br/>每日備份"]
   web --> openai2["OpenAI<br/>問答、moderation"]
   web --> google["Google 登入"]
-  browser["瀏覽器"] --> caddy
+  browser["瀏覽器"] --> cf["Cloudflare<br/>DDoS 防護、流量統計"] --> caddy
   browser -. 音檔直接從 SoundOn 播放 .-> soundon["SoundOn"]
 ```
 
@@ -118,7 +118,8 @@ flowchart LR
   ghcr -- "deploy/deploy.sh<br/>docker compose pull" --> vps["VPS"]
 ```
 
-- 一台 Vultr VPS（1 vCPU / 2 GB）。web 和 worker 在 `/opt/gooaye`，前面是所有 app 共用的 Caddy（`/opt/proxy`，唯一對外開 80/443 的容器）。加入新 app 的方式見 [`deploy/proxy/README.md`](deploy/proxy/README.md)。
+- 一台 Vultr VPS（1 vCPU / 2 GB）。web 和 worker 在 `/opt/gooaye`，前面是所有 app 共用的 Caddy（`/opt/proxy`，唯一對外開 80/443 的容器）。
+- 所有流量都先經過 Cloudflare（DNS 開橘色雲朵，SSL 設 Full (strict)）。Vultr 防火牆只讓 Cloudflare 連 80/443，直接連 VPS 的 IP 會逾時。加入新 app 的方式見 [`deploy/proxy/README.md`](deploy/proxy/README.md)。
 - VPS 不 build，只拉 CI 做好的 image；回退用 `TAG=<git sha> deploy/deploy.sh`。
 - 資料庫每晚 gzip 備份到 Cloudflare R2，保留 30 天；上傳前檢查完整性。還原演練與步驟見 [`deploy/restore.md`](deploy/restore.md)。
 

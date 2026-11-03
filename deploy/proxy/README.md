@@ -5,10 +5,14 @@ ssh key `~/.ssh/gooaye_vps`) sits behind one Caddy. Caddy is the only container 
 ports (80/443); it picks the app by domain (TLS SNI and the `Host` header) and gets certificates
 from Let's Encrypt automatically.
 
+In front of it, every domain goes through Cloudflare, and a Vultr Firewall Group lets only
+Cloudflare's IP ranges reach 80/443 (TCP 22 is open to all; SSH is key-only). A domain that
+is not proxied by Cloudflare cannot reach the VPS at all.
+
 ```
-internet ─80/443─▶ caddy (/opt/proxy) ─┬─ gooaye-web:3000   (/opt/gooaye)
-                                        └─ <app>-web:<port>  (/opt/<app>)
-                       all on the external docker network `proxy`
+visitor ─▶ Cloudflare ─80/443─▶ [Vultr firewall] ─▶ caddy (/opt/proxy) ─┬─ gooaye-web:3000   (/opt/gooaye)
+                                                                         └─ <app>-web:<port>  (/opt/<app>)
+                                                        all on the external docker network `proxy`
 ```
 
 ## Layout on the VPS
@@ -56,8 +60,14 @@ The proxy config lives in this repo (`podcast-search/deploy/proxy/`) for now. Ch
    	reverse_proxy <app>-web:3000
    }
    ```
-4. Point the domain's DNS A record at the VPS IP before the first deploy, or certificate
-   issuance fails.
+4. DNS, in Cloudflare, before the first deploy (or certificate issuance fails):
+   - An **A record** to the VPS IP (`66.245.221.163`), **proxied (orange cloud)**. A DNS-only
+     (grey) record is blocked by the firewall. Don't add an AAAA record: it would let Cloudflare
+     reach the VPS over IPv6, which the firewall drops, and visitors get IPv6 from Cloudflare
+     anyway.
+   - If the domain is a new Cloudflare zone: SSL/TLS mode **Full (strict)**, and **Always Use
+     HTTPS off** (Caddy needs plain HTTP on port 80 for Let's Encrypt and does the HTTPS
+     redirect itself).
 5. Deploy script: `scp` the compose file to `/opt/<app>/` and `<app>.caddy` to `/opt/proxy/sites/`,
    `docker compose up -d` in `/opt/<app>`, then reload Caddy. `deploy/deploy.sh` in this repo is
    the reference.
