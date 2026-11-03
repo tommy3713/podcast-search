@@ -1,0 +1,57 @@
+name: deploy
+
+# Called by ci.yml after a merge to main has pushed images tagged with the commit sha.
+# Run it by hand (Actions → deploy → Run workflow, works from a phone) to roll back to an
+# earlier commit on main, or to retry after the worker update was deferred.
+on:
+  workflow_call:
+    inputs:
+      sha:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full commit sha on main to deploy (its images must exist; rollbacks only reach commits that have deploy/remote-deploy.sh)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+# One deploy at a time. A deploy waiting behind another is replaced by a newer one, which is
+# fine: the newer commit includes it.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Secrets live in this environment, which only main may use; PR workflows never see them
+    environment: vps
+    # The worker update waits up to 60 minutes for an idle queue
+    timeout-minutes: 80
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ vars.DEPLOY_HOST }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be the full 40-character commit sha"; exit 1; }
+          install -m 600 /dev/null ~/deploy_key
+          printf '%s\n' "$SSH_KEY" > ~/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/known_hosts
+          # The key is locked to deploy-hook on the VPS; the sha is its only input
+          ssh -i ~/deploy_key -o UserKnownHostsFile=~/known_hosts -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 "$HOST" "$SHA"
+
+      - name: Check the site
+        run: |
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS https://gooaye-notes.com/ | grep -q 股癌; then exit 0; fi
+            sleep 10
+          done
+          echo "gooaye-notes.com did not come back"; exit 1

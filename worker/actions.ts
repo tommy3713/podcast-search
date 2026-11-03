@@ -10,18 +10,27 @@ let tail: Promise<unknown> = Promise.resolve();
 let running: string | null = null;
 let runningSince: number | null = null;
 let waiting = 0;
+let onChange: (() => void) | null = null;
+
+// Called whenever a job starts or ends (the deploy script reads the queue state from a file)
+export function onQueueChange(fn: (() => void) | null): void {
+  onChange = fn;
+}
 
 export function enqueue<T>(label: string, job: () => Promise<T>): Promise<T> {
   waiting++;
+  onChange?.();
   const next = tail.then(async () => {
     waiting--;
     running = label;
     runningSince = Date.now();
+    onChange?.();
     try {
       return await job();
     } finally {
       running = null;
       runningSince = null;
+      onChange?.();
     }
   });
   tail = next.catch(() => {});
