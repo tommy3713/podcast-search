@@ -35,10 +35,13 @@ notify() {
 # The homepage through Caddy on this host, not through Cloudflare (a bot challenge or an edge
 # hiccup can't fail the deploy). Caddy publishes 443 on the host and the Vultr firewall sits
 # outside the VM, so 127.0.0.1 works. Tries up to $1 times, 5 s apart, while web starts.
+# The page streams: the header and footer (both say 股癌) go out with the 200 before the body
+# renders, so a broken database still returns 200 with the brand in it. The episode list's
+# id="ep-list" is in the HTML only when the list itself rendered from the database.
 wait_for_site() {
   local tries=1 out
   until out=$(curl -fsS --max-time 5 --resolve gooaye-notes.com:443:127.0.0.1 -w '\n%{http_code}' https://gooaye-notes.com/) \
-      && [[ "$out" == *股癌*$'\n200' ]]; do
+      && [[ "$out" == *'id="ep-list"'*$'\n200' ]]; do
     (( tries < $1 )) || return 1
     tries=$((tries + 1))
     sleep 5
