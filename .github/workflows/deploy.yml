@@ -44,14 +44,8 @@ jobs:
           install -m 600 /dev/null ~/deploy_key
           printf '%s\n' "$SSH_KEY" > ~/deploy_key
           printf '%s\n' "$KNOWN_HOSTS" > ~/known_hosts
-          # The key is locked to deploy-hook on the VPS; the sha is its only input
+          # The key is locked to deploy-hook on the VPS; the sha is its only input. The site
+          # check runs there, through Caddy (a failure rolls back); UptimeRobot watches the
+          # public path through Cloudflare.
           ssh -i ~/deploy_key -o UserKnownHostsFile=~/known_hosts -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=30 "$HOST" "$SHA"
-
-      - name: Check the site
-        run: |
-          for i in 1 2 3 4 5 6; do
-            if curl -fsS https://gooaye-notes.com/ | grep -q 股癌; then exit 0; fi
-            sleep 10
-          done
-          echo "gooaye-notes.com did not come back"; exit 1

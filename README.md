@@ -120,7 +120,7 @@ flowchart LR
 
 - 一台 Vultr VPS（1 vCPU / 2 GB）。web 和 worker 在 `/opt/gooaye`，前面是所有 app 共用的 Caddy（`/opt/proxy`，唯一對外開 80/443 的容器）。
 - 所有流量都先經過 Cloudflare（DNS 開橘色雲朵，SSL 設 Full (strict)）。Vultr 防火牆只讓 Cloudflare 連 80/443，直接連 VPS 的 IP 會逾時。加入新 app 的方式見 [`deploy/proxy/README.md`](deploy/proxy/README.md)。
-- 合併到 main 就自動部署：先跑資料庫 migration、更新網站，worker 等手上的工作做完才更新（最多等 60 分鐘），結果發到 Telegram。VPS 不 build，只拉 CI 做好的 image。
+- 合併到 main 就自動部署：先跑資料庫 migration、更新網站，在 VPS 上經 Caddy 檢查首頁（不經過 Cloudflare），失敗就自動退回原本的版本；worker 等手上的工作做完才更新（最多等 60 分鐘），結果發到 Telegram。VPS 不 build，只拉 CI 做好的 image。
 - 回退：GitHub 的 Actions → **deploy** → Run workflow，填入要回到的 commit sha；或在本機跑 `deploy/deploy.sh <sha>`。
 - 資料庫每晚 gzip 備份到 Cloudflare R2，保留 30 天；上傳前檢查完整性。還原演練與步驟見 [`deploy/restore.md`](deploy/restore.md)。
 
