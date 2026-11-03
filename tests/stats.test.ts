@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type DB, openDb } from '@/lib/db';
 import { taipeiTime } from '../worker/schedule.ts';
-import { askStats, digestDue, formatStats, getState, rollupAskDaily, setState, unanswered } from '../worker/stats.ts';
+import { askStats, digestDue, formatAsk, formatQuestions, formatStats, getState, recentQuestions, rollupAskDaily, setState, unanswered } from '../worker/stats.ts';
 
 let db: DB;
 beforeEach(() => {
@@ -116,5 +116,46 @@ describe('digestDue', () => {
     setState(db, 'weekly_digest', '2026-11-02');
     setState(db, 'weekly_digest', '2026-11-09');
     expect(getState(db, 'weekly_digest')).toBe('2026-11-09');
+  });
+});
+
+describe('/questions', () => {
+  it('lists the newest questions with time, user and outcome', () => {
+    ask('2026-11-03T02:05:00Z', 'u1234567890', 'answered', { q: '主委推薦哪家拉麵' });
+    ask('2026-11-03T03:10:00Z', 'u9876543210', 'no_source', { q: '主委喜歡什麼顏色' });
+    const rows = recentQuestions(db, 10);
+    expect(rows.map((r) => r.question)).toEqual(['主委喜歡什麼顏色', '主委推薦哪家拉麵']);
+    const text = formatQuestions(rows);
+    expect(text).toContain(`#${rows[0]!.id} 11-03 11:10 u98765 ❓ 主委喜歡什麼顏色`);
+    expect(text).toContain(`#${rows[1]!.id} 11-03 10:05 u12345 ✅ 主委推薦哪家拉麵`);
+  });
+
+  it('says so when nobody has asked yet', () => {
+    expect(formatQuestions([])).toBe('還沒有人問過問題（紀錄保留 30 天）');
+  });
+
+  it('shows one question with its answer, searches and cost', () => {
+    db.prepare(
+      `INSERT INTO ask_log (user_id, question, created_at, outcome, answer, cited, ms, cost_usd, tool_calls_json)
+       VALUES ('u1234567890', '主委推薦哪家拉麵', '2026-11-03T02:05:00Z', 'answered', '推薦過一蘭 [1]', 1, 5400, 0.0062, ?)`,
+    ).run(JSON.stringify([{ name: 'search_mentions', args: { category: '美食', keyword: '拉麵', since: null }, results: 3 }]));
+    const id = (db.prepare('SELECT max(id) AS id FROM ask_log').get() as { id: number }).id;
+    expect(formatAsk(db, id)).toBe(
+      [
+        `#${id} 11-03 10:05 u12345`,
+        '問：主委推薦哪家拉麵',
+        '✅ answered・引用 1・5.4 秒・US$0.0062',
+        '搜尋：美食 拉麵（3 筆）',
+        '',
+        '答：推薦過一蘭 [1]',
+      ].join('\n'),
+    );
+  });
+
+  it('keeps a long answer within a Telegram message', () => {
+    db.prepare(`INSERT INTO ask_log (user_id, question, outcome, answer) VALUES ('u1', 'q', 'answered', ?)`).run('長'.repeat(6000));
+    const id = (db.prepare('SELECT max(id) AS id FROM ask_log').get() as { id: number }).id;
+    expect(formatAsk(db, id).length).toBeLessThanOrEqual(4096);
+    expect(formatAsk(db, 999999)).toBe('找不到 #999999（紀錄保留 30 天）');
   });
 });
