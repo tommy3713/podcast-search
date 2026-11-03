@@ -70,6 +70,17 @@ export const getEpisode = cache(async (no: number): Promise<EpisodeDetail | null
   };
 });
 
+// The [no] segment of /ep/[no]
+export function parseEpisodeNo(raw: string): number | null {
+  return /^\d{1,5}$/.test(raw) ? Number(raw) : null;
+}
+
+// Without loading the transcript: the episode layout runs on every prefetch of an episode link
+export async function episodeExists(no: number): Promise<boolean> {
+  const d = await readDb();
+  return d.prepare(`SELECT 1 FROM episodes WHERE status = 'done' AND episode_no = ?`).get(no) !== undefined;
+}
+
 export async function latestEpisodeNo(): Promise<number | null> {
   const d = await readDb();
   return (d.prepare(`SELECT MAX(episode_no) AS n FROM episodes WHERE status = 'done'`).get() as { n: number | null }).n;
