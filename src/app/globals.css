@@ -260,4 +260,20 @@ a.cite { display: inline-block; text-decoration: none; }
   .quote { margin-left: 0; }
   .user .name { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .para.flash, .caret { animation: none; } }
+
+/* loading.tsx placeholders */
+/* The sweep is lighter than the bar in both themes (dark --bg is darker than the cards) */
+.skel { display: block; max-width: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--line) 30%, color-mix(in srgb, var(--line), var(--skel-hi) 45%) 50%, var(--line) 70%) 0 0 / 300% 100%; animation: skel 1.4s ease-in-out infinite; }
+:root { --skel-hi: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --skel-hi: var(--fg); } }
+:root[data-theme="dark"] { --skel-hi: var(--fg); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.hero-top > .skel, .ep-head > .skel { flex: none; }
+.hero-top > div .skel, .ep-head > div .skel { margin-block: 3px; }
+.keypts .skel { margin-block: 2px; }
+.skel-span { grid-column: 1 / -1; }
+.skel-tab { padding: 12px 16px; }
+.skel-li { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: center; }
+@keyframes skel { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+@media (prefers-reduced-motion: reduce) { .para.flash, .caret, .skel { animation: none; } }

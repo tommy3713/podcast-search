@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge, EpName } from '@/components/Badge';
 import { EpisodeView } from '@/components/EpisodeView';
-import { episodeIndex, getEpisode } from '@/lib/episodes';
+import { episodeIndex, getEpisode, parseEpisodeNo } from '@/lib/episodes';
 import { formatDate, groupParagraphs, minutes } from '@/lib/format';
 import { pageHref, pageOfIndex } from '@/lib/paging';
 import { episodeDescription, episodeJsonLd, episodeTitle, SHARE_IMAGE, SITE_NAME } from '@/lib/seo';
@@ -13,12 +13,8 @@ type Props = {
   searchParams: Promise<{ t?: string; tab?: string }>;
 };
 
-function parseNo(raw: string): number | null {
-  return /^\d{1,5}$/.test(raw) ? Number(raw) : null;
-}
-
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const no = parseNo((await params).no);
+  const no = parseEpisodeNo((await params).no);
   const ep = no === null ? null : await getEpisode(no);
   if (!ep) return { title: '找不到這一集' };
   const title = episodeTitle(ep.no, ep.summary.line);
@@ -44,8 +40,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function EpisodePage({ params, searchParams }: Props) {
-  const no = parseNo((await params).no);
+  const no = parseEpisodeNo((await params).no);
   const ep = no === null ? null : await getEpisode(no);
+  // layout.tsx already answered 404; this only covers an episode unpublished in between
   if (!ep) notFound();
 
   const sp = await searchParams;
