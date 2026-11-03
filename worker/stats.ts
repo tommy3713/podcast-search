@@ -95,3 +95,64 @@ export function formatStats(title: string, s: AskStats, questions: { day: string
   }
   return lines.join('\n');
 }
+
+const OUTCOME_ICON: Record<string, string> = {
+  answered: '✅',
+  no_source: '❓',
+  moderated: '🚫',
+  quota: '⛔',
+  timeout: '❌',
+  aborted: '❌',
+  error: '❌',
+};
+const icon = (outcome: string | null) => (outcome ? (OUTCOME_ICON[outcome] ?? '·') : '·');
+// Users are a Google account id; the first characters are enough to tell them apart
+const who = (userId: string) => userId.slice(0, 6);
+const taipeiMinute = (createdAt: string) => new Date(Date.parse(createdAt) + 8 * 3600_000).toISOString().slice(5, 16).replace('T', ' ');
+
+export type QuestionRow = { id: number; created_at: string; user_id: string; outcome: string | null; question: string };
+
+export function recentQuestions(db: DB, limit: number): QuestionRow[] {
+  return db.prepare('SELECT id, created_at, user_id, outcome, question FROM ask_log ORDER BY id DESC LIMIT ?').all(limit) as QuestionRow[];
+}
+
+export function formatQuestions(rows: QuestionRow[]): string {
+  if (!rows.length) return '還沒有人問過問題（紀錄保留 30 天）';
+  return [
+    `💬 最近 ${rows.length} 題（✅ 有出處 ❓ 沒出處 🚫 不當內容 ⛔ 配額已滿 ❌ 失敗）`,
+    ...rows.map((r) => `#${r.id} ${taipeiMinute(r.created_at)} ${who(r.user_id)} ${icon(r.outcome)} ${r.question.slice(0, 60)}`),
+    '',
+    '點下面的編號看完整回答',
+  ].join('\n');
+}
+
+type AskRow = QuestionRow & {
+  answer: string | null;
+  cited: number | null;
+  ms: number | null;
+  cost_usd: number | null;
+  tool_calls_json: string | null;
+};
+
+// One question in full, for the buttons under /questions. Telegram caps a message at 4096
+// characters, so a long answer is cut.
+export function formatAsk(db: DB, id: number): string {
+  const r = db
+    .prepare('SELECT id, created_at, user_id, outcome, question, answer, cited, ms, cost_usd, tool_calls_json FROM ask_log WHERE id = ?')
+    .get(id) as AskRow | undefined;
+  if (!r) return `找不到 #${id}（紀錄保留 30 天）`;
+  const calls = JSON.parse(r.tool_calls_json ?? '[]') as { args?: Record<string, unknown>; results?: number }[];
+  const searches = calls.map((c) => `${Object.values(c.args ?? {}).filter(Boolean).join(' ')}（${c.results ?? 0} 筆）`).join('、');
+  const facts = [
+    `${icon(r.outcome)} ${r.outcome ?? '—'}`,
+    r.cited !== null ? `引用 ${r.cited}` : null,
+    r.ms !== null ? `${(r.ms / 1000).toFixed(1)} 秒` : null,
+    r.cost_usd !== null ? `US$${r.cost_usd.toFixed(4)}` : null,
+  ].filter(Boolean);
+  const head = [`#${r.id} ${taipeiMinute(r.created_at)} ${who(r.user_id)}`, `問：${r.question}`, facts.join('・'), searches ? `搜尋：${searches}` : null]
+    .filter(Boolean)
+    .join('\n');
+  const answer = r.answer ?? '（沒有回答）';
+  const room = 4000 - head.length - 10;
+  return `${head}\n\n答：${answer.length > room ? `${answer.slice(0, room)}…` : answer}`;
+}

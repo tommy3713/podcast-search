@@ -3,7 +3,7 @@ import { ACTION_LABEL, checkAction, type EpisodeAction, enqueue, poll, queueStat
 import { estimateCost } from './config.ts';
 import { retryButtons, STEP_LABEL } from './pipeline.ts';
 import { type EpisodeRow, getEpisode, recentEpisodes } from './repo.ts';
-import { askStats, formatStats, unanswered } from './stats.ts';
+import { askStats, formatAsk, formatQuestions, formatStats, recentQuestions, unanswered } from './stats.ts';
 import {
   answerCallback,
   type Button,
@@ -23,6 +23,7 @@ const COMMANDS = [
   { command: 'resummarize', description: '只重新整理重點，例如 /resummarize 709' },
   { command: 'retranscribe', description: '重新轉錄並整理，例如 /retranscribe 709' },
   { command: 'stats', description: '問答統計，預設 7 天，例如 /stats 30' },
+  { command: 'questions', description: '最近的問答，點編號看回答，例如 /questions 30' },
 ];
 
 const HELP = `股癌搜尋 worker\n${COMMANDS.map((c) => `/${c.command}　${c.description}`).join('\n')}`;
@@ -62,10 +63,28 @@ export function parseCallback(data: string): { action: EpisodeAction; episodeNo:
   return m ? { action: m[1] as EpisodeAction, episodeNo: Number(m[2]) } : null;
 }
 
+// Buttons under /questions: "ask:<ask_log id>"
+export function parseAskCallback(data: string): number | null {
+  const m = /^ask:(\d{1,9})$/.exec(data);
+  return m ? Number(m[1]) : null;
+}
+
+// The ids as buttons, five to a row
+export function questionButtons(ids: number[]): Button[][] {
+  const rows: Button[][] = [];
+  for (let i = 0; i < ids.length; i += 5) rows.push(ids.slice(i, i + 5).map((id) => ({ text: `#${id}`, data: `ask:${id}` })));
+  return rows;
+}
+
 async function handle(db: DB, u: Update): Promise<void> {
   if (u.callback_query) {
     const q = u.callback_query;
     if (!isOwnerChat(q.message?.chat.id)) return;
+    const askId = q.data ? parseAskCallback(q.data) : null;
+    if (askId !== null) {
+      await answerCallback(q.id, '');
+      return sendMessage(formatAsk(db, askId));
+    }
     const parsed = q.data ? parseCallback(q.data) : null;
     if (!parsed) return answerCallback(q.id, '看不懂這個按鈕');
     const reason = checkAction(db, parsed.action, parsed.episodeNo);
@@ -90,6 +109,10 @@ async function handle(db: DB, u: Update): Promise<void> {
       const days = Math.min(30, Math.max(1, Number(c.arg) || 7));
       const since = new Date(Date.now() - days * 86_400_000);
       return sendMessage(formatStats(`最近 ${days} 天問答`, askStats(db, since), unanswered(db, since)));
+    }
+    case 'questions': {
+      const rows = recentQuestions(db, Math.min(30, Math.max(1, Number(c.arg) || 10)));
+      return sendMessage(formatQuestions(rows), questionButtons(rows.map((r) => r.id)));
     }
     case 'poll':
       await sendMessage('🔍 檢查 RSS 中…');

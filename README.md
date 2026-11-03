@@ -71,7 +71,7 @@ stateDiagram-v2
 - 每集成本約 US$0.40，記在 `episodes.cost_usd`，Telegram 通知會附上。
 - 重新處理已上線的集數時，舊版本會一直顯示到新版本上線；重跑失敗就保留舊版。
 - 所有工作（排程、Telegram 指令）都排進同一個佇列，一次只跑一個，避免重複處理同一集。
-- 失敗、排程錯誤、備份失敗、發佈日 23:30 還沒有新集數，都會發 Telegram 通知；worker 自己掛掉時由外部服務通知（UptimeRobot 檢查網站、Healthchecks.io 收 worker 心跳與每晚備份）。`/status`、`/retry N`、`/resummarize N`、`/retranscribe N` 可以從手機操作，`/stats` 看問答統計，每週一 09:00 會收到上週摘要。
+- 失敗、排程錯誤、備份失敗、發佈日 23:30 還沒有新集數，都會發 Telegram 通知；worker 自己掛掉時由外部服務通知（UptimeRobot 檢查網站、Healthchecks.io 收 worker 心跳與每晚備份）。`/status`、`/retry N`、`/resummarize N`、`/retranscribe N` 可以從手機操作，`/stats` 看問答統計，`/questions` 看最近的問題、點編號看完整回答，每週一 09:00 會收到上週摘要。
 
 ## 問答流程
 

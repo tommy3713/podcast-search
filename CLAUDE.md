@@ -71,7 +71,7 @@ Monitoring (`monitor.ts`, `backup.ts`): the worker's own Telegram messages can't
 
 Q&A stats (`stats.ts`): nightly rolls `ask_log` up into `ask_daily` before the purge (last 28 finished days only, so a thinned-out day is never rewritten); rows without an `outcome` (from before it was recorded) are left out. Telegram `/stats [days]` and a weekly digest (due from Monday 09:00 until sent; the week is remembered in `worker_state`) show outcome counts, cost, average time and the questions answered without a source.
 
-`bot.ts`: Telegram commands `/status`, `/poll`, `/retry N`, `/resummarize N`, `/retranscribe N`, `/stats [days]`, and inline buttons (`action:N`). Only `TELEGRAM_CHAT_ID` is obeyed. All jobs run one at a time through `enqueue` in `actions.ts`. Success and failure notifications include the episode's running cost.
+`bot.ts`: Telegram commands `/status`, `/poll`, `/retry N`, `/resummarize N`, `/retranscribe N`, `/stats [days]`, `/questions [n]` (recent Q&A; `ask:<id>` buttons send one question with its answer, searches and cost), and inline buttons (`action:N`). Only `TELEGRAM_CHAT_ID` is obeyed. All jobs run one at a time through `enqueue` in `actions.ts`. Success and failure notifications include the episode's running cost.
 
 ### Web (`src/app`)
 

@@ -17,7 +17,7 @@ vi.mock('../worker/notify.ts', () => ({ notify: mocks.notify }));
 const { processEpisode, retryButtons } = await import('../worker/pipeline.ts');
 const { checkAction, runEpisodeAction } = await import('../worker/actions.ts');
 const { getEpisode, insertDiscovered } = await import('../worker/repo.ts');
-const { parseCallback, parseCommand, statusLine } = await import('../worker/bot.ts');
+const { parseAskCallback, parseCallback, parseCommand, questionButtons, statusLine } = await import('../worker/bot.ts');
 
 const summary: Summary = { line: '一句話', keys: [], chapters: [], stocks: [], mentions: [] };
 const segments = [{ start: 0, end: 5, text: '開場' }];
@@ -121,6 +121,15 @@ describe('bot parsing', () => {
     expect(parseCallback('resummarize:709')).toEqual({ action: 'resummarize', episodeNo: 709 });
     expect(parseCallback('delete:709')).toBeNull();
     expect(parseCallback('retry:709;drop')).toBeNull();
+  });
+
+  it('reads /questions buttons and lays them out five to a row', () => {
+    expect(parseAskCallback('ask:42')).toBe(42);
+    expect(parseAskCallback('ask:42;drop')).toBeNull();
+    expect(parseAskCallback('retry:709')).toBeNull();
+    const rows = questionButtons([12, 11, 10, 9, 8, 7, 6]);
+    expect(rows.map((r) => r.length)).toEqual([5, 2]);
+    expect(rows[0]![0]).toEqual({ text: '#12', data: 'ask:12' });
   });
 
   it('describes episode state', async () => {
