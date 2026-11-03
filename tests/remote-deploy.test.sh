@@ -3,7 +3,8 @@
 # flock, date and sleep in a temp directory, then checks every step ran and the files it leaves.
 # It catches shell mistakes (the first real deploy died on an unquoted `step=更新 Caddy`),
 # not Docker behaviour. Runs: a deploy that succeeds, a new release whose site check fails
-# and is rolled back, a rollback that doesn't bring the site back either, and a failure early
+# and is rolled back (an error, or a 200 without the episode list), a rollback that doesn't
+# bring the site back either, and a failure early
 # in a deploy that finds files left by an interrupted one. Run by CI's check job:
 # bash tests/remote-deploy.test.sh
 set -euo pipefail
@@ -42,7 +43,8 @@ esac
 exit 0
 EOF
   # The homepage through Caddy fails the way curl -f does on a 502: with SITE_DOWN=new while
-  # compose.yml is the new release's, with SITE_DOWN=all always
+  # compose.yml is the new release's, with SITE_DOWN=all always. With SITE_DOWN=brand the new
+  # release answers 200 with the streamed header (股癌) but no episode list, as with a broken DB.
   cat > "$T/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 echo "curl $*" >> "$LOG"
@@ -53,10 +55,14 @@ case "$*" in
   *deploy/gooaye.caddy*) echo 'new site' > "$out" ;;
   *api.github.com*/commits/*) echo '  "message": "feat: test\n\nbody",' ;;
   *gooaye-notes.com:443:127.0.0.1*)
-    if [[ "${SITE_DOWN:-}" == all || ( "${SITE_DOWN:-}" == new && "$(cat "$APP/compose.yml")" == 'new compose' ) ]]; then
+    release=$(cat "$APP/compose.yml")
+    if [[ "${SITE_DOWN:-}" == all || ( "${SITE_DOWN:-}" == new && "$release" == 'new compose' ) ]]; then
       echo "curl: (22) The requested URL returned error: 502" >&2; exit 22
     fi
-    printf '<title>股癌搜尋</title>\n200' ;;
+    if [[ "${SITE_DOWN:-}" == brand && "$release" == 'new compose' ]]; then
+      printf '<header>股癌搜尋</header><main></main><footer>非官方的股癌筆記</footer>\n200'; exit 0
+    fi
+    printf '<header>股癌搜尋</header><section class="card list" id="ep-list"></section>\n200' ;;
 esac
 exit 0
 EOF
@@ -126,7 +132,16 @@ expect "失敗（檢查網站），網站已退回原本的版本" "$LOG"
 rolled_back
 done_case
 
-# 3. The old release doesn't answer either after the rollback: the message says so
+# 3. The new release answers 200 with the header (股癌) but no episode list: still a failure
+setup brand-only token chat
+if SITE_DOWN=brand deploy; then cat "$T/out"; echo "FAIL (brand-only): script exited zero"; exit 1; fi
+count "gooaye-notes.com:443:127.0.0.1" 13
+expect "docker TAG=$OLD compose up -d --no-deps web [compose: old compose]" "$LOG"
+expect "失敗（檢查網站），網站已退回原本的版本" "$LOG"
+rolled_back
+done_case
+
+# 4. The old release doesn't answer either after the rollback: the message says so
 setup still-down token chat
 if SITE_DOWN=all deploy; then cat "$T/out"; echo "FAIL (still-down): script exited zero"; exit 1; fi
 count "gooaye-notes.com:443:127.0.0.1" 18
@@ -134,7 +149,7 @@ expect "失敗（檢查網站），退回後網站仍然沒有回應" "$LOG"
 rolled_back
 done_case
 
-# 4. A deploy killed mid-way left .prev files; this one fails before touching web, and must
+# 5. A deploy killed mid-way left .prev files; this one fails before touching web, and must
 #    neither restore those files nor reload Caddy
 setup stale token chat
 echo 'stale compose' > "$T/app/compose.yml.prev"
