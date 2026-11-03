@@ -1,6 +1,11 @@
 import type { Metadata } from 'next';
+import { shareMetadata } from '@/lib/seo';
 
-export const metadata: Metadata = { title: '關於與聲明' };
+export const metadata: Metadata = {
+  title: '關於與聲明',
+  alternates: { canonical: '/about' },
+  ...shareMetadata('關於與聲明・股癌搜尋', '/about'),
+};
 
 export default function About() {
   return (

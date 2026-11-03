@@ -6,6 +6,7 @@ import { EpisodeView } from '@/components/EpisodeView';
 import { episodeIndex, getEpisode } from '@/lib/episodes';
 import { formatDate, groupParagraphs, minutes } from '@/lib/format';
 import { pageHref, pageOfIndex } from '@/lib/paging';
+import { episodeDescription, episodeJsonLd, episodeTitle, SHARE_IMAGE, SITE_NAME } from '@/lib/seo';
 
 type Props = {
   params: Promise<{ no: string }>;
@@ -20,9 +21,25 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const no = parseNo((await params).no);
   const ep = no === null ? null : await getEpisode(no);
   if (!ep) return { title: '找不到這一集' };
+  const title = episodeTitle(ep.no, ep.summary.line);
+  const description = episodeDescription(ep.summary);
+  // ?t= and ?tab= show the same episode, so all of them point at the plain URL
+  const url = `/ep/${ep.no}`;
   return {
-    title: `EP${ep.no} ${ep.title}`,
-    description: ep.summary.line,
+    title: { absolute: title },
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      type: 'article',
+      url,
+      title,
+      description,
+      siteName: SITE_NAME,
+      locale: 'zh_TW',
+      publishedTime: ep.publishedAt,
+      images: [SHARE_IMAGE],
+    },
+    twitter: { card: 'summary_large_image', title, description, images: [SHARE_IMAGE] },
   };
 }
 
@@ -38,6 +55,7 @@ export default async function EpisodePage({ params, searchParams }: Props) {
 
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: episodeJsonLd(ep) }} />
       <Link className="back" href={back}>
         ← 所有集數
       </Link>

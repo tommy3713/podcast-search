@@ -43,9 +43,8 @@ function toListItem(r: ListRow): EpisodeListItem {
   };
 }
 
-export async function countEpisodes(): Promise<number> {
-  return countLiveEpisodes(await readDb());
-}
+// Cached per request: the home page's metadata and body both need it
+export const countEpisodes = cache(async (): Promise<number> => countLiveEpisodes(await readDb()));
 
 // Newest first
 export async function listEpisodes(limit: number, offset: number): Promise<EpisodeListItem[]> {
@@ -85,4 +84,16 @@ export async function oldestEpisodeNo(): Promise<number | null> {
 export async function episodeIndex(no: number): Promise<number> {
   const d = await readDb();
   return (d.prepare(`SELECT COUNT(*) AS n FROM episodes WHERE status = 'done' AND episode_no > ?`).get(no) as { n: number }).n;
+}
+
+// Every live episode for sitemap.xml, dated by its release. updated_at would be wrong:
+// failed re-runs bump it on a live episode without changing what the page shows.
+export async function sitemapEpisodes(): Promise<{ no: number; publishedAt: string }[]> {
+  const d = await readDb();
+  return (
+    d.prepare(`SELECT episode_no, published_at FROM episodes WHERE status = 'done' ORDER BY episode_no DESC`).all() as {
+      episode_no: number;
+      published_at: string;
+    }[]
+  ).map((r) => ({ no: r.episode_no, publishedAt: r.published_at }));
 }
