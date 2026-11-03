@@ -16,7 +16,7 @@ npm test             # vitest, all tests
 npx vitest run tests/ask.test.ts
 npm run typecheck
 npm run build
-npm run check        # typecheck + test + build; run before every push
+npm run check        # typecheck + test + deploy script smoke test + build; run before every push
 
 npm run worker -- status                 # episode statuses and costs
 npm run worker -- poll                   # check RSS once and process new episodes
@@ -100,4 +100,4 @@ Q&A stats (`stats.ts`): nightly rolls `ask_log` up into `ask_daily` before the p
 
 ## Testing
 
-`tests/` covers RSS parsing, text cleanup, summary validation, scheduling, repo/pipeline checkpoints, web helpers, Q&A search/render, backup, and monitoring (pings, disk, backup checks). Tests use in-memory SQLite and stub every network call (OpenAI, Groq, Telegram, R2).
+`tests/` covers RSS parsing, text cleanup, summary validation, scheduling, repo/pipeline checkpoints, web helpers, Q&A search/render, backup, and monitoring (pings, disk, backup checks). Tests use in-memory SQLite and stub every network call (OpenAI, Groq, Telegram, R2). `tests/remote-deploy.test.sh` runs `deploy/remote-deploy.sh` end to end against stub `docker`/`curl` (part of `npm run check` and CI); run it after any change to the deploy scripts.

@@ -12,8 +12,9 @@ set -euo pipefail
 SHA="${1:?usage: remote-deploy.sh <40-character commit sha>}"
 [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "not a commit sha: $SHA" >&2; exit 2; }
 REPO=tommy3713/podcast-search
-APP=/opt/gooaye
-PROXY=/opt/proxy
+# Overridable only so tests/remote-deploy.test.sh can run this against stubs
+APP="${APP:-/opt/gooaye}"
+PROXY="${PROXY:-/opt/proxy}"
 WORKER_WAIT_MIN="${WORKER_WAIT_MIN:-60}"
 SHORT="${SHA:0:7}"
 cd "$APP"
@@ -30,7 +31,7 @@ notify() {
   curl -fsS -o /dev/null "https://api.telegram.org/bot$token/sendMessage" \
     --data-urlencode "chat_id=$chat" --data-urlencode "text=$1" || true
 }
-step=準備
+step="準備"
 # The release running now, to go back to if this one fails after web was replaced
 PREV_TAG=$(sed -n 's/^TAG=//p' .env 2>/dev/null || true)
 web_replaced=0
@@ -44,25 +45,25 @@ on_error() {
 }
 trap on_error ERR
 
-step=下載設定檔
+step="下載設定檔"
 curl -fsS "https://raw.githubusercontent.com/$REPO/$SHA/deploy/compose.yml" -o compose.next.yml
 curl -fsS "https://raw.githubusercontent.com/$REPO/$SHA/deploy/gooaye.caddy" -o gooaye.caddy.next
 export TAG="$SHA"
 docker compose -f compose.next.yml config -q
 
-step=下載映像檔
+step="下載映像檔"
 docker compose -f compose.next.yml pull -q
 
-step=資料庫遷移
+step="資料庫遷移"
 docker compose -f compose.next.yml run --rm --no-deps -T worker node --import tsx worker/main.ts migrate
 
-step=更新網站
+step="更新網站"
 cp compose.yml compose.yml.prev
 mv compose.next.yml compose.yml
 web_replaced=1
 docker compose up -d --no-deps --remove-orphans web
 
-step=更新 Caddy
+step="更新 Caddy"
 cp "$PROXY/sites/gooaye.caddy" gooaye.caddy.prev
 cp gooaye.caddy.next "$PROXY/sites/gooaye.caddy"
 docker compose -f "$PROXY/compose.yml" exec -T caddy caddy reload --config /etc/caddy/Caddyfile
@@ -71,7 +72,7 @@ rm -f gooaye.caddy.next gooaye.caddy.prev compose.yml.prev
 echo "TAG=$SHA" > .env
 web_replaced=0
 
-step=更新 worker
+step="更新 worker"
 queue_busy() {
   [[ -n "$(docker compose ps --status running -q worker)" ]] || return 1
   if [[ -f data/app.db.queue.json ]]; then
@@ -100,7 +101,7 @@ else
   worker_note="worker 已更新"
 fi
 
-step=清理
+step="清理"
 prev=$(cat .deployed 2>/dev/null || true)
 if [[ -n "$prev" && "$prev" != "$SHA" ]]; then echo "$prev" > .deployed.prev; fi
 echo "$SHA" > .deployed
