@@ -69,7 +69,7 @@ The proxy config lives in this repo (`podcast-search/deploy/proxy/`) for now. Ch
      HTTPS off** (Caddy needs plain HTTP on port 80 for Let's Encrypt and does the HTTPS
      redirect itself).
 5. Deploy script: `scp` the compose file to `/opt/<app>/` and `<app>.caddy` to `/opt/proxy/sites/`,
-   `docker compose up -d` in `/opt/<app>`, then reload Caddy. `deploy/deploy.sh` in this repo is
+   `docker compose up -d` in `/opt/<app>`, then reload Caddy. `deploy/remote-deploy.sh` in this repo is
    the reference.
 
    ```bash

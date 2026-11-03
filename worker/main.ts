@@ -3,7 +3,7 @@ import path from 'node:path';
 import { type DB, defaultDbPath, openDb } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { isProduction } from '@/lib/env.ts';
-import { drain, type EpisodeAction, enqueue, poll, queueState, runEpisodeAction, seed } from './actions.ts';
+import { drain, type EpisodeAction, enqueue, onQueueChange, poll, queueState, runEpisodeAction, seed } from './actions.ts';
 import { backupToR2, episodeCountDrop, verifyBackup } from './backup.ts';
 import { runBot } from './bot.ts';
 import { notify } from './notify.ts';
@@ -26,7 +26,8 @@ const USAGE = `usage: worker <command>
   nightly             delete ask_log rows older than 30 days, back up app.db to R2, check
                       the live episode count and free disk space
   status              list episodes and their state
-  check-db <file>     integrity check and live episode count of a database (restore drills)`;
+  check-db <file>     integrity check and live episode count of a database (restore drills)
+  migrate             apply pending database migrations and exit (run by the deploy script)`;
 
 async function ingest(db: DB, episodeNo: number, args: string[]): Promise<void> {
   const row = getEpisode(db, episodeNo);
@@ -108,6 +109,21 @@ async function run(db: DB): Promise<void> {
   console.log('worker scheduler started');
   // Deploys restart the worker too, but an unexpected restart (crash, out of memory) shows up here
   await notify('🔄 worker 已啟動');
+  // The deploy script waits for an idle queue before replacing this container. Registered
+  // before the bot starts, so a command waiting from before a restart is recorded too.
+  // Written to a temp file and renamed, so the script never reads half a file.
+  const queueFile = `${defaultDbPath()}.queue.json`;
+  const writeQueue = () => {
+    const { running, runningSince, waiting } = queueState();
+    try {
+      fs.writeFileSync(`${queueFile}.tmp`, JSON.stringify({ running, since: runningSince && new Date(runningSince).toISOString(), waiting }));
+      fs.renameSync(`${queueFile}.tmp`, queueFile);
+    } catch (err) {
+      console.error('[queue file]', err instanceof Error ? err.message : err);
+    }
+  };
+  onQueueChange(writeQueue);
+  writeQueue();
   void runBot(db);
   const heartbeat = () => {
     if (queueHealthy(queueState().runningSince)) void ping(process.env.HC_HEARTBEAT_URL);
@@ -174,6 +190,11 @@ async function main(): Promise<void> {
       return nightly(db);
     case 'status':
       return status(db);
+    case 'migrate':
+      // openDb() above already ran any pending migrations; the deploy script calls this
+      // with the new image before the web is updated
+      console.log(`schema version ${db.pragma('user_version', { simple: true })}`);
+      return;
     default:
       console.log(USAGE);
       process.exitCode = cmd ? 1 : 0;

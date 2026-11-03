@@ -8,5 +8,7 @@
 
 ## 部署
 
-- [ ] 會動到 worker（部署前先在 Telegram 看 `/status`）
-- [ ] 改了 `deploy/`（要跑 `deploy/deploy.sh` 或 `deploy/proxy/deploy.sh`）
+合併後會自動部署（worker 會等手上的工作做完才更新）。
+
+- [ ] 有資料庫 migration（只能新增欄位或資料表，舊版 worker 要能在新 schema 上繼續跑）
+- [ ] 改了 `deploy/proxy/`（共用 Caddy 不會自動部署，要手動跑 `deploy/proxy/deploy.sh`）
