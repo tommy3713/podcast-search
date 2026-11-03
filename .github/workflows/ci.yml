@@ -72,3 +72,5 @@ jobs:
     uses: ./.github/workflows/deploy.yml
     with:
       sha: ${{ github.sha }}
+    # Without this the called workflow sees the vps environment's variables but not its secrets
+    secrets: inherit
