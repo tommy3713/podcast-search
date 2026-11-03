@@ -15,7 +15,11 @@ const mono = IBM_Plex_Mono({ weight: ['400', '500'], subsets: ['latin'], variabl
 
 const DESCRIPTION = '《股癌 Gooaye》每集重點、帶時間戳的逐字稿，和跨集數問答。非官方粉絲網站。';
 
-// The share image comes from app/opengraph-image.png and twitter-image.png
+// Cloudflare Web Analytics (no cookies). Added by hand: Cloudflare's automatic injection never
+// showed up on these pages. The token is public; it ends up in every page's source anyway.
+const CF_BEACON_TOKEN = '424e8a7cb76249c5bfb1635542b82a8d';
+
+// The share image comes from app/opengraph-image.png (X falls back to it)
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: `${SITE_NAME}｜股癌 Gooaye 每集重點・逐字稿`, template: `%s・${SITE_NAME}` },
@@ -53,6 +57,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </footer>
         </main>
         <Nav variant="bottom" />
+        {/* Only the live site counts visits; the CSP in deploy/gooaye.caddy allows both hosts */}
+        {isProduction() && (
+          <script
+            type="module"
+            src="https://static.cloudflareinsights.com/beacon.min.js"
+            data-cf-beacon={JSON.stringify({ token: CF_BEACON_TOKEN })}
+          />
+        )}
       </body>
     </html>
   );
