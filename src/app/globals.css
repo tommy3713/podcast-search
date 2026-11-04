@@ -9,6 +9,8 @@
   --accent-soft: #e2eef4;
   --warn: #a86a12;
   --warn-soft: #fbf0dc;
+  /* The header mark's wave: the tab icon's blue on the dark square; dark themes invert the square, so the darker blue */
+  --mark-wave: #5bb5dc;
       --font-body: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
   --font-display: var(--font-serif), "Noto Serif TC", "Songti TC", "PMingLiU", serif;
   --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -19,6 +21,7 @@
     --bg: #0f1418; --surface: #171e24; --fg: #e4e9ee; --muted: #94a1ad; --line: #2c3740;
     --accent: #5bb5dc; --accent-soft: #15303d;
     --warn: #e2a64a; --warn-soft: #36290f;
+    --mark-wave: #12597a;
     color-scheme: dark;
   }
 }
@@ -26,6 +29,7 @@
   --bg: #0f1418; --surface: #171e24; --fg: #e4e9ee; --muted: #94a1ad; --line: #2c3740;
   --accent: #5bb5dc; --accent-soft: #15303d;
   --warn: #e2a64a; --warn-soft: #36290f;
+  --mark-wave: #12597a;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -43,7 +47,10 @@ a { color: var(--accent); }
 header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
 header.top .wrap { height: 56px; display: flex; align-items: center; gap: 24px; }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 18px; letter-spacing: .02em; }
-.brand-mark { width: 28px; height: 28px; border-radius: 7px; background: var(--fg); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 15px; }
+.brand-mark { width: 28px; height: 28px; flex: none; display: block; }
+.brand-mark .bm-bg { fill: var(--fg); }
+.brand-mark .bm-fg { stroke: var(--surface); }
+.brand-mark .bm-wave { fill: var(--mark-wave); }
 nav.desk { display: flex; gap: 4px; }
 nav.desk a { text-decoration: none; color: var(--muted); padding: 6px 12px; border-radius: 8px; font-weight: 500; }
 nav.desk a[aria-current="page"] { color: var(--fg); background: var(--bg); }
