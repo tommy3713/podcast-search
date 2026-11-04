@@ -78,11 +78,12 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
         </button>
       </div>
       {/* Both panels are always rendered, so the transcript is in the server HTML for search
-          engines; the inactive one is hidden */}
+          engines; the inactive one is hidden. data-nosnippet keeps it indexed but out of result
+          snippets, which use the description and key points instead of raw speech-to-text. */}
       <div role="tabpanel" hidden={tab !== 'summary'}>
         <SummaryTab summary={summary} onSeek={seek} />
       </div>
-      <div role="tabpanel" hidden={tab !== 'tx'}>
+      <div role="tabpanel" hidden={tab !== 'tx'} data-nosnippet="">
         {/* While hidden it gets a fixed time, so playback (about 4 updates a second) doesn't
             re-render the whole transcript */}
         <TranscriptTab
