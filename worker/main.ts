@@ -4,19 +4,24 @@ import { type DB, defaultDbPath, openDb } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { isProduction } from '@/lib/env.ts';
 import { drain, type EpisodeAction, enqueue, onQueueChange, poll, queueState, runEpisodeAction, seed } from './actions.ts';
+import { backfillStep, describePlan, getBackfill, MAX_BACKFILL, planBackfill, runBackfill, startBackfill } from './backfill.ts';
 import { backupToR2, episodeCountDrop, verifyBackup } from './backup.ts';
 import { runBot } from './bot.ts';
 import { notify } from './notify.ts';
 import { diskWarning, ping, queueHealthy } from './monitor.ts';
-import { getEpisode } from './repo.ts';
+import { getEpisode, getState, setState } from './repo.ts';
+import { fetchFeed, parseFeed } from './rss.ts';
 import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } from './schedule.ts';
-import { askStats, digestDue, formatStats, getState, rollupAskDaily, setState, unanswered } from './stats.ts';
+import { askStats, digestDue, formatStats, rollupAskDaily, unanswered } from './stats.ts';
 
 const USAGE = `usage: worker <command>
   run                 scheduler (poll RSS Wed/Sat 10:00–23:30 Taipei every 30 min, nightly
                       cleanup) plus the Telegram bot for /status, /retry and buttons
   poll                check RSS once and process anything new or retryable
   seed [n]            add the latest n episodes (default 10) and process them
+  backfill <n>        add the n newest missing episodes older than the newest one (at most 200)
+                      and process them, newest first (local only: in production use Telegram
+                      /backfill n, which shares the running worker's queue)
   ingest <ep> [--resummarize | --retranscribe] [--segments-file f]
                       (re)process one episode and reset its retry count. A new or failed
                       episode resumes from the step that failed; a live one is
@@ -130,8 +135,9 @@ async function run(db: DB): Promise<void> {
   };
   heartbeat();
   setInterval(heartbeat, 30 * 60_000);
-  // Pick up anything a crash or restart left half-done
+  // Pick up anything a crash or restart left half-done, then a backfill a deploy interrupted
   await enqueue('處理未完成的集數', () => drain(db));
+  void runBackfill(db);
   for (;;) {
     const at = nextHalfHour(new Date());
     await new Promise((r) => setTimeout(r, at.getTime() - Date.now()));
@@ -152,6 +158,23 @@ async function run(db: DB): Promise<void> {
       await notify(`❌ worker 排程錯誤：${err instanceof Error ? err.message : String(err)}`.slice(0, 600));
     }
   }
+}
+
+// The CLI's backfill: the same steps as Telegram's, without the pause or a confirmation.
+// One left unfinished (an interrupted run) is finished instead, and n is ignored.
+async function backfillNow(db: DB, n: number): Promise<void> {
+  const left = getBackfill(db);
+  if (left) {
+    console.log(
+      `an unfinished backfill has ${left.episodes.length - left.next} episodes left; finishing those instead of ${n} new ones (run again afterwards)`,
+    );
+  } else {
+    const plan = planBackfill(db, n, parseFeed(await fetchFeed()));
+    if (typeof plan === 'string') throw new Error(plan);
+    console.log(describePlan(plan));
+    startBackfill(db, plan);
+  }
+  while (await backfillStep(db));
 }
 
 function status(db: DB): void {
@@ -181,6 +204,11 @@ async function main(): Promise<void> {
     }
     case 'seed':
       return seed(db, Number(args[0] ?? 10));
+    case 'backfill': {
+      const n = Number(args[0]);
+      if (!Number.isInteger(n) || n < 1 || n > MAX_BACKFILL) throw new Error(`n must be 1–${MAX_BACKFILL}\n${USAGE}`);
+      return backfillNow(db, n);
+    }
     case 'ingest': {
       const ep = Number(args[0]);
       if (!Number.isInteger(ep)) throw new Error(USAGE);

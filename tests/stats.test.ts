@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type DB, openDb } from '@/lib/db';
+import { getState, setState } from '../worker/repo.ts';
 import { taipeiTime } from '../worker/schedule.ts';
-import { askStats, digestDue, formatAsk, formatQuestions, formatStats, getState, recentQuestions, rollupAskDaily, setState, unanswered } from '../worker/stats.ts';
+import { askStats, digestDue, formatAsk, formatQuestions, formatStats, recentQuestions, rollupAskDaily, unanswered } from '../worker/stats.ts';
 
 let db: DB;
 beforeEach(() => {

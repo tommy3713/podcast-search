@@ -28,11 +28,13 @@ export type ProcessOptions = {
   redoFrom?: 'transcribe' | 'summarize';
   // Dev only: use these segments instead of downloading and transcribing
   segments?: Segment[];
+  // A backfill's run: no message on success, since the backfill reports once at the end
+  quiet?: boolean;
 };
 
 export const STEP_LABEL: Record<Step, string> = { transcribe: '轉錄', summarize: '整理重點', embed: '建立索引' };
 
-const usd = (n: number) => `US$${n < 0.1 ? n.toFixed(3) : n.toFixed(2)}`;
+export const usd = (n: number) => `US$${n < 0.1 ? n.toFixed(3) : n.toFixed(2)}`;
 
 // Buttons offered after a run. callback data is "<action>:<episode>"
 export function retryButtons(ep: { episode_no: number; duration: number | null }, failedStep: Step | null): Button[][] {
@@ -94,6 +96,7 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
     console.log(`${label}: embedding ${chunks.length} chunks`);
     const { vectors, costUsd } = await embed(chunks.map((c) => c.text));
     const total = publishEpisode(db, ep.id, { summary, chunks, vectors, costUsd });
+    if (opts.quiet) return true;
 
     const mins = Math.max(1, Math.round((Date.now() - started) / 60_000));
     await notify(
@@ -116,8 +119,12 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
       return false;
     }
     const retries = markFailed(db, ep.id, msg, step);
-    const auto = retries < MAX_RETRIES ? '下次排程會自動重試' : '已停止自動重試';
-    await notify(`❌ ${label} 處理失敗：${where}（第 ${retries}/${MAX_RETRIES} 次，${auto}）\n${msg.slice(0, 500)}${kept}`, buttons);
+    // Polls don't retry backfilled episodes (workQueue)
+    const auto =
+      ep.source === 'backfill'
+        ? `第 ${retries} 次，下次 /backfill 會重試`
+        : `第 ${retries}/${MAX_RETRIES} 次，${retries < MAX_RETRIES ? '下次排程會自動重試' : '已停止自動重試'}`;
+    await notify(`❌ ${label} 處理失敗：${where}（${auto}）\n${msg.slice(0, 500)}${kept}`, buttons);
     return false;
   }
 }

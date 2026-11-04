@@ -75,14 +75,6 @@ export function digestDue(t: TaipeiTime, lastSent: string | null): string | null
   return lastSent === monday ? null : monday;
 }
 
-export function getState(db: DB, key: string): string | null {
-  return (db.prepare('SELECT value FROM worker_state WHERE key = ?').get(key) as { value: string } | undefined)?.value ?? null;
-}
-
-export function setState(db: DB, key: string, value: string): void {
-  db.prepare('INSERT INTO worker_state (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run(key, value);
-}
-
 export function formatStats(title: string, s: AskStats, questions: { day: string; question: string }[] = []): string {
   const lines = [
     `📊 ${title}`,

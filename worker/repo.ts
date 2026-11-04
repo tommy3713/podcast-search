@@ -21,7 +21,11 @@ export type EpisodeRow = {
   summary_draft_json: string | null;
   failed_step: Step | null;
   cost_usd: number | null;
+  source: Source;
 };
+
+// rss: found by a poll (or added by a command); backfill: an older episode added by /backfill
+export type Source = 'rss' | 'backfill';
 
 export type Step = 'transcribe' | 'summarize' | 'embed';
 
@@ -29,15 +33,20 @@ export function maxEpisodeNo(db: DB): number | null {
   return (db.prepare('SELECT MAX(episode_no) AS n FROM episodes').get() as { n: number | null }).n;
 }
 
-export function insertDiscovered(db: DB, ep: RssEpisode): boolean {
+export function insertDiscovered(db: DB, ep: RssEpisode, source: Source = 'rss'): boolean {
   const r = db
     .prepare(
-      `INSERT INTO episodes (episode_no, guid, title, published_at, audio_url, duration)
-       VALUES (@episodeNo, @guid, @title, @publishedAt, @audioUrl, @duration)
+      `INSERT INTO episodes (episode_no, guid, title, published_at, audio_url, duration, source)
+       VALUES (@episodeNo, @guid, @title, @publishedAt, @audioUrl, @duration, @source)
        ON CONFLICT DO NOTHING`,
     )
-    .run(ep);
+    .run({ ...ep, source });
   return r.changes > 0;
+}
+
+// Feed audio URLs can change; a row not live yet takes the current one before a retry
+export function setAudioUrl(db: DB, id: number, url: string): void {
+  db.prepare(`UPDATE episodes SET audio_url = ? WHERE id = ? AND status != 'done'`).run(url, id);
 }
 
 export function getEpisode(db: DB, episodeNo: number): EpisodeRow | undefined {
@@ -46,10 +55,42 @@ export function getEpisode(db: DB, episodeNo: number): EpisodeRow | undefined {
 
 // Anything not done with retries left. A row stuck in transcribing/summarizing means
 // the worker died mid-run; there is only one worker, so it is safe to pick up again.
+// Newest first, so a new episode never waits behind retries of old ones. Backfilled episodes
+// are left to the backfill, which resumes or re-offers them.
 export function workQueue(db: DB): EpisodeRow[] {
   return db
-    .prepare(`SELECT * FROM episodes WHERE status != 'done' AND retries < ? ORDER BY episode_no`)
+    .prepare(`SELECT * FROM episodes WHERE status != 'done' AND retries < ? AND source = 'rss' ORDER BY episode_no DESC`)
     .all(MAX_RETRIES) as EpisodeRow[];
+}
+
+export type ProgressRow = Pick<EpisodeRow, 'episode_no' | 'status' | 'failed_step' | 'cost_usd'>;
+
+// The rows of these episodes (those that exist), newest first: a backfill's progress
+export function episodesIn(db: DB, nos: number[]): ProgressRow[] {
+  return db
+    .prepare(
+      `SELECT episode_no, status, failed_step, cost_usd FROM episodes
+       WHERE episode_no IN (SELECT value FROM json_each(?)) ORDER BY episode_no DESC`,
+    )
+    .all(JSON.stringify(nos)) as ProgressRow[];
+}
+
+// worker_state: small facts kept across restarts (the weekly digest, a backfill in progress)
+export function getState(db: DB, key: string): string | null {
+  return (db.prepare('SELECT value FROM worker_state WHERE key = ?').get(key) as { value: string } | undefined)?.value ?? null;
+}
+
+export function setState(db: DB, key: string, value: string): void {
+  db.prepare('INSERT INTO worker_state (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run(key, value);
+}
+
+export function deleteState(db: DB, key: string): void {
+  db.prepare('DELETE FROM worker_state WHERE key = ?').run(key);
+}
+
+export function episodeStatuses(db: DB): Map<number, Pick<EpisodeRow, 'status' | 'source'>> {
+  const rows = db.prepare('SELECT episode_no, status, source FROM episodes').all() as Pick<EpisodeRow, 'episode_no' | 'status' | 'source'>[];
+  return new Map(rows.map((r) => [r.episode_no, { status: r.status, source: r.source }]));
 }
 
 export function setStatus(db: DB, id: number, status: EpisodeRow['status']): void {
