@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Mono, Noto_Serif_TC } from 'next/font/google';
 import Link from 'next/link';
+import { BrandMark } from '@/components/BrandMark';
 import { Nav } from '@/components/Nav';
 import { UserMenu } from '@/components/UserMenu';
 import { currentUser } from '@/lib/auth';
@@ -38,7 +39,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <header className="top">
           <div className="wrap">
             <Link className="brand" href="/">
-              <span className="brand-mark">股</span>股癌搜尋
+              <BrandMark />
+              股癌搜尋
             </Link>
             {!isProduction() && <span className="pill warn">DEV</span>}
             <Nav variant="desk" />

@@ -14,7 +14,7 @@
   .og { width: 100%; height: 100%; box-sizing: border-box; background: var(--og-bg); color: var(--og-fg); display: grid; grid-template-columns: 1.15fr 1fr; padding: 6.5cqw 6cqw; gap: 4cqw; }
   .og-left { display: grid; align-content: space-between; min-width: 0; }
   .og-brand { display: flex; align-items: center; gap: 2.2cqw; }
-  .og-mark { width: 9cqw; height: 9cqw; border-radius: 2cqw; background: var(--og-fg); color: var(--og-bg); display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; font-size: 5.2cqw; }
+  .og-mark { width: 9cqw; height: 9cqw; display: block; flex: none; }
   .og-name { font-family: var(--font-display); font-weight: 700; font-size: 6.4cqw; letter-spacing: .03em; }
   .og-claim { font-family: var(--font-display); font-weight: 600; font-size: 3.6cqw; line-height: 1.45; }
   .og-claim em { font-style: normal; color: var(--og-accent); }
@@ -33,7 +33,16 @@
 <body>
 <div class="og-frame"><div class="og">
   <div class="og-left">
-    <div class="og-brand"><span class="og-mark">股</span><span class="og-name">股癌搜尋</span></div>
+    <div class="og-brand">
+      <!-- The shapes of src/app/icon.svg, inverted like the header mark in dark mode -->
+      <svg class="og-mark" viewBox="0 0 32 32">
+        <rect width="32" height="32" rx="7" fill="#eef2f5"/>
+        <circle cx="14.5" cy="14.5" r="8.5" fill="none" stroke="#101a22" stroke-width="3"/>
+        <path d="M21 21 L26.5 26.5" stroke="#101a22" stroke-width="4" stroke-linecap="round"/>
+        <g fill="#12597a"><rect x="9" y="12" width="3" height="5" rx="1.5"/><rect x="13" y="9" width="3" height="11" rx="1.5"/><rect x="17" y="11" width="3" height="7" rx="1.5"/></g>
+      </svg>
+      <span class="og-name">股癌搜尋</span>
+    </div>
     <div class="og-claim">《股癌 Gooaye》<br>每集<em>重點</em>、<em>逐字稿</em><br>和跨集數問答</div>
     <div class="og-foot"><b>gooaye-notes.com</b><span>非官方粉絲網站</span></div>
   </div>
