@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* One strip, cropped by render.sh: 16, 32 and 48 px for favicon.ico, then the 180 px apple-icon */
+  html, body { margin: 0; width: 276px; height: 180px; overflow: hidden; background: transparent; }
+  img, .apple { position: absolute; top: 0; display: block; }
+  /* iOS rounds the corners itself and shows transparency as black, so fill the square */
+  .apple { left: 96px; width: 180px; height: 180px; background: #16202a; }
+</style>
+</head>
+<body>
+<img src="../../src/app/icon.svg" style="left: 0; width: 16px; height: 16px">
+<img src="../../src/app/icon.svg" style="left: 16px; width: 32px; height: 32px">
+<img src="../../src/app/icon.svg" style="left: 48px; width: 48px; height: 48px">
+<div class="apple"><img src="../../src/app/icon.svg" style="position: static; width: 180px; height: 180px"></div>
+</body>
+</html>
