@@ -135,6 +135,6 @@ describe('bot parsing', () => {
   it('describes episode state', async () => {
     mocks.summarize.mockRejectedValueOnce(new Error('x'));
     await processEpisode(db, row());
-    expect(statusLine(row())).toBe('EP710 🐧 ❌ 「整理重點」失敗 1 次・US$0.09');
+    expect(statusLine(row())).toBe('EP710 🐧 ❌ 「整理重點」失敗 1 次・US$0.092');
   });
 });

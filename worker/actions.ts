@@ -1,7 +1,16 @@
 import type { DB } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { processEpisode } from './pipeline.ts';
-import { type EpisodeRow, getEpisode, insertDiscovered, maxEpisodeNo, resetRetries, workQueue } from './repo.ts';
+import {
+  type EpisodeRow,
+  getEpisode,
+  insertDiscovered,
+  maxEpisodeNo,
+  resetRetries,
+  type Source,
+  setAudioUrl,
+  workQueue,
+} from './repo.ts';
 import { fetchFeed, parseFeed, type RssEpisode } from './rss.ts';
 
 // One job at a time: the scheduler and Telegram commands share this queue, so two
@@ -45,7 +54,7 @@ export async function poll(db: DB): Promise<{ found: RssEpisode[]; latestInFeed:
   const feed = parseFeed(await fetchFeed());
   const latest = maxEpisodeNo(db);
   if (latest === null) throw new Error('database is empty; run `worker seed` first');
-  // Only episodes newer than what we have; old episodes are never backfilled
+  // Only episodes newer than what we have; older ones come in through a backfill (backfill.ts)
   const found = feed.filter((e) => e.episodeNo > latest && insertDiscovered(db, e));
   for (const ep of found) console.log(`found EP${ep.episodeNo} ${ep.title}`);
   await drain(db);
@@ -71,13 +80,24 @@ export const ACTION_LABEL: Record<EpisodeAction, string> = {
   retranscribe: '重新轉錄',
 };
 
-async function ensureEpisode(db: DB, episodeNo: number): Promise<EpisodeRow> {
-  if (!getEpisode(db, episodeNo)) {
-    const ep = parseFeed(await fetchFeed()).find((e) => e.episodeNo === episodeNo);
-    if (!ep) throw new Error(`EP${episodeNo} 不在 RSS 裡`);
-    insertDiscovered(db, ep);
+// Adds the feed's episode when the database lacks it; a row that isn't live yet takes the feed's
+// current audio URL. Undefined when it can't be added: not in the feed, or its guid belongs to
+// another episode.
+export function addFromFeed(db: DB, feed: RssEpisode[], episodeNo: number, source: Source = 'rss'): EpisodeRow | undefined {
+  const item = feed.find((e) => e.episodeNo === episodeNo);
+  const row = getEpisode(db, episodeNo);
+  if (!row) {
+    if (item) insertDiscovered(db, item, source);
+  } else if (item && row.status !== 'done' && item.audioUrl !== row.audio_url) {
+    setAudioUrl(db, row.id, item.audioUrl);
   }
-  return getEpisode(db, episodeNo)!;
+  return getEpisode(db, episodeNo);
+}
+
+async function ensureEpisode(db: DB, episodeNo: number): Promise<EpisodeRow> {
+  const row = getEpisode(db, episodeNo) ?? addFromFeed(db, parseFeed(await fetchFeed()), episodeNo);
+  if (!row) throw new Error(`EP${episodeNo} 不在 RSS 裡`);
+  return row;
 }
 
 // Checks an action can run; returns a reason it can't, or null

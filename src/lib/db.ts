@@ -112,6 +112,10 @@ const MIGRATIONS: string[] = [
   -- Small facts the worker must remember across restarts (e.g. the last weekly digest)
   CREATE TABLE worker_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   `,
+  // Older episodes added by /backfill: polls don't retry them, the next backfill does
+  `
+  ALTER TABLE episodes ADD COLUMN source TEXT NOT NULL DEFAULT 'rss'; -- rss | backfill
+  `,
 ];
 
 export function defaultDbPath(): string {
