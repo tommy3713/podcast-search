@@ -71,7 +71,7 @@ export function reportDiff(d: Diff, beforeName: string): string {
   list('退步（原本每次都過，現在每次都沒過）', d.regressed);
   list('變得不穩定（原本每次都過，現在有時沒過；不算退步）', d.wobbly);
   list('修好（原本每次都沒過，現在都過）', d.fixed);
-  list('題目改過，不比較', d.rewritten);
+  list('題目或評分規則改過，不比較', d.rewritten);
   list('新題目', d.added);
   list('拿掉的題目', d.removed);
   const delta = d.hitRate.after - d.hitRate.before;

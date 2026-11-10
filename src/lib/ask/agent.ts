@@ -102,7 +102,8 @@ export function systemPrompt(c: Coverage): string {
 - 不提供投資建議，不判斷個股或市場多空，只轉述主持人在節目裡說過什麼。不要把他的話歸納成「正面、負面、看多、看空、樂觀、保守」這類態度標籤，讓聽眾自己判斷。`;
 }
 
-const attr = (s: string) => escapeTags(s).replace(/"/g, '＂');
+// Mention names come from summaries of untrusted transcripts, so they can't hold a label either
+const attr = (s: string) => escapeSourceText(s).replace(/"/g, '＂');
 
 type Deps = {
   db: DB; // readonly connection

@@ -5,7 +5,7 @@ import { type GoldenQuestion, needed, type QuestionType } from './golden.ts';
 
 export type PointVerdict = { ok: boolean; reason: string };
 
-export type SourceRef = { n: number; ep: number; t: number };
+export type SourceRef = { n: number; ep: number };
 
 // A citation in a line that names episodes, pointing at a source from none of them:
 // the answer says EP707 and links to EP709, so the reader lands on the wrong passage
@@ -44,16 +44,37 @@ export function ruleChecks(q: GoldenQuestion, f: RunFacts): Omit<Checks, 'points
   };
 }
 
-const EP_NUMBER = /EP\s?(\d{1,4})/gi;
+// EP707, ep 707, EP707–709, EP707~EP709, 第 707 集, 707 集. "EP" must not end a word
+// (Step 3, DEEP 1), and a bare number needs 集 after it.
+const EPISODE = /(?<![A-Za-z])EP\s?(\d{1,4})(?:\s*[-–—~～至到]\s*(?:EP\s?)?(\d{1,4}))?|第\s?(\d{1,4})\s?集|(?<![\d.])(\d{3,4})\s?集/gi;
+const MAX_RANGE = 50;
 
-// Line by line, as the page renders the answer. A line that names no episode isn't
-// checked, and one that names several only needs each citation to be from one of them.
+export function episodesNamed(text: string): number[] {
+  const eps = new Set<number>();
+  for (const m of text.matchAll(EPISODE)) {
+    const from = Number(m[1] ?? m[3] ?? m[4]);
+    const to = m[2] ? Number(m[2]) : from;
+    if (to >= from && to - from <= MAX_RANGE) for (let e = from; e <= to; e++) eps.add(e);
+    else eps.add(from);
+  }
+  return [...eps];
+}
+
+// Line by line, as the page renders the answer. A list item that names no episode
+// takes the episodes of the paragraph above it ("EP707 提到：" then "- 每天打網球 [2]");
+// a line with neither isn't checked, and one that names several only needs each
+// citation to be from one of them. A line that names an episode to contrast it with the
+// cited one ("跟 EP700 講的相反 [1]") is flagged wrongly; that is rare and the report
+// shows which line it was.
 export function misCitations(answer: string, sources: SourceRef[]): MisCite[] {
   const epOf = new Map(sources.map((s) => [s.n, s.ep]));
   const out: MisCite[] = [];
+  let heading: number[] = [];
   for (const block of parseAnswer(answer, new Set(epOf.keys()))) {
     const text = block.parts.map((p) => (p.kind === 'cite' ? ' ' : p.text)).join('');
-    const says = [...new Set([...text.matchAll(EP_NUMBER)].map((m) => Number(m[1])))];
+    const named = episodesNamed(text);
+    if (block.kind === 'p') heading = named;
+    const says = named.length ? named : block.kind === 'li' ? heading : [];
     if (!says.length) continue;
     for (const p of block.parts) {
       if (p.kind !== 'cite') continue;

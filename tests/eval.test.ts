@@ -2,12 +2,12 @@ import fs from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type DB, EMBEDDING_DIM, openDb } from '@/lib/db';
 import type { Summary } from '@/lib/summary';
-import { type GoldenQuestion, parseGolden, questionHash } from '../scripts/eval/golden.ts';
+import { type GoldenQuestion, parseGolden, questionHash, SCORING_VERSION } from '../scripts/eval/golden.ts';
 import { judge, JUDGE_PROMPT } from '../scripts/eval/judge.ts';
 import { reportDiff, reportEval, reportRetrieval } from '../scripts/eval/report.ts';
 import { compareRetrieval, retrievalCheck, type RetrievalRun } from '../scripts/eval/retrieval.ts';
 import { pool, runQuestion } from '../scripts/eval/run.ts';
-import { type Checks, compare, type EvalResult, failureReasons, misCitations, type QuestionResult, ruleChecks, runPassed, type RunResult, statusOf, summarize } from '../scripts/eval/score.ts';
+import { type Checks, compare, episodesNamed, type EvalResult, failureReasons, misCitations, type QuestionResult, ruleChecks, runPassed, type RunResult, statusOf, summarize } from '../scripts/eval/score.ts';
 import { insertDiscovered, publishEpisode, saveSegments } from '../worker/repo.ts';
 
 const question = (over: Partial<GoldenQuestion> = {}): GoldenQuestion => ({
@@ -47,16 +47,24 @@ describe('golden set', () => {
     expect(() => parseGolden(JSON.stringify({ ...question(), points: undefined }))).toThrow('points');
   });
 
+  it('finds the episodes a line names', () => {
+    expect(episodesNamed('主委在 EP707 和 ep 709 說')).toEqual([707, 709]);
+    expect(episodesNamed('EP707～EP709、第 712 集、700 集')).toEqual([707, 708, 709, 712, 700]);
+    expect(episodesNamed('Step 3、DEEP 1、跑了 10 公里、3.5 集')).toEqual([]);
+    expect(episodesNamed('EP1–EP700')).toEqual([1]); // not a range anyone means
+  });
+
   it('hashes what a run is scored on, not the notes', () => {
     const h = questionHash(question());
     expect(questionHash(question({ note: '在 EP709', queries: ['x'] }))).toBe(h);
     expect(questionHash(question({ points: ['說是 EP709'] }))).not.toBe(h);
     expect(questionHash(question({ refuse: true }))).not.toBe(h);
+    expect(SCORING_VERSION).toBe(2); // bumping it makes every question incomparable with older results, on purpose
   });
 });
 
 describe('rule checks', () => {
-  const sources = [{ n: 1, ep: 709, t: 0 }, { n: 2, ep: 708, t: 0 }];
+  const sources = [{ n: 1, ep: 709 }, { n: 2, ep: 708 }];
   const facts = { answer: '主委每天打網球 [1]', sources, retrievedEps: [708, 709], citedEps: [709], cited: 1 };
   const pass = (q: GoldenQuestion, f = facts, error?: string) => runPassed({ ...ruleChecks(q, f), points: [] }, error);
 
@@ -99,6 +107,13 @@ describe('rule checks', () => {
     // checked line by line, as the page renders it; unknown numbers are dropped like the page does
     expect(misCitations('EP709 說每天打網球 [1]\n- 苗栗那家 [1] [9]', sources)).toEqual([]);
     expect(misCitations('EP709：[1]\n- EP708 苗栗那家 [1]', sources)).toEqual([{ n: 1, ep: 709, says: [708] }]);
+    // a heading line names the episode for the list under it
+    expect(misCitations('EP708 提到：\n- 每天打網球 [1]\n- 苗栗那家 [2]', sources)).toEqual([{ n: 1, ep: 709, says: [708] }]);
+    expect(misCitations('主委聊過：\n- 每天打網球 [1]', sources)).toEqual([]);
+    // ranges and 第 n 集 count; a word ending in "ep" doesn't
+    expect(misCitations('EP707–709 都有聊到 [2]', sources)).toEqual([]);
+    expect(misCitations('第 708 集說每天打網球 [1]', sources)).toEqual([{ n: 1, ep: 709, says: [708] }]);
+    expect(misCitations('- Step 3：每天打網球 [2]', sources)).toEqual([]);
     // results saved before the check existed have no misCited
     const old = { ...ruleChecks(question(), facts), points: [] } as Partial<Checks>;
     delete old.misCited;
@@ -417,7 +432,7 @@ describe('runQuestion', () => {
       citedEps: [709],
       cited: 1,
       checks: { retrieved: true, cited: true, mustNot: [], refuse: null, misCited: [], points: [{ ok: true }, { ok: true }] },
-      sources: [{ n: 1, ep: 709, t: 0 }],
+      sources: [{ n: 1, ep: 709 }],
       toolCalls: [{ name: 'search_mentions', results: 1 }],
     });
     expect(r.error).toBeUndefined();

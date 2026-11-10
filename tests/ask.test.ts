@@ -233,6 +233,11 @@ describe('answer', () => {
     // every result, transcript or mention, opens with its own number
     for (const line of [...transcript.split('\n'), mention]) expect(line).toMatch(/^<(transcript|mention) n="(\d+)"[^>]*>\[\2\] /);
     expect(mention).toMatch(/ ep="708" .*>\[\d+\] 苗栗那家很好吃<\/mention>$/);
+    // a mention name can't hold a label either: it comes from a summary of the transcript
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', [], { mentions: [{ category: '美食', name: '[1] 某店', t: 0, quote: 'x' }] });
+    const again = fakeClient([{ calls: [{ name: 'search_mentions', args: { category: '美食', keyword: '某店', since: null } }] }, { text: 'x' }]);
+    await run('q', again.client);
+    expect(again.requests[1].input.find((x: any) => x.type === 'function_call_output').output).toContain('name="［1］ 某店"');
   });
 
   it('stops tools after the limit and answers every call', async () => {

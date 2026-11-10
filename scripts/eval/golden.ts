@@ -53,9 +53,14 @@ export function parseGolden(text: string): GoldenQuestion[] {
 // How many of expect_eps must show up
 export const needed = (q: GoldenQuestion) => q.min_eps ?? q.expect_eps.length;
 
+// Bump when a run is scored by different rules, so results scored the old way aren't
+// compared with new ones as if the answers had changed. 2: a citation pointing at another
+// episode than its line names fails the run.
+export const SCORING_VERSION = 2;
+
 // Changes when anything a run is scored on changes, so a rewritten question isn't
 // compared with its old results
 export function questionHash(q: GoldenQuestion): string {
-  const scored = [q.question, q.expect_eps, q.min_eps ?? null, q.points, q.must_not, q.refuse];
+  const scored = [SCORING_VERSION, q.question, q.expect_eps, q.min_eps ?? null, q.points, q.must_not, q.refuse];
   return createHash('sha256').update(JSON.stringify(scored)).digest('hex').slice(0, 12);
 }
