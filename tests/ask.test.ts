@@ -3,7 +3,7 @@ import { answer, type AskEvent, MAX_TOOL_CALLS, newTrace, systemPrompt } from '@
 import { logAsk, logQuotaRejection, refundQuota, remaining, SITE_DAILY_LIMIT, taipeiDate, takeQuota, USER_DAILY_LIMIT } from '@/lib/ask/quota';
 import { AnswerRecorder } from '@/lib/ask/record';
 import { citedOrder, parseAnswer, splitEvents } from '@/lib/ask/render';
-import { fuse, queryTerms, searchMentions, searchTranscript } from '@/lib/ask/search';
+import { fuse, MENTION_LIMIT, queryTerms, searchMentions, searchTranscript } from '@/lib/ask/search';
 import { type DB, EMBEDDING_DIM, openDb } from '@/lib/db';
 import type { Summary } from '@/lib/summary';
 import { insertDiscovered, publishEpisode, saveSegments } from '../worker/repo.ts';
@@ -68,6 +68,25 @@ describe('searchMentions', () => {
     expect(searchMentions(db, { category: null, keyword: '2330', since: null }).map((m) => m.name)).toEqual(['台積電']);
     expect(searchMentions(db, { category: null, keyword: null, since: '2026-10-25' }).map((m) => m.episodeNo)).toEqual([709]);
     expect(searchMentions(db, { category: null, keyword: '%', since: null })).toEqual([]);
+  });
+
+  it('narrows to one episode or a date range, so older episodes are reachable past the limit', () => {
+    const eps = (hits: { episodeNo: number }[]) => [...new Set(hits.map((m) => m.episodeNo))];
+    expect(eps(searchMentions(db, { category: null, keyword: null, episode: 708, since: null }))).toEqual([708]);
+    expect(eps(searchMentions(db, { category: null, keyword: null, since: null, until: '2026-10-24' }))).toEqual([708]);
+    // with the newest episodes filling the limit, only a narrower query finds 708
+    expect(searchMentions(db, { category: null, keyword: null, since: null }, 1).map((m) => m.episodeNo)).toEqual([709]);
+    expect(searchMentions(db, { category: null, keyword: null, since: null, until: '2026-10-27' }, 1).map((m) => m.episodeNo)).toEqual([708]);
+  });
+
+  it('counts days in Taipei time, like the source labels', () => {
+    // 01:00 on 10-31 in Taipei, still 10-30 in UTC
+    addEpisode(db, 710, '2026-10-30T17:00:00.000Z', [], { mentions: [{ category: '美食', name: '宵夜', t: 0, quote: 'x' }] });
+    const eps = (q: { since?: string; until?: string }) =>
+      searchMentions(db, { category: null, keyword: null, since: q.since ?? null, until: q.until ?? null }).map((m) => m.episodeNo);
+    expect(eps({ since: '2026-10-31' })).toEqual([710]);
+    expect(eps({ since: '2026-10-29', until: '2026-10-30' })).toEqual([]);
+    expect(eps({ since: '2026-10-31', until: '2026-10-31' })).toEqual([710]);
   });
 });
 
@@ -193,7 +212,8 @@ describe('answer', () => {
     const events: AskEvent[] = [];
     const logs = (await run('主委推薦的餐廳？', client, (e) => events.push(e))).toolCalls;
 
-    expect(logs).toEqual([{ name: 'search_mentions', args: { category: '美食', keyword: null, since: null }, results: 1 }]);
+    // a call without episode / since / until (as in these fakes) still runs
+    expect(logs).toEqual([{ name: 'search_mentions', args: { category: '美食', keyword: null, episode: null, since: null, until: null }, results: 1 }]);
     expect(events.find((e) => e.type === 'sources')).toMatchObject({ sources: [{ n: 1, ep: 708, label: '美食・客家菜館' }] });
     expect(events.at(-1)).toEqual({ type: 'delta', text: '推薦過**客家菜館** [1]' });
     // the tool result went back to the model wrapped in a tag
@@ -264,6 +284,45 @@ describe('answer', () => {
     const outputs = requests[1].input.filter((x: any) => x.type === 'function_call_output').map((x: any) => x.output);
     expect(outputs[0]).toContain('參數錯誤');
     expect(outputs[1]).toContain('沒有這個工具');
+  });
+
+  it('rejects a date that is not a real day, and an empty range', async () => {
+    for (const [since, until] of [[null, '2026-02-30'], [null, '2026-13-45'], ['2026-09-30', '2026-09-01']]) {
+      const { client, requests } = fakeClient([
+        { calls: [{ name: 'search_mentions', args: { category: null, keyword: null, episode: null, since, until } }] },
+        { text: '找不到' },
+      ]);
+      expect((await run('q', client)).toolCalls[0]!.results).toBe(0);
+      expect(requests[1].input.find((x: any) => x.type === 'function_call_output').output).toContain('參數錯誤');
+    }
+  });
+
+  it('tells the model when the mention list was cut at the limit', async () => {
+    const many = Array.from({ length: MENTION_LIMIT }, (_, i) => ({ category: '遊戲' as const, name: `遊戲${i}`, t: i, quote: 'x' }));
+    addEpisode(db, 710, '2026-10-31T07:00:00.000Z', [], { mentions: many });
+    const { client, requests } = fakeClient([
+      { calls: [{ name: 'search_mentions', args: { category: '遊戲', keyword: null, episode: null, since: null, until: null } }] },
+      { calls: [{ name: 'search_mentions', args: { category: '美食', keyword: null, episode: null, since: null, until: null } }] },
+      { text: 'x' },
+    ]);
+    await run('q', client);
+    const outputs = requests[2].input.filter((x: any) => x.type === 'function_call_output').map((x: any) => x.output as string);
+    expect(outputs[0]).toContain(`已達 ${MENTION_LIMIT} 筆上限`);
+    expect(outputs[1]).not.toContain('上限');
+  });
+
+  it('says what it searched, episode and dates included', async () => {
+    const { client } = fakeClient([
+      { calls: [{ name: 'search_mentions', args: { category: '遊戲', keyword: null, episode: null, since: '2026-09-01', until: '2026-09-30' } }] },
+      { calls: [{ name: 'search_mentions', args: { category: '股票', keyword: null, episode: 704, since: null, until: null } }] },
+      { text: 'x' },
+    ]);
+    const events: AskEvent[] = [];
+    await run('q', client, (e) => events.push(e));
+    expect(events.filter((e) => e.type === 'status').map((e: any) => e.text)).toEqual([
+      '查提及清單：遊戲・2026-09-01～2026-09-30',
+      '查提及清單：EP704・股票',
+    ]);
   });
 
   it('discards text written before another search', async () => {

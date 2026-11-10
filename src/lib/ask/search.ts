@@ -1,4 +1,5 @@
 import type { DB } from '../db.ts';
+import { taipeiDayStart } from './quota.ts';
 import { toVecBlob } from '../db.ts';
 
 export type TranscriptHit = { episodeNo: number; publishedAt: string; startSec: number; text: string };
@@ -79,11 +80,22 @@ export function searchTranscript(db: DB, query: string, embedding: number[] | nu
     .map((r) => ({ episodeNo: r.episode_no, publishedAt: r.published_at, startSec: r.start_sec, text: r.text }));
 }
 
-export function searchMentions(
-  db: DB,
-  args: { category: string | null; keyword: string | null; since: string | null },
-  limit = MENTION_LIMIT,
-): MentionHit[] {
+export type MentionQuery = {
+  category: string | null;
+  keyword: string | null;
+  episode?: number | null;
+  since: string | null; // Taipei days, YYYY-MM-DD, both ends included
+  until?: string | null;
+};
+
+// What a search_mentions call looked for, for the status line on /ask and Telegram's
+// ask:<id>. Logged calls from before episode / until existed lack them.
+export function describeMentionSearch(a: Partial<Record<keyof MentionQuery, unknown>>): string {
+  const range = a.since || a.until ? `${a.since ?? ''}～${a.until ?? ''}` : null;
+  return [a.episode ? `EP${a.episode}` : null, a.category, a.keyword, range].filter(Boolean).join('・') || '全部';
+}
+
+export function searchMentions(db: DB, args: MentionQuery, limit = MENTION_LIMIT): MentionHit[] {
   const kw = args.keyword ? likePattern(args.keyword) : null;
   const rows = db
     .prepare(
@@ -93,11 +105,21 @@ export function searchMentions(
          AND (@category IS NULL OR m.category = @category)
          AND (@kw IS NULL OR m.name LIKE @kw ESCAPE '\\' OR m.code LIKE @kw ESCAPE '\\'
               OR m.detail LIKE @kw ESCAPE '\\' OR m.quote LIKE @kw ESCAPE '\\')
+         AND (@episode IS NULL OR e.episode_no = @episode)
          AND (@since IS NULL OR e.published_at >= @since)
+         AND (@until IS NULL OR e.published_at < @until)
        ORDER BY e.episode_no DESC, m.start_sec
        LIMIT @limit`,
     )
-    .all({ category: args.category, kw, since: args.since, limit }) as {
+    .all({
+      category: args.category,
+      kw,
+      episode: args.episode ?? null,
+      // published_at is an ISO time with ms, so compare with toISOString(), not toDbTime()
+      since: args.since ? taipeiDayStart(args.since).toISOString() : null,
+      until: args.until ? taipeiDayStart(args.until, 1).toISOString() : null,
+      limit,
+    }) as {
     episode_no: number;
     published_at: string;
     start_sec: number;

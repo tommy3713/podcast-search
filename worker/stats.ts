@@ -1,4 +1,5 @@
-import { ASK_LOG_DAYS } from '@/lib/ask/quota.ts';
+import { ASK_LOG_DAYS, taipeiDayStart } from '@/lib/ask/quota.ts';
+import { describeMentionSearch } from '@/lib/ask/search.ts';
 import { type DB, toDbTime } from '@/lib/db.ts';
 import type { TaipeiTime } from './schedule.ts';
 
@@ -26,7 +27,7 @@ export function compactDb(db: DB, purged: number): string | null {
 // ask_log.created_at is UTC; days are counted in Taipei time. Only used to label rows:
 // filters compare created_at with UTC bounds, so the ask_log_created index applies.
 const TAIPEI_DAY = `date(created_at, '+8 hours')`;
-const taipeiMidnight = (day: string) => toDbTime(new Date(`${day}T00:00:00+08:00`));
+const taipeiMidnight = (day: string) => toDbTime(taipeiDayStart(day));
 
 // Rows from before outcomes were recorded have no outcome, cost or timing; counting
 // them would show days with questions but no results
@@ -155,8 +156,10 @@ export function formatAsk(db: DB, id: number): string {
     .prepare('SELECT id, created_at, user_id, outcome, question, answer, cited, ms, cost_usd, tool_calls_json FROM ask_log WHERE id = ?')
     .get(id) as AskRow | undefined;
   if (!r) return `找不到 #${id}（紀錄保留 ${ASK_LOG_DAYS} 天）`;
-  const calls = JSON.parse(r.tool_calls_json ?? '[]') as { args?: Record<string, unknown>; results?: number }[];
-  const searches = calls.map((c) => `${Object.values(c.args ?? {}).filter(Boolean).join(' ')}（${c.results ?? 0} 筆）`).join('、');
+  const calls = JSON.parse(r.tool_calls_json ?? '[]') as { name?: string; args?: Record<string, unknown>; results?: number }[];
+  const what = (c: (typeof calls)[number]) =>
+    c.name === 'search_mentions' && c.args ? describeMentionSearch(c.args) : Object.values(c.args ?? {}).filter(Boolean).join(' ');
+  const searches = calls.map((c) => `${what(c)}（${c.results ?? 0} 筆）`).join('、');
   const facts = [
     `${icon(r.outcome)} ${r.outcome ?? '—'}`,
     r.cited !== null ? `引用 ${r.cited}` : null,

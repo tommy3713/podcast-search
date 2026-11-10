@@ -139,14 +139,20 @@ describe('/questions', () => {
     db.prepare(
       `INSERT INTO ask_log (user_id, question, created_at, outcome, answer, cited, ms, cost_usd, tool_calls_json)
        VALUES ('u1234567890', '主委推薦哪家拉麵', '2026-11-03T02:05:00Z', 'answered', '推薦過一蘭 [1]', 1, 5400, 0.0062, ?)`,
-    ).run(JSON.stringify([{ name: 'search_mentions', args: { category: '美食', keyword: '拉麵', since: null }, results: 3 }]));
+    ).run(
+      JSON.stringify([
+        { name: 'search_mentions', args: { category: '美食', keyword: '拉麵', since: null }, results: 3 },
+        { name: 'search_mentions', args: { category: '股票', keyword: null, episode: 704, since: null, until: '2026-09-30' }, results: 0 },
+        { name: 'search_transcript', args: { query: '拉麵 一蘭' }, results: 8 },
+      ]),
+    );
     const id = (db.prepare('SELECT max(id) AS id FROM ask_log').get() as { id: number }).id;
     expect(formatAsk(db, id)).toBe(
       [
         `#${id} 11-03 10:05 u12345`,
         '問：主委推薦哪家拉麵',
         '✅ answered・引用 1・5.4 秒・US$0.0062',
-        '搜尋：美食 拉麵（3 筆）',
+        '搜尋：美食・拉麵（3 筆）、EP704・股票・～2026-09-30（0 筆）、拉麵 一蘭（8 筆）',
         '',
         '答：推薦過一蘭 [1]',
       ].join('\n'),
