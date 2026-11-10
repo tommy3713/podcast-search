@@ -1,3 +1,4 @@
+import { ASK_LOG_DAYS } from '@/lib/ask/quota.ts';
 import type { DB } from '@/lib/db.ts';
 import { ACTION_LABEL, checkAction, type EpisodeAction, enqueue, poll, queueState, runEpisodeAction } from './actions.ts';
 import {
@@ -139,8 +140,8 @@ async function handle(db: DB, u: Update): Promise<void> {
     case 'status':
       return sendStatus(db);
     case 'stats': {
-      // ask_log keeps 30 days
-      const days = Math.min(30, Math.max(1, Number(c.arg) || 7));
+      // Older ask_log rows are already purged
+      const days = Math.min(ASK_LOG_DAYS, Math.max(1, Number(c.arg) || 7));
       const since = new Date(Date.now() - days * 86_400_000);
       return sendMessage(formatStats(`最近 ${days} 天問答`, askStats(db, since), unanswered(db, since)));
     }

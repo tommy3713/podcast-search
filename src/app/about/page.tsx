@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ASK_LOG_DAYS } from '@/lib/ask/quota';
 import { shareMetadata } from '@/lib/seo';
 
 export const metadata: Metadata = {
@@ -24,10 +25,10 @@ export default function About() {
       <p>
         本站只整理節目內容，不構成任何投資建議，也不推薦買賣任何證券。主持人在節目中的看法是他個人的意見，投資決策請自行判斷並承擔風險。
       </p>
-      <h2>隱私</h2>
+      <h2 id="privacy">隱私</h2>
       <p>
         用 Google 登入時，本站保存你的 Google 帳號識別碼和顯示名稱，用來計算每日問答次數。你在問答輸入的問題會傳給 OpenAI
-        產生回答；問題和回答會連同帳號識別碼保存 30 天，用來調查濫用、改善回答品質，期滿自動刪除，之後只留下不含內容的每日統計數字。
+        產生回答；問題和回答會連同帳號識別碼保存 {ASK_LOG_DAYS} 天，用來調查濫用、改善回答品質，期滿自動刪除（備份裡也不保留），之後只留下不含內容的每日統計數字。
         網站流量由 Cloudflare 統計，不使用 cookie，也不追蹤個人。這些資料不會販售或分享給第三方。
       </p>
       <h2>聯絡與下架</h2>

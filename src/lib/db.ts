@@ -144,6 +144,9 @@ export function openDb(file = defaultDbPath(), opts: { readonly?: boolean; migra
   if (!opts.readonly) {
     db.pragma('journal_mode = WAL');
     db.pragma('synchronous = NORMAL');
+    // Deleted rows are overwritten with zeros instead of left readable in free pages, so the
+    // nightly ask_log purge really removes the questions (/about promises it)
+    db.pragma('secure_delete = ON');
     if (opts.migrate ?? true) migrate(db);
   }
   return db;

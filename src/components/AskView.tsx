@@ -16,7 +16,7 @@ type Msg = {
   error: string | null;
 };
 
-type Props = { episodeCount: number; initialQuota: number; dailyLimit: number; examples: string[] };
+type Props = { episodeCount: number; initialQuota: number; dailyLimit: number; logDays: number; examples: string[] };
 
 // Keeps answers when you open a cited episode and come back; per tab, never sent anywhere
 const STORAGE_KEY = 'gooaye.ask.v1';
@@ -39,7 +39,7 @@ function save(msgs: Msg[]): void {
   }
 }
 
-export function AskView({ episodeCount, initialQuota, dailyLimit, examples }: Props) {
+export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examples }: Props) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [quota, setQuota] = useState(initialQuota);
   const [busy, setBusy] = useState(false);
@@ -168,6 +168,12 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, examples }: Pr
             {busy ? '回答中…' : '送出'}
           </button>
         </div>
+        {/* Seen before the first question; the composer is sticky, so it doesn't stay after that */}
+        {msgs.length === 0 && (
+          <p className="fine" style={{ margin: 0 }}>
+            問題會傳給 OpenAI 產生回答，問答會連同帳號保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
+          </p>
+        )}
       </form>
     </div>
   );

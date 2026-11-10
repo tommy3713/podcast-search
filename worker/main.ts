@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { ASK_LOG_DAYS } from '@/lib/ask/quota.ts';
 import { type DB, defaultDbPath, openDb } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { isProduction } from '@/lib/env.ts';
@@ -70,9 +71,16 @@ async function nightly(db: DB): Promise<void> {
     return null;
   });
   check('清理問答紀錄', () => {
-    const r = db.prepare(`DELETE FROM ask_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days')`).run();
+    const r = db.prepare(`DELETE FROM ask_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)`).run(`-${ASK_LOG_DAYS} days`);
     db.prepare(`DELETE FROM ask_usage WHERE date < date('now', '-7 days')`).run();
     console.log(`nightly: deleted ${r.changes} ask_log rows`);
+    // Rows purged before secure_delete was on left their text in free pages; one VACUUM
+    // rewrites the file without them (secure_delete keeps it clean from then on)
+    if (!getState(db, 'secure_delete_vacuumed')) {
+      db.exec('VACUUM');
+      setState(db, 'secure_delete_vacuumed', new Date().toISOString());
+      console.log('nightly: one-time VACUUM done');
+    }
     return null;
   });
   let key: string | null = null;
