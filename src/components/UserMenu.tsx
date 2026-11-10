@@ -6,8 +6,12 @@ import { usePathname } from 'next/navigation';
 export function LoginButton({ callbackUrl }: { callbackUrl?: string }) {
   const pathname = usePathname();
   return (
-    <button className="btn primary" onClick={() => signIn('google', { callbackUrl: callbackUrl ?? pathname })}>
-      <span className="gmark">G</span>用 Google 登入
+    // The header hides "用 Google " on phones (.login-long); the label keeps the full name
+    <button className="btn primary" aria-label="用 Google 登入" onClick={() => signIn('google', { callbackUrl: callbackUrl ?? pathname })}>
+      <span className="gmark" aria-hidden="true">G</span>
+      <span>
+        <span className="login-long">用 Google </span>登入
+      </span>
     </button>
   );
 }
