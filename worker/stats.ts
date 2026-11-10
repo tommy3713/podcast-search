@@ -12,14 +12,15 @@ export function purgeAskLog(db: DB): number {
 // and a DELETE doesn't do that: the text stays readable in free pages, and pages that were
 // split or rebalanced while rows were inserted keep stale copies of them in unused space
 // (secure_delete only zeroes deleted cells, so it doesn't cover those). VACUUM rebuilds the
-// file from the live rows only. The checkpoint then empties app.db-wal, which otherwise keeps
-// the VACUUM's rewrite (and older pages) at its tail. Nightly after the purge, at 03:00: a
-// few seconds at most for this database. Returns false when a reader in the middle of a
-// transaction blocked the truncate; the next night tries again.
-export function compactDb(db: DB): boolean {
-  db.exec('VACUUM');
+// file from the live rows only, so it runs on nights the purge removed rows (stale copies of
+// a row only matter once it's purged); the whole nightly took under a second on the live
+// database (9.7 MB, 84 episodes). The checkpoint runs every night: it empties app.db-wal,
+// which otherwise keeps the VACUUM's rewrite and older pages at its tail. Returns a problem
+// when a reader still in a transaction after busy_timeout blocked the truncate.
+export function compactDb(db: DB, purged: number): string | null {
+  if (purged > 0) db.exec('VACUUM');
   const [r] = db.pragma('wal_checkpoint(TRUNCATE)') as { busy: number }[];
-  return r?.busy === 0;
+  return r?.busy === 0 ? null : '清空 app.db-wal 被讀取中的連線擋住，刪掉的問答可能還留在裡面（明晚再試）';
 }
 
 // ask_log.created_at is UTC; days are counted in Taipei time. Only used to label rows:
@@ -66,7 +67,7 @@ export function unanswered(db: DB, since: Date, limit = 15): { day: string; ques
     .all(toDbTime(since), limit) as { day: string; question: string }[];
 }
 
-// Totals per Taipei day into ask_daily, which is kept after ask_log is purged at 30 days.
+// Totals per Taipei day into ask_daily, which is kept after ask_log is purged at ASK_LOG_DAYS.
 // Recomputes the last four weeks of finished days (cheap, and heals a missed night), but
 // never older ones, whose rows the purge may already have thinned out.
 export function rollupAskDaily(db: DB, today: string): void {
@@ -130,7 +131,7 @@ export function recentQuestions(db: DB, limit: number): QuestionRow[] {
 }
 
 export function formatQuestions(rows: QuestionRow[]): string {
-  if (!rows.length) return '還沒有人問過問題（紀錄保留 30 天）';
+  if (!rows.length) return `還沒有人問過問題（紀錄保留 ${ASK_LOG_DAYS} 天）`;
   return [
     `💬 最近 ${rows.length} 題（✅ 有出處 ❓ 沒出處 🚫 不當內容 ⛔ 配額已滿 ❌ 失敗）`,
     ...rows.map((r) => `#${r.id} ${taipeiMinute(r.created_at)} ${who(r.user_id)} ${icon(r.outcome)} ${r.question.slice(0, 60)}`),
@@ -153,7 +154,7 @@ export function formatAsk(db: DB, id: number): string {
   const r = db
     .prepare('SELECT id, created_at, user_id, outcome, question, answer, cited, ms, cost_usd, tool_calls_json FROM ask_log WHERE id = ?')
     .get(id) as AskRow | undefined;
-  if (!r) return `找不到 #${id}（紀錄保留 30 天）`;
+  if (!r) return `找不到 #${id}（紀錄保留 ${ASK_LOG_DAYS} 天）`;
   const calls = JSON.parse(r.tool_calls_json ?? '[]') as { args?: Record<string, unknown>; results?: number }[];
   const searches = calls.map((c) => `${Object.values(c.args ?? {}).filter(Boolean).join(' ')}（${c.results ?? 0} 筆）`).join('、');
   const facts = [

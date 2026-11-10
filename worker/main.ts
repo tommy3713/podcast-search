@@ -28,7 +28,7 @@ const USAGE = `usage: worker <command>
                       re-summarized. --retranscribe redoes everything.
                       --segments-file uses a JSON transcript ([{start,end,text}] or {segments})
                       instead of downloading and transcribing (dev only)
-  nightly             delete ask_log rows older than 30 days, back up app.db to R2, check
+  nightly             delete ask_log rows older than ASK_LOG_DAYS (30), back up app.db to R2, check
                       the live episode count and free disk space
   status              list episodes and their state
   check-db <file>     integrity check and live episode count of a database (restore drills)
@@ -69,16 +69,14 @@ async function nightly(db: DB): Promise<void> {
     rollupAskDaily(db, taipeiTime(new Date()).date);
     return null;
   });
+  let purged = 0;
   check('清理問答紀錄', () => {
-    console.log(`nightly: deleted ${purgeAskLog(db)} ask_log rows`);
+    purged = purgeAskLog(db);
+    console.log(`nightly: deleted ${purged} ask_log rows`);
     return null;
   });
-  // Separate from the purge, so a failed VACUUM isn't reported as a failed purge. A busy WAL
-  // truncate isn't worth a message: the next night tries again.
-  check('VACUUM', () => {
-    if (!compactDb(db)) console.log('nightly: WAL not truncated, a reader was busy');
-    return null;
-  });
+  // Separate from the purge, so a failed VACUUM isn't reported as a failed purge
+  check('VACUUM', () => compactDb(db, purged));
   let key: string | null = null;
   try {
     key = await backupToR2(db);

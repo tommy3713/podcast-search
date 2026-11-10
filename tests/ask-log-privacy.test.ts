@@ -38,8 +38,9 @@ describe('nightly purge on the live database', () => {
     fill(db);
     expect(onDisk(file, QUESTION)).toBe(true);
 
-    expect(purgeAskLog(db)).toBe(100);
-    expect(compactDb(db)).toBe(true);
+    const purged = purgeAskLog(db);
+    expect(purged).toBe(100);
+    expect(compactDb(db, purged)).toBeNull();
 
     expect(onDisk(file, QUESTION)).toBe(false);
     expect(onDisk(file, ANSWER)).toBe(false);
@@ -48,13 +49,31 @@ describe('nightly purge on the live database', () => {
     db.close();
   });
 
-  // What compactDb is for: if this ever passes without it, the VACUUM could go
-  it('needs the VACUUM: after the DELETE alone the text is still in the file', () => {
+  // Why the VACUUM: if the DELETE alone ever leaves nothing behind, it could go
+  it('needs the VACUUM: after the DELETE and checkpoint alone the text is still in the file', () => {
     const { db, file } = tempDb();
     fill(db);
     purgeAskLog(db);
-    db.pragma('wal_checkpoint(TRUNCATE)');
+    expect(compactDb(db, 0)).toBeNull(); // nothing purged: checkpoint only, no VACUUM
+    expect(fs.statSync(`${file}-wal`).size).toBe(0);
     expect(onDisk(file, QUESTION)).toBe(true);
+    db.close();
+  });
+});
+
+describe('compactDb with a reader in a transaction', () => {
+  it('reports that the WAL could not be emptied instead of passing quietly', () => {
+    const { db, file } = tempDb();
+    db.pragma('busy_timeout = 0');
+    fill(db);
+    const reader = openDb(file, { readonly: true });
+    reader.exec('BEGIN');
+    reader.prepare('SELECT COUNT(*) FROM ask_log').get();
+
+    expect(compactDb(db, 0)).toMatch(/app\.db-wal/);
+    reader.exec('COMMIT');
+    expect(compactDb(db, 0)).toBeNull();
+    reader.close();
     db.close();
   });
 });
