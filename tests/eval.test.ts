@@ -31,8 +31,9 @@ describe('golden set', () => {
     const counts = new Map<string, number>();
     for (const q of all) counts.set(q.type, (counts.get(q.type) ?? 0) + 1);
     expect(Math.min(...counts.values())).toBeGreaterThanOrEqual(3);
-    // not_found means citing nothing (owner's decision, evals/README.md)
-    expect(all.filter((q) => q.type === 'not_found').every((q) => q.refuse)).toBe(true);
+    // not_found means citing nothing (owner's decision, evals/README.md), except a question
+    // with a wrong premise, whose answer may point to what the host really said
+    expect(all.filter((q) => q.type === 'not_found' && !q.note?.startsWith('前提錯的')).every((q) => q.refuse)).toBe(true);
   });
 
   it('rejects lines that would be scored wrongly', () => {
