@@ -12,7 +12,7 @@
 | `queries` | search terms for `--retrieval-only`, which calls the search functions directly |
 | `points` | what the answer must say, each judged yes/no |
 | `must_not` | strings the answer must not contain |
-| `refuse` | `true` when the answer must cite nothing (`outcome` is `no_source`). With `false` and no `expect_eps`, citing is optional |
+| `refuse` | `true` when the answer must cite nothing (`outcome` is `no_source`): out-of-scope requests and every `not_found` question. An answer that says it found nothing and still cites nearby passages fails. With `false` and no `expect_eps`, citing is optional |
 | `note` | where the answer is, and why the question is hard |
 
 Rules:
