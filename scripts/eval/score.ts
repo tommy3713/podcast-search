@@ -151,13 +151,16 @@ export function summarize(r: EvalResult): Summary {
 
 export const rate = (x: { ok: number; of: number }) => (x.of ? (100 * x.ok) / x.of : 0);
 
-// Regression warning (issue #24): 2+ questions that passed and no longer do, or the
-// retrieval hit rate down by more than 5 points
+// Regression warning (issue #24): 2+ questions that passed every run and now fail every
+// run, or the retrieval hit rate down by more than 5 points. Passing some runs doesn't
+// count: two runs of the same code on the same data (2026-11-10, 49 questions) had 3
+// questions go from pass to unstable, 4 the other way, and none from pass to fail.
 export const REGRESSED_ALARM = 2;
 export const HIT_RATE_ALARM = 5;
 
 export type Diff = {
-  regressed: string[]; // passed every run before, doesn't now
+  regressed: string[]; // passed every run before, fails every run now
+  wobbly: string[]; // passed every run before, passes only some now: listed, not counted
   fixed: string[]; // didn't pass before, passes every run now
   rewritten: string[]; // the question's checks changed, so it isn't compared
   added: string[];
@@ -169,7 +172,7 @@ export type Diff = {
 
 export function compare(before: EvalResult, after: EvalResult): Diff {
   const old = new Map(before.questions.map((q) => [q.id, q]));
-  const d: Diff = { regressed: [], fixed: [], rewritten: [], added: [], removed: [], hitRate: { before: 0, after: 0 }, changed: [], alarm: false };
+  const d: Diff = { regressed: [], wobbly: [], fixed: [], rewritten: [], added: [], removed: [], hitRate: { before: 0, after: 0 }, changed: [], alarm: false };
   const comparable = new Set<string>();
   for (const q of after.questions) {
     const o = old.get(q.id);
@@ -178,7 +181,8 @@ export function compare(before: EvalResult, after: EvalResult): Diff {
     else {
       comparable.add(q.id);
       // A question that was already unstable flipping either way is noise, not a change
-      if (o.status === 'pass' && q.status !== 'pass') d.regressed.push(q.id);
+      if (o.status === 'pass' && q.status === 'fail') d.regressed.push(q.id);
+      if (o.status === 'pass' && q.status === 'unstable') d.wobbly.push(q.id);
       if (o.status === 'fail' && q.status === 'pass') d.fixed.push(q.id);
     }
   }

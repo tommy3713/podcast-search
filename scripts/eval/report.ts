@@ -67,7 +67,8 @@ export function reportDiff(d: Diff, beforeName: string): string {
   const list = (label: string, ids: string[]) => {
     if (ids.length) out.push(`  ${label}：${ids.join('、')}`);
   };
-  list('退步（原本每次都過，現在沒有）', d.regressed);
+  list('退步（原本每次都過，現在每次都沒過）', d.regressed);
+  list('變得不穩定（原本每次都過，現在有時沒過；不算退步）', d.wobbly);
   list('修好（原本每次都沒過，現在都過）', d.fixed);
   list('題目改過，不比較', d.rewritten);
   list('新題目', d.added);

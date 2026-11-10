@@ -179,15 +179,22 @@ describe('summarize errors', () => {
 });
 
 describe('compare', () => {
-  it('counts questions that passed every run and no longer do', () => {
-    const before = result([q('detail-01', yes), q('detail-02', yes), q('detail-03', [true, false, true]), q('detail-04', no), q('detail-05', no)]);
-    const after = result([q('detail-01', [true, true, false]), q('detail-02', no), q('detail-03', no), q('detail-04', yes), q('detail-05', [true, false, false])]);
+  it('counts questions that passed every run and now fail every run', () => {
+    const before = result([q('detail-01', yes), q('detail-02', yes), q('detail-03', [true, false, true]), q('detail-04', no), q('detail-05', no), q('detail-06', yes)]);
+    const after = result([q('detail-01', [true, true, false]), q('detail-02', no), q('detail-03', no), q('detail-04', yes), q('detail-05', [true, false, false]), q('detail-06', no)]);
     const d = compare(before, after);
-    expect(d.regressed).toEqual(['detail-01', 'detail-02']);
+    expect(d.regressed).toEqual(['detail-02', 'detail-06']);
+    expect(d.wobbly).toEqual(['detail-01']); // passing some runs is listed, not counted
     expect(d.fixed).toEqual(['detail-04']); // detail-03 was unstable already, detail-05 still isn't stable
     expect(d.alarm).toBe(true);
     expect(d.changed).toEqual([]);
-    expect(compare(before, result([q('detail-01', yes), q('detail-02', no), q('detail-03', yes), q('detail-04', no), q('detail-05', no)])).alarm).toBe(false);
+    const text = reportDiff(d, 'baseline.json');
+    expect(text).toContain('退步（原本每次都過，現在每次都沒過）：detail-02、detail-06');
+    expect(text).toContain('變得不穩定（原本每次都過，現在有時沒過；不算退步）：detail-01');
+    expect(text).toContain('⚠ 退步警訊');
+    // one regressed question and any number of wobbly ones raise nothing
+    const one = compare(before, result([q('detail-01', [true, false, true]), q('detail-02', no), q('detail-03', yes), q('detail-04', no), q('detail-05', no), q('detail-06', [false, true, true])]));
+    expect(one).toMatchObject({ regressed: ['detail-02'], wobbly: ['detail-01', 'detail-06'], alarm: false });
   });
 
   it('leaves out questions that were rewritten, added or removed', () => {
