@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 
 const LINKS = [
   { href: '/', desk: '集數', bottom: '首頁', match: (p: string) => p === '/' || p.startsWith('/ep/') },
-  { href: '/ask', desk: '問答', bottom: '問答', match: (p: string) => p === '/ask' },
+  { href: '/ask', desk: 'AI問答', bottom: 'AI問答', match: (p: string) => p === '/ask' },
 ];
 
 export function Nav({ variant }: { variant: 'desk' | 'bottom' }) {
