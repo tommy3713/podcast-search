@@ -46,7 +46,15 @@ a { color: var(--accent); }
 /* header */
 header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
 header.top .wrap { height: 56px; display: flex; align-items: center; gap: 24px; }
-.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 18px; letter-spacing: .02em; }
+/* Nothing in the header wraps to a second line or gets squeezed. The display name is capped at
+   10em with an ellipsis (phones hide it), and on phones the gap shrinks and the login button reads
+   just "登入". The brand text is the only thing that can shrink, to an ellipsis, so on a very
+   narrow screen or with large text the header still never scrolls sideways */
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 18px; letter-spacing: .02em; min-width: 0; }
+.brand-name, .user .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user .name { max-width: 10em; }
+header.top .btn, nav.desk a { white-space: nowrap; }
+nav.desk, .user, .avatar { flex: none; }
 .brand-mark { width: 28px; height: 28px; flex: none; display: block; }
 .brand-mark .bm-bg { fill: var(--fg); }
 .brand-mark .bm-fg { stroke: var(--surface); }
@@ -266,6 +274,8 @@ a.cite { display: inline-block; text-decoration: none; }
   .bul li { grid-template-columns: 48px minmax(0, 1fr); }
   .quote { margin-left: 0; }
   .user .name { display: none; }
+  header.top .wrap { gap: 12px; }
+  .user .login-long { display: none; }
 }
 
 /* loading.tsx placeholders */
