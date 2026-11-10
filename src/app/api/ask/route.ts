@@ -1,13 +1,12 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
-import { answer, type AskEvent, ASK_MODEL, type Coverage, MAX_QUESTION_CHARS, newTrace } from '@/lib/ask/agent';
+import { answer, type AskEvent, ASK_MODEL, ASK_TIMEOUT_MS, MAX_QUESTION_CHARS, newTrace, readCoverage } from '@/lib/ask/agent';
 import { type AskOutcome, logAsk, logQuotaRejection, refundQuota, taipeiDate, takeQuota } from '@/lib/ask/quota';
 import { askCost } from '@/lib/cost';
 import { AnswerRecorder } from '@/lib/ask/record';
 import { currentUser } from '@/lib/auth';
 import { readDb, writeDb } from '@/lib/server-db';
 
-const TIMEOUT_MS = 30_000;
 const Body = z.object({ question: z.string().trim().min(1).max(MAX_QUESTION_CHARS) });
 
 const json = (status: number, body: Record<string, unknown>) => Response.json(body, { status });
@@ -34,11 +33,8 @@ export async function POST(req: Request) {
   }
 
   const db = await readDb();
-  const cov = db
-    .prepare(`SELECT COUNT(*) AS count, MIN(episode_no) AS oldest, MAX(episode_no) AS newest FROM episodes WHERE status = 'done'`)
-    .get() as Omit<Coverage, 'today'>;
-  const coverage: Coverage = { ...cov, today: taipeiDate() };
-  const signal = AbortSignal.any([req.signal, AbortSignal.timeout(TIMEOUT_MS)]);
+  const coverage = readCoverage(db, taipeiDate());
+  const signal = AbortSignal.any([req.signal, AbortSignal.timeout(ASK_TIMEOUT_MS)]);
   const client = new OpenAI();
   const encoder = new TextEncoder();
 
@@ -80,7 +76,7 @@ export async function POST(req: Request) {
         if (!answered) refundQuota(wdb, user.id);
         const timedOut = signal.aborted && !req.signal.aborted;
         outcome = timedOut ? 'timeout' : req.signal.aborted ? 'aborted' : 'error';
-        const what = timedOut ? '回答超過 30 秒，已中斷。' : '回答時發生錯誤。';
+        const what = timedOut ? `回答超過 ${ASK_TIMEOUT_MS / 1000} 秒，已中斷。` : '回答時發生錯誤。';
         emit({ type: 'error', message: answered ? what : `${what}這次不扣次數，請稍後再試。` });
       } finally {
         logAsk(wdb, {
