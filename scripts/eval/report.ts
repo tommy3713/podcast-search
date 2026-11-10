@@ -5,7 +5,7 @@ import { type Diff, type EvalResult, failureReasons, HIT_RATE_ALARM, rate, REGRE
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
 const pct = (n: number) => `${n.toFixed(1)}%`;
-const dbLine = (d: { count: number; oldest: number; newest: number }) => `EP${d.oldest}–${d.newest}（${d.count} 集）`;
+const dbLine = (d: { file: string; count: number; oldest: number; newest: number }) => `${d.file} EP${d.oldest}–${d.newest}（${d.count} 集）`;
 const STATUS = { pass: '通過', unstable: '不穩定', fail: '失敗' } as const;
 
 export function reportEval(r: EvalResult, golden: GoldenQuestion[]): string {
@@ -28,6 +28,7 @@ export function reportEval(r: EvalResult, golden: GoldenQuestion[]): string {
   out.push('');
   out.push(`檢索 hit rate　${pct(rate(s.hit))}（${s.hit.ok}/${s.hit.of} 次）`);
   out.push(`檢查點通過率　${pct(rate(s.points))}（${s.points.ok}/${s.points.of}）`);
+  if (s.errors) out.push(`⚠ ${s.errors} 次執行出錯（逾時或 API 錯誤），不算進上面兩個比率；出錯太多的結果不要當基準`);
   out.push(`安全題（要全過）　${s.safetyFailed.length ? `✗ 沒過：${s.safetyFailed.join('、')}` : '✓ 全部通過'}`);
   out.push(`成本　ask ${usd(s.askCostUsd)} + judge ${usd(s.judgeCostUsd)} = ${usd(s.askCostUsd + s.judgeCostUsd)}；每次平均搜尋 ${s.avgToolCalls.toFixed(1)} 次、${(s.avgMs / 1000).toFixed(1)} 秒`);
 
@@ -40,17 +41,24 @@ export function reportEval(r: EvalResult, golden: GoldenQuestion[]): string {
       out.push(`  ${q.id}　${STATUS[q.status]} ${passes}/${q.runs.length}`);
       const g = byId.get(q.id);
       if (!g) continue;
-      // The same reason from several runs is listed once, with how many runs gave it
-      const reasons = new Map<string, number>();
-      for (const run of q.runs) if (!run.pass) for (const why of failureReasons(g, run)) reasons.set(why, (reasons.get(why) ?? 0) + 1);
-      for (const [why, n] of reasons) out.push(`      ${why}${q.runs.length > 1 ? `（${n} 次）` : ''}`);
+      // One line per failed check, with how many runs failed it and the first run's detail
+      const reasons = new Map<string, { n: number; detail?: string }>();
+      for (const run of q.runs) {
+        if (run.pass) continue;
+        for (const why of failureReasons(g, run)) {
+          const seen = reasons.get(why.what);
+          if (seen) seen.n++;
+          else reasons.set(why.what, { n: 1, detail: why.detail });
+        }
+      }
+      for (const [what, r] of reasons) out.push(`      ${what}${q.runs.length > 1 ? `（${r.n} 次）` : ''}${r.detail ? `：${r.detail}` : ''}`);
     }
   }
   return out.join('\n');
 }
 
 export function reportDiff(d: Diff, beforeName: string): string {
-  const out = ['', `跟上次比（${beforeName}）：`];
+  const out = ['', `跟基準比（${beforeName}）：`];
   out.push(`  兩次的差別：${d.changed.length ? d.changed.join('；') : '程式、資料、模型都一樣'}`);
   // With both the code and the data different, a change can't be put down to either
   if (d.changed.some((c) => c.startsWith('程式')) && d.changed.some((c) => c.startsWith('資料'))) {
@@ -88,7 +96,8 @@ export function reportRetrieval(r: RetrievalRun, golden: GoldenQuestion[], befor
   out.push(`有預期集數的 ${withEps.length} 題裡，${withEps.filter((q) => q.ok).length} 題用 queries 搜得到`);
   if (before) {
     const d = compareRetrieval(before.run, r);
-    out.push('', `跟上次比（${before.name}，資料 ${dbLine(before.run.meta.db)}）：`);
+    out.push('', `跟基準比（${before.name}，資料 ${dbLine(before.run.meta.db)}）：`);
+    if (d.rewritten.length) out.push(`  題目的 queries 或預期集數改過，不比較：${d.rewritten.join('、')}`);
     if (d.lost.length) out.push(`  原本搜得到、現在搜不到：${d.lost.join('、')}`);
     if (d.gained.length) out.push(`  原本搜不到、現在搜得到：${d.gained.join('、')}`);
     for (const x of d.newOthers) out.push(`  ${x.id} 多了符合的集數：${eps(x.eps)}（題目可能多了一個正確答案，要重看）`);

@@ -1,16 +1,14 @@
 // One run of one question: the same answer() the site calls, followed the way the site
 // logs it, then the rule checks and the judge.
 import type OpenAI from 'openai';
-import { answer, ASK_MODEL, type Coverage, newTrace, type Source } from '../../src/lib/ask/agent.ts';
+import { answer, ASK_MODEL, ASK_TIMEOUT_MS, type Coverage, newTrace } from '../../src/lib/ask/agent.ts';
 import { AnswerRecorder } from '../../src/lib/ask/record.ts';
-import { citedOrder, parseAnswer } from '../../src/lib/ask/render.ts';
 import { askCost } from '../../src/lib/cost.ts';
 import type { DB } from '../../src/lib/db.ts';
 import type { GoldenQuestion } from './golden.ts';
 import { judge } from './judge.ts';
 import { type Checks, type PointVerdict, type RunResult, ruleChecks, runPassed } from './score.ts';
 
-export const ASK_TIMEOUT_MS = 30_000; // the site's limit
 const JUDGE_TIMEOUT_MS = 60_000;
 
 const uniqueSorted = (xs: number[]) => [...new Set(xs)].sort((a, b) => a - b);
@@ -20,7 +18,7 @@ export type RunDeps = { db: DB; client: OpenAI; coverage: Coverage; timeoutMs?: 
 export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<RunResult> {
   const trace = newTrace();
   const recorder = new AnswerRecorder();
-  const sources = new Map<number, Source>();
+  const epOf = new Map<number, number>(); // source number → episode
   const started = Date.now();
   const signal = AbortSignal.timeout(deps.timeoutMs ?? ASK_TIMEOUT_MS);
   let error: string | undefined;
@@ -33,7 +31,7 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
       signal,
       emit: (e) => {
         recorder.see(e);
-        if (e.type === 'sources') for (const s of e.sources) sources.set(s.n, s);
+        if (e.type === 'sources') for (const s of e.sources) epOf.set(s.n, s.ep);
       },
     });
   } catch (e) {
@@ -41,11 +39,12 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
   }
   const ms = Date.now() - started;
 
-  const citedNs = citedOrder(parseAnswer(recorder.text, new Set(sources.keys())));
+  // Counted by the recorder, so `cited` is what the site would log
+  const citedNs = recorder.citedNumbers();
   const facts = {
     answer: recorder.text,
-    retrievedEps: uniqueSorted([...sources.values()].map((s) => s.ep)),
-    citedEps: uniqueSorted(citedNs.map((n) => sources.get(n)!.ep)),
+    retrievedEps: uniqueSorted([...epOf.values()]),
+    citedEps: uniqueSorted(citedNs.map((n) => epOf.get(n)!)),
     cited: citedNs.length,
   };
 

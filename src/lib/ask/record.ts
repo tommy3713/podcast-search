@@ -14,7 +14,12 @@ export class AnswerRecorder {
     else if (e.type === 'reset') this.text = '';
   }
 
+  // The numbers of the sources the final answer cites, in the order it first cites them
+  citedNumbers(): number[] {
+    return citedOrder(parseAnswer(this.text, this.known));
+  }
+
   cited(): number {
-    return citedOrder(parseAnswer(this.text, this.known)).length;
+    return this.citedNumbers().length;
   }
 }

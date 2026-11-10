@@ -6,15 +6,18 @@
 // backfill: which other episodes now match a question's queries (a second right answer,
 // or a not_found question that has one now), and which terms match more rows than a
 // search reads.
+import { createHash } from 'node:crypto';
 import { likePattern, MENTION_LIMIT, queryTerms, searchMentions, searchTranscript, TERM_MATCH_LIMIT } from '../../src/lib/ask/search.ts';
 import type { DB } from '../../src/lib/db.ts';
 import { type GoldenQuestion, needed, type QuestionType } from './golden.ts';
+import type { DbInfo } from './score.ts';
 
 export type TermLoad = { term: string; chunks: number; mentions: number };
 
 export type RetrievalResult = {
   id: string;
   type: QuestionType;
+  hash: string; // of what this check reads from the question
   ok: boolean | null; // null = no expected episodes
   found: number[]; // expected episodes the searches returned
   transcriptEps: number[];
@@ -36,13 +39,15 @@ export function retrievalCheck(db: DB, q: GoldenQuestion): RetrievalResult {
   for (const query of q.queries) {
     for (const h of searchTranscript(db, query, null)) transcript.add(h.episodeNo);
     const terms = queryTerms(query);
-    for (const term of terms) {
-      for (const h of searchMentions(db, { category: null, keyword: term, since: null })) mentions.add(h.episodeNo);
-      if (!loads.has(term)) loads.set(term, termLoad(db, term));
-    }
+    for (const term of terms) if (!loads.has(term)) loads.set(term, termLoad(db, term));
     for (const ep of episodesMatchingAll(db, terms)) others.add(ep);
-    // A one-word query is a name: mentions hold the corrected spelling of it
-    if (terms.length === 1) for (const ep of mentionEpisodes(db, terms[0]!)) others.add(ep);
+    // search_mentions takes one keyword, so only a one-word query (a name) is looked up
+    // there. Searching each word of a longer query would find an episode through any
+    // mention that happens to hold one common word.
+    if (terms.length === 1) {
+      for (const h of searchMentions(db, { category: null, keyword: terms[0]!, since: null })) mentions.add(h.episodeNo);
+      for (const ep of mentionEpisodes(db, terms[0]!)) others.add(ep);
+    }
   }
 
   const all = new Set([...transcript, ...mentions]);
@@ -50,6 +55,7 @@ export function retrievalCheck(db: DB, q: GoldenQuestion): RetrievalResult {
   return {
     id: q.id,
     type: q.type,
+    hash: createHash('sha256').update(JSON.stringify([q.queries, q.expect_eps, q.min_eps ?? null])).digest('hex').slice(0, 12),
     ok: q.expect_eps.length ? found.length >= needed(q) : null,
     found,
     transcriptEps: sorted(transcript),
@@ -90,20 +96,31 @@ function mentionEpisodes(db: DB, term: string): number[] {
 }
 
 export type RetrievalRun = {
-  meta: { startedAt: string; sha: string; db: { count: number; oldest: number; newest: number }; partial: boolean };
+  meta: { startedAt: string; sha: string; db: DbInfo; partial: boolean };
   questions: RetrievalResult[];
 };
 
-// Since the last run: questions that stopped or started being found, and episodes that
-// newly match a question's queries
-export function compareRetrieval(before: RetrievalRun, after: RetrievalRun): { lost: string[]; gained: string[]; newOthers: { id: string; eps: number[] }[] } {
+export type RetrievalDiff = {
+  lost: string[]; // found before, not now
+  gained: string[];
+  newOthers: { id: string; eps: number[] }[]; // episodes that newly match a question's queries
+  rewritten: string[]; // queries or expected episodes were edited, so not compared
+};
+
+export function compareRetrieval(before: RetrievalRun, after: RetrievalRun): RetrievalDiff {
   const old = new Map(before.questions.map((q) => [q.id, q]));
-  const d = { lost: [] as string[], gained: [] as string[], newOthers: [] as { id: string; eps: number[] }[] };
+  const d: RetrievalDiff = { lost: [], gained: [], newOthers: [], rewritten: [] };
   for (const q of after.questions) {
     const o = old.get(q.id);
     if (!o) continue;
+    if (o.hash !== q.hash) {
+      d.rewritten.push(q.id);
+      continue;
+    }
     if (o.ok === true && q.ok === false) d.lost.push(q.id);
     if (o.ok === false && q.ok === true) d.gained.push(q.id);
+    // Safety questions search for everyday words (台積電, 台股) that every episode has
+    if (q.type === 'safety') continue;
     const eps = q.others.filter((e) => !o.others.includes(e));
     if (eps.length) d.newOthers.push({ id: q.id, eps });
   }

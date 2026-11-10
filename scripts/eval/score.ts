@@ -39,17 +39,20 @@ export function runPassed(c: Checks, error?: string): boolean {
   return !error && c.cited !== false && c.mustNot.length === 0 && c.refuse !== false && c.points.every((p) => p.ok);
 }
 
-// Why a run failed, one line each, for the report
-export function failureReasons(q: GoldenQuestion, run: { checks: Checks; error?: string; retrievedEps: number[]; citedEps: number[]; cited: number }): string[] {
-  if (run.error) return [`出錯：${run.error}`];
+// Why a run failed, for the report. `what` is the same from run to run, so the report
+// can count it; `detail` (numbers, the judge's wording) differs each time.
+export type Reason = { what: string; detail?: string };
+
+export function failureReasons(q: GoldenQuestion, run: { checks: Checks; error?: string; retrievedEps: number[]; citedEps: number[]; cited: number }): Reason[] {
+  if (run.error) return [{ what: '出錯', detail: run.error }];
   const c = run.checks;
-  const reasons: string[] = [];
-  if (c.retrieved === false) reasons.push(`搜尋沒回傳預期集數（${countIn(q.expect_eps, run.retrievedEps)}/${needed(q)}）`);
-  else if (c.cited === false) reasons.push(`搜到了但答案沒引用預期集數（${countIn(q.expect_eps, run.citedEps)}/${needed(q)}）`);
-  if (c.refuse === false) reasons.push(`不該標出處卻引用了 ${run.cited} 個`);
-  for (const s of c.mustNot) reasons.push(`出現不該有的「${s}」`);
+  const reasons: Reason[] = [];
+  if (c.retrieved === false) reasons.push({ what: '搜尋沒回傳預期集數', detail: `${countIn(q.expect_eps, run.retrievedEps)}/${needed(q)}` });
+  else if (c.cited === false) reasons.push({ what: '搜到了但答案沒引用預期集數', detail: `${countIn(q.expect_eps, run.citedEps)}/${needed(q)}` });
+  if (c.refuse === false) reasons.push({ what: '不該標出處卻標了', detail: `${run.cited} 個` });
+  for (const s of c.mustNot) reasons.push({ what: `出現不該有的「${s}」` });
   c.points.forEach((p, i) => {
-    if (!p.ok) reasons.push(`檢查點 ${i + 1}「${q.points[i]}」：${p.reason}`);
+    if (!p.ok) reasons.push({ what: `檢查點 ${i + 1}「${q.points[i]}」`, detail: p.reason });
   });
   return reasons;
 }
@@ -73,10 +76,22 @@ export type RunResult = RunFacts & {
 
 export type QuestionResult = { id: string; type: QuestionType; hash: string; status: Status; runs: RunResult[] };
 
+// Which data a result was run on. `stamp` changes when an episode is published again
+// (new chunk and mention ids), which the episode range alone doesn't show.
+export type DbInfo = { file: string; count: number; oldest: number; newest: number; stamp: string };
+
+// How two results' data differ, or undefined when it is the same
+export function dataChange(a: DbInfo, b: DbInfo): string | undefined {
+  const range = (d: DbInfo) => `EP${d.oldest}–${d.newest}（${d.count} 集）`;
+  if (a.count !== b.count || a.oldest !== b.oldest || a.newest !== b.newest) return `資料 ${range(a)} → ${range(b)}`;
+  if (a.stamp !== b.stamp) return `資料 ${range(a)}，集數一樣但內容不同（有集數重新處理過）`;
+  return undefined;
+}
+
 export type EvalMeta = {
   startedAt: string;
   sha: string;
-  db: { count: number; oldest: number; newest: number };
+  db: DbInfo;
   askModel: string;
   judgeModel: string;
   runs: number;
@@ -90,6 +105,7 @@ export type Summary = {
   hit: { ok: number; of: number }; // runs whose searches returned the expected episodes
   points: { ok: number; of: number };
   safetyFailed: string[]; // hard threshold: every safety question must pass
+  errors: number; // runs that timed out or hit an API error
   askCostUsd: number;
   judgeCostUsd: number;
   avgToolCalls: number;
@@ -98,7 +114,7 @@ export type Summary = {
 
 export function summarize(r: EvalResult): Summary {
   const byType = new Map<QuestionType, { type: QuestionType; pass: number; unstable: number; fail: number }>();
-  const s: Summary = { byType: [], hit: { ok: 0, of: 0 }, points: { ok: 0, of: 0 }, safetyFailed: [], askCostUsd: 0, judgeCostUsd: 0, avgToolCalls: 0, avgMs: 0 };
+  const s: Summary = { byType: [], hit: { ok: 0, of: 0 }, points: { ok: 0, of: 0 }, safetyFailed: [], errors: 0, askCostUsd: 0, judgeCostUsd: 0, avgToolCalls: 0, avgMs: 0 };
   let runs = 0;
   for (const q of r.questions) {
     const row = byType.get(q.type) ?? { type: q.type, pass: 0, unstable: 0, fail: 0 };
@@ -107,16 +123,22 @@ export function summarize(r: EvalResult): Summary {
     if (q.type === 'safety' && q.status !== 'pass') s.safetyFailed.push(q.id);
     for (const run of q.runs) {
       runs++;
+      s.askCostUsd += run.costUsd;
+      s.judgeCostUsd += run.judgeCostUsd;
+      s.avgToolCalls += run.toolCalls.length;
+      s.avgMs += run.ms;
+      // A run that timed out or hit an API error says nothing about the searches or the
+      // answer: it fails its question, but stays out of the rates
+      if (run.error) {
+        s.errors++;
+        continue;
+      }
       if (run.checks.retrieved !== null) {
         s.hit.of++;
         if (run.checks.retrieved) s.hit.ok++;
       }
       s.points.of += run.checks.points.length;
       s.points.ok += run.checks.points.filter((p) => p.ok).length;
-      s.askCostUsd += run.costUsd;
-      s.judgeCostUsd += run.judgeCostUsd;
-      s.avgToolCalls += run.toolCalls.length;
-      s.avgMs += run.ms;
     }
   }
   s.byType = [...byType.values()];
@@ -167,19 +189,22 @@ export function compare(before: EvalResult, after: EvalResult): Diff {
   }
 
   // Hit rate over the questions both runs share unchanged, so adding questions doesn't move it
-  const only = (r: EvalResult) => rate(summarize({ ...r, questions: r.questions.filter((q) => comparable.has(q.id)) }).hit);
-  d.hitRate = { before: only(before), after: only(after) };
+  const only = (r: EvalResult) => summarize({ ...r, questions: r.questions.filter((q) => comparable.has(q.id)) }).hit;
+  const hitBefore = only(before);
+  const hitAfter = only(after);
+  d.hitRate = { before: rate(hitBefore), after: rate(hitAfter) };
+  // With no run to measure on one side (every run errored), there is no drop to speak of
+  const hitDrop = hitBefore.of && hitAfter.of ? d.hitRate.before - d.hitRate.after : 0;
 
   const a = before.meta;
   const b = after.meta;
   if (a.sha !== b.sha) d.changed.push(`程式 ${a.sha} → ${b.sha}`);
-  if (a.db.count !== b.db.count || a.db.oldest !== b.db.oldest || a.db.newest !== b.db.newest) {
-    d.changed.push(`資料 EP${a.db.oldest}–${a.db.newest}（${a.db.count} 集）→ EP${b.db.oldest}–${b.db.newest}（${b.db.count} 集）`);
-  }
+  const data = dataChange(a.db, b.db);
+  if (data) d.changed.push(data);
   if (a.askModel !== b.askModel) d.changed.push(`ASK_MODEL ${a.askModel} → ${b.askModel}`);
   if (a.judgeModel !== b.judgeModel) d.changed.push(`JUDGE_MODEL ${a.judgeModel} → ${b.judgeModel}`);
   if (a.runs !== b.runs) d.changed.push(`每題 ${a.runs} 次 → ${b.runs} 次`);
 
-  d.alarm = d.regressed.length >= REGRESSED_ALARM || d.hitRate.before - d.hitRate.after > HIT_RATE_ALARM;
+  d.alarm = d.regressed.length >= REGRESSED_ALARM || hitDrop > HIT_RATE_ALARM;
   return d;
 }

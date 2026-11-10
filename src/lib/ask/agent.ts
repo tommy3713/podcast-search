@@ -10,6 +10,7 @@ import { searchMentions, searchTranscript } from './search.ts';
 export const ASK_MODEL = process.env.ASK_MODEL ?? 'gpt-5.4-mini';
 export const MAX_QUESTION_CHARS = 300;
 export const MAX_TOOL_CALLS = 4;
+export const ASK_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_TOKENS = 2500; // includes reasoning; the visible answer is ~800
 
 const CATEGORIES = [...MENTION_CATEGORIES, STOCK_CATEGORY] as const;
@@ -72,6 +73,14 @@ const TOOLS: OpenAI.Responses.Tool[] = [
 ];
 
 export type Coverage = { count: number; oldest: number; newest: number; today: string };
+
+// What is live right now, for the system prompt. `today` is a Taipei date (taipeiDate()).
+export function readCoverage(db: DB, today: string): Coverage {
+  const row = db
+    .prepare(`SELECT COUNT(*) AS count, MIN(episode_no) AS oldest, MAX(episode_no) AS newest FROM episodes WHERE status = 'done'`)
+    .get() as Omit<Coverage, 'today'>;
+  return { ...row, today };
+}
 
 // Rules only. Coverage and date are server facts; the question never goes in here.
 export function systemPrompt(c: Coverage): string {

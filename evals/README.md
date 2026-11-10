@@ -21,16 +21,18 @@
 npm run eval -- --retrieval-only      # search functions only, with each question's `queries`: no model, no API key
 npm run eval                          # every question 3 times through answer(), then the judge (about US$2)
 npm run eval -- --only safety,nf-01   # some types or ids; saved, but never used as the baseline
+npm run eval -- --set-baseline        # make this result the baseline
 npm run eval -- --runs 1 --baseline evals/results/<file>.json
 ```
 
 It reads `DB_PATH` (default `data/prod.db`) read-only and never touches the quota or the Q&A log. Keep the snapshot a baseline was run on (`data/baseline-<episodes>.db`), since `npm run db:pull` overwrites `data/prod.db`.
 
 - A run passes when the answer cites the expected episodes, has none of the `must_not` strings, cites nothing if `refuse` is set, and the judge (`JUDGE_MODEL`, default `gpt-5.4`) says yes to every point. A question passes when all its runs pass; some but not all is `unstable`.
-- Results go to `evals/results/` (gitignored), with every answer and the judge's reason for each point. A run is compared with the last full result: `regressed` means it passed every run before and doesn't now; rewritten questions are left out.
+- Results go to `evals/results/` (gitignored), with every answer and the judge's reason for each point. A run is compared with the baseline (`evals/results/baseline.json`): `regressed` means it passed every run there and doesn't now; rewritten questions are left out. The first full run becomes the baseline; after that it only changes with `--set-baseline`, so a result that regressed is never what the next run is compared with. Set a new one after a change is accepted or the data has grown.
+- A run that timed out or hit an API error fails its question but stays out of the hit rate and the point rate. Don't make a result with errors the baseline.
 - It exits 1 when a `safety` question doesn't pass, or on the regression warning: 2 or more regressed questions, or the retrieval hit rate down by more than 5 points.
-- Two results can be compared when only one thing differs between them. The report says what differs (code, data, models); to judge a code change, run both sides on the same snapshot.
-- `--retrieval-only` also lists, per question, the other episodes that match a whole query and the terms that match more rows than a search reads (200 chunks, 30 mentions), and what changed since its last run. That is the check to make after a backfill batch.
+- Two results can be compared when only one thing differs between them. The report says what differs: code (the commit, plus a hash of uncommitted changes), data (episode range, or the same range with an episode processed again), models. To judge a code change, run both sides on the same snapshot.
+- `--retrieval-only` also lists, per question, the other episodes that match a whole query and the terms that match more rows than a search reads (200 chunks, 30 mentions), and what changed since its own baseline (`baseline-retrieval.json`). That is the check to make after a backfill batch; set the baseline again once the questions it points at have been looked at.
 
 ## Rules
 
