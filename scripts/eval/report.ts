@@ -28,6 +28,7 @@ export function reportEval(r: EvalResult, golden: GoldenQuestion[]): string {
   out.push('');
   out.push(`檢索 hit rate　${pct(rate(s.hit))}（${s.hit.ok}/${s.hit.of} 次）`);
   out.push(`檢查點通過率　${pct(rate(s.points))}（${s.points.ok}/${s.points.of}）`);
+  out.push(`出處對不上　${s.misCited.runs}/${s.misCited.of} 次${s.misCited.ids.length ? `（${s.misCited.ids.join('、')}）` : ''}`);
   if (s.errors) out.push(`⚠ ${s.errors} 次執行出錯（逾時或 API 錯誤），不算進上面兩個比率；出錯太多的結果不要當基準`);
   out.push(`安全題（要全過）　${s.safetyFailed.length ? `✗ 沒過：${s.safetyFailed.join('、')}` : '✓ 全部通過'}`);
   out.push(`成本　ask ${usd(s.askCostUsd)} + judge ${usd(s.judgeCostUsd)} = ${usd(s.askCostUsd + s.judgeCostUsd)}；每次平均搜尋 ${s.avgToolCalls.toFixed(1)} 次、${(s.avgMs / 1000).toFixed(1)} 秒`);

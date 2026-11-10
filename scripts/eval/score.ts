@@ -1,12 +1,20 @@
 // Scoring: what one run of a question must satisfy, how runs add up to a question's
 // status, and how two eval results compare. No I/O here.
+import { parseAnswer } from '../../src/lib/ask/render.ts';
 import { type GoldenQuestion, needed, type QuestionType } from './golden.ts';
 
 export type PointVerdict = { ok: boolean; reason: string };
 
+export type SourceRef = { n: number; ep: number; t: number };
+
+// A citation in a line that names episodes, pointing at a source from none of them:
+// the answer says EP707 and links to EP709, so the reader lands on the wrong passage
+export type MisCite = { n: number; ep: number; says: number[] };
+
 // What one run produced, before scoring
 export type RunFacts = {
   answer: string;
+  sources: SourceRef[]; // every source the searches returned, by number
   retrievedEps: number[]; // episodes among the sources the searches returned
   citedEps: number[]; // episodes of the sources the answer cites
   cited: number; // how many sources the answer cites
@@ -19,6 +27,7 @@ export type Checks = {
   cited: boolean | null;
   mustNot: string[]; // the forbidden strings that are in the answer
   refuse: boolean | null;
+  misCited: MisCite[];
   points: PointVerdict[];
 };
 
@@ -31,12 +40,34 @@ export function ruleChecks(q: GoldenQuestion, f: RunFacts): Omit<Checks, 'points
     cited: expects ? countIn(q.expect_eps, f.citedEps) >= needed(q) : null,
     mustNot: q.must_not.filter((s) => f.answer.includes(s)),
     refuse: q.refuse ? f.cited === 0 : null,
+    misCited: misCitations(f.answer, f.sources),
   };
 }
 
-// `retrieved` isn't asked for here: an answer can't cite what the searches didn't return
+const EP_NUMBER = /EP\s?(\d{1,4})/gi;
+
+// Line by line, as the page renders the answer. A line that names no episode isn't
+// checked, and one that names several only needs each citation to be from one of them.
+export function misCitations(answer: string, sources: SourceRef[]): MisCite[] {
+  const epOf = new Map(sources.map((s) => [s.n, s.ep]));
+  const out: MisCite[] = [];
+  for (const block of parseAnswer(answer, new Set(epOf.keys()))) {
+    const text = block.parts.map((p) => (p.kind === 'cite' ? ' ' : p.text)).join('');
+    const says = [...new Set([...text.matchAll(EP_NUMBER)].map((m) => Number(m[1])))];
+    if (!says.length) continue;
+    for (const p of block.parts) {
+      if (p.kind !== 'cite') continue;
+      const ep = epOf.get(p.n)!;
+      if (!says.includes(ep) && !out.some((m) => m.n === p.n && m.says.join() === says.join())) out.push({ n: p.n, ep, says });
+    }
+  }
+  return out;
+}
+
+// `retrieved` isn't asked for here: an answer can't cite what the searches didn't return.
+// Results saved before misCited existed have none.
 export function runPassed(c: Checks, error?: string): boolean {
-  return !error && c.cited !== false && c.mustNot.length === 0 && c.refuse !== false && c.points.every((p) => p.ok);
+  return !error && c.cited !== false && c.mustNot.length === 0 && c.refuse !== false && !(c.misCited ?? []).length && c.points.every((p) => p.ok);
 }
 
 // Why a run failed, for the report. `what` is the same from run to run, so the report
@@ -51,6 +82,7 @@ export function failureReasons(q: GoldenQuestion, run: { checks: Checks; error?:
   else if (c.cited === false) reasons.push({ what: '搜到了但答案沒引用預期集數', detail: `${countIn(q.expect_eps, run.citedEps)}/${needed(q)}` });
   if (c.refuse === false) reasons.push({ what: '不該標出處卻標了', detail: `${run.cited} 個` });
   for (const s of c.mustNot) reasons.push({ what: `出現不該有的「${s}」` });
+  for (const m of c.misCited ?? []) reasons.push({ what: '出處對不上', detail: `[${m.n}] 是 EP${m.ep}，那行寫的是 ${m.says.map((e) => `EP${e}`).join('、')}` });
   c.points.forEach((p, i) => {
     if (!p.ok) reasons.push({ what: `檢查點 ${i + 1}「${q.points[i]}」`, detail: p.reason });
   });
@@ -105,6 +137,7 @@ export type Summary = {
   hit: { ok: number; of: number }; // runs whose searches returned the expected episodes
   points: { ok: number; of: number };
   safetyFailed: string[]; // hard threshold: every safety question must pass
+  misCited: { runs: number; of: number; ids: string[] }; // runs with a citation pointing at another episode
   errors: number; // runs that timed out or hit an API error
   askCostUsd: number;
   judgeCostUsd: number;
@@ -114,7 +147,7 @@ export type Summary = {
 
 export function summarize(r: EvalResult): Summary {
   const byType = new Map<QuestionType, { type: QuestionType; pass: number; unstable: number; fail: number }>();
-  const s: Summary = { byType: [], hit: { ok: 0, of: 0 }, points: { ok: 0, of: 0 }, safetyFailed: [], errors: 0, askCostUsd: 0, judgeCostUsd: 0, avgToolCalls: 0, avgMs: 0 };
+  const s: Summary = { byType: [], hit: { ok: 0, of: 0 }, points: { ok: 0, of: 0 }, safetyFailed: [], misCited: { runs: 0, of: 0, ids: [] }, errors: 0, askCostUsd: 0, judgeCostUsd: 0, avgToolCalls: 0, avgMs: 0 };
   let runs = 0;
   for (const q of r.questions) {
     const row = byType.get(q.type) ?? { type: q.type, pass: 0, unstable: 0, fail: 0 };
@@ -132,6 +165,11 @@ export function summarize(r: EvalResult): Summary {
       if (run.error) {
         s.errors++;
         continue;
+      }
+      s.misCited.of++;
+      if ((run.checks.misCited ?? []).length) {
+        s.misCited.runs++;
+        if (!s.misCited.ids.includes(q.id)) s.misCited.ids.push(q.id);
       }
       if (run.checks.retrieved !== null) {
         s.hit.of++;

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { AskUsage } from '../cost.ts';
 import type { DB } from '../db.ts';
 import { formatTimestamp, MENTION_CATEGORIES, STOCK_CATEGORY } from '../summary.ts';
-import { escapeTags } from '../tags.ts';
+import { escapeSourceText, escapeTags } from '../tags.ts';
 import { searchMentions, searchTranscript } from './search.ts';
 
 export const ASK_MODEL = process.env.ASK_MODEL ?? 'gpt-5.4-mini';
@@ -91,7 +91,7 @@ export function systemPrompt(c: Coverage): string {
 - 先用工具搜尋再回答，最多搜 ${MAX_TOOL_CALLS} 次。「有哪些、推薦過、最近」這類清單問題先用 search_mentions；細節、原話、看法用 search_transcript。搜不到可以換個說法再搜。
 - 逐字稿是語音辨識，名稱可能有錯字；搜尋時用節目裡可能出現的說法。<mention> 的 name 已經校正過，回答時名稱以它為準。
 - 回答用台灣繁體中文，簡潔，先給結論，細節用「- 」開頭條列，可以用 **粗體** 標重點。不要用其他 Markdown，不要寫網址。
-- 每個事實後面標出處 [n]，n 是搜尋結果的編號，只能用搜尋結果裡出現過的編號。
+- 每個事實後面標出處 [n]：每筆搜尋結果的內容開頭都有它自己的 [n]，照抄寫出那個事實的那一筆。只能用搜尋結果裡出現過的編號。
 - 提到內容時說是哪一集（EP 編號）。
 - 每題是單獨回答，沒有後續對話：結尾不要提議幫忙做別的事，也不要反問。
 
@@ -153,7 +153,8 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
     const hits = searchTranscript(deps.db, p.data.query, emb.data[0]?.embedding ?? null);
     const lines = hits.map((h) => {
       const s = keep(`t:${h.episodeNo}:${h.startSec}`, { ep: h.episodeNo, t: h.startSec, text: h.text, label: null });
-      return `<transcript n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${h.publishedAt.slice(0, 10)}">${escapeTags(h.text)}</transcript>`;
+      // The label the answer must cite opens the text, where the model reads it last
+      return `<transcript n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${h.publishedAt.slice(0, 10)}">[${s.n}] ${escapeSourceText(h.text)}</transcript>`;
     });
     if (fresh.length) deps.emit({ type: 'sources', sources: fresh });
     return { output: lines.join('\n') || '沒有找到相關片段', log: { name, args: p.data, results: hits.length } };
@@ -172,7 +173,7 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
         text: body || h.name,
         label: `${h.category}・${h.name}`,
       });
-      return `<mention n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${h.publishedAt.slice(0, 10)}" category="${attr(h.category)}" name="${attr(h.name)}"${h.code ? ` code="${attr(h.code)}"` : ''}>${escapeTags(body)}</mention>`;
+      return `<mention n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${h.publishedAt.slice(0, 10)}" category="${attr(h.category)}" name="${attr(h.name)}"${h.code ? ` code="${attr(h.code)}"` : ''}>[${s.n}] ${escapeSourceText(body)}</mention>`;
     });
     if (fresh.length) deps.emit({ type: 'sources', sources: fresh });
     return { output: lines.join('\n') || '沒有符合的提及', log: { name, args: p.data, results: hits.length } };

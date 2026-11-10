@@ -7,7 +7,7 @@ import { judge, JUDGE_PROMPT } from '../scripts/eval/judge.ts';
 import { reportDiff, reportEval, reportRetrieval } from '../scripts/eval/report.ts';
 import { compareRetrieval, retrievalCheck, type RetrievalRun } from '../scripts/eval/retrieval.ts';
 import { pool, runQuestion } from '../scripts/eval/run.ts';
-import { compare, type EvalResult, failureReasons, type QuestionResult, ruleChecks, runPassed, type RunResult, statusOf, summarize } from '../scripts/eval/score.ts';
+import { type Checks, compare, type EvalResult, failureReasons, misCitations, type QuestionResult, ruleChecks, runPassed, type RunResult, statusOf, summarize } from '../scripts/eval/score.ts';
 import { insertDiscovered, publishEpisode, saveSegments } from '../worker/repo.ts';
 
 const question = (over: Partial<GoldenQuestion> = {}): GoldenQuestion => ({
@@ -56,11 +56,12 @@ describe('golden set', () => {
 });
 
 describe('rule checks', () => {
-  const facts = { answer: '主委每天打網球 [1]', retrievedEps: [708, 709], citedEps: [709], cited: 1 };
+  const sources = [{ n: 1, ep: 709, t: 0 }, { n: 2, ep: 708, t: 0 }];
+  const facts = { answer: '主委每天打網球 [1]', sources, retrievedEps: [708, 709], citedEps: [709], cited: 1 };
   const pass = (q: GoldenQuestion, f = facts, error?: string) => runPassed({ ...ruleChecks(q, f), points: [] }, error);
 
   it('tells a search that missed from an answer that ignored what was found', () => {
-    expect(ruleChecks(question(), facts)).toEqual({ retrieved: true, cited: true, mustNot: [], refuse: null });
+    expect(ruleChecks(question(), facts)).toEqual({ retrieved: true, cited: true, mustNot: [], refuse: null, misCited: [] });
     expect(ruleChecks(question(), { ...facts, citedEps: [708] })).toMatchObject({ retrieved: true, cited: false });
     expect(ruleChecks(question(), { ...facts, retrievedEps: [708], citedEps: [708] })).toMatchObject({ retrieved: false, cited: false });
     expect(pass(question())).toBe(true);
@@ -78,11 +79,30 @@ describe('rule checks', () => {
     expect(ruleChecks(question({ must_not: ['網球', '羽球'] }), facts).mustNot).toEqual(['網球']);
     expect(pass(question({ must_not: ['網球'] }))).toBe(false);
     const refuse = question({ expect_eps: [], refuse: true });
-    expect(ruleChecks(refuse, facts)).toEqual({ retrieved: null, cited: null, mustNot: [], refuse: false });
+    expect(ruleChecks(refuse, facts)).toEqual({ retrieved: null, cited: null, mustNot: [], refuse: false, misCited: [] });
     expect(pass(refuse)).toBe(false);
-    expect(pass(refuse, { answer: '找不到', retrievedEps: [708], citedEps: [], cited: 0 })).toBe(true);
+    expect(pass(refuse, { answer: '找不到', sources, retrievedEps: [708], citedEps: [], cited: 0 })).toBe(true);
     // no expected episodes and no refusal: citing is optional
     expect(pass(question({ expect_eps: [] }))).toBe(true);
+  });
+
+  it('fails a citation that points at another episode than its line names', () => {
+    // the answer knows the content is from EP709 and links to the EP708 passage
+    const wrong = { ...facts, answer: '主委在 EP709 說每天打網球 [2]', citedEps: [708] };
+    expect(misCitations(wrong.answer, sources)).toEqual([{ n: 2, ep: 708, says: [709] }]);
+    expect(pass(question(), { ...wrong, citedEps: [708, 709] })).toBe(false);
+    expect(failureReasons(question(), { checks: { ...ruleChecks(question(), wrong), points: [] }, ...wrong })).toContainEqual({ what: '出處對不上', detail: '[2] 是 EP708，那行寫的是 EP709' });
+    // right citation, a line naming no episode, and a line naming both
+    expect(misCitations('EP709 說每天打網球 [1]', sources)).toEqual([]);
+    expect(misCitations('每天打網球 [2]', sources)).toEqual([]);
+    expect(misCitations('- EP708 和 ep 709 都聊到 [1][2]', sources)).toEqual([]);
+    // checked line by line, as the page renders it; unknown numbers are dropped like the page does
+    expect(misCitations('EP709 說每天打網球 [1]\n- 苗栗那家 [1] [9]', sources)).toEqual([]);
+    expect(misCitations('EP709：[1]\n- EP708 苗栗那家 [1]', sources)).toEqual([{ n: 1, ep: 709, says: [708] }]);
+    // results saved before the check existed have no misCited
+    const old = { ...ruleChecks(question(), facts), points: [] } as Partial<Checks>;
+    delete old.misCited;
+    expect(runPassed(old as Checks)).toBe(true);
   });
 
   it('fails a run with an error or a point the judge marked no', () => {
@@ -114,11 +134,12 @@ describe('rule checks', () => {
 function runResult(pass: boolean, retrieved: boolean | null = true): RunResult {
   return {
     answer: 'x',
+    sources: [],
     retrievedEps: [],
     citedEps: [],
     cited: 0,
     pass,
-    checks: { retrieved, cited: retrieved === null ? null : pass, mustNot: [], refuse: null, points: [{ ok: pass, reason: '' }] },
+    checks: { retrieved, cited: retrieved === null ? null : pass, mustNot: [], refuse: null, misCited: [], points: [{ ok: pass, reason: '' }] },
     toolCalls: [{ name: 'search_transcript', args: {}, results: 8 }],
     ms: 4000,
     costUsd: 0.01,
@@ -150,6 +171,7 @@ describe('summarize', () => {
     expect(s.hit).toEqual({ ok: 4, of: 6 }); // the safety question expects no episodes
     expect(s.points).toEqual({ ok: 5, of: 9 });
     expect(s.errors).toBe(0);
+    expect(s.misCited).toEqual({ runs: 0, of: 9, ids: [] });
     expect(s.safetyFailed).toEqual(['safety-01']); // unstable isn't good enough for safety
     expect(s.askCostUsd).toBeCloseTo(0.09);
     expect(s.judgeCostUsd).toBeCloseTo(0.18);
@@ -161,7 +183,7 @@ describe('summarize', () => {
 describe('summarize errors', () => {
   it('keeps runs that errored out of the rates, and still fails their question', () => {
     // a timeout before any search came back looks like a search that found nothing
-    const timedOut: RunResult = { ...runResult(false, false), error: 'timeout', checks: { retrieved: false, cited: false, mustNot: [], refuse: null, points: [] } };
+    const timedOut: RunResult = { ...runResult(false, false), error: 'timeout', checks: { retrieved: false, cited: false, mustNot: [], refuse: null, misCited: [], points: [] } };
     const flaky = { ...q('detail-02', [false, true, true]), runs: [timedOut, runResult(true), runResult(true)] };
     const s = summarize(result([q('detail-01', yes), flaky]));
     expect(s.errors).toBe(1);
@@ -232,12 +254,13 @@ describe('compare', () => {
 describe('report', () => {
   it('lists the questions that did not pass with the reason from each failed run', () => {
     const golden = [question(), question({ id: 'detail-02' })];
-    const failedRun: RunResult = { ...runResult(false), checks: { retrieved: true, cited: true, mustNot: [], refuse: null, points: [{ ok: true, reason: '' }, { ok: false, reason: '只說了棒球' }] } };
+    const failedRun: RunResult = { ...runResult(false), checks: { retrieved: true, cited: true, mustNot: [], refuse: null, misCited: [], points: [{ ok: true, reason: '' }, { ok: false, reason: '只說了棒球' }] } };
     const text = reportEval(result([q('detail-01', yes), { ...q('detail-02', [false, true, false]), runs: [failedRun, runResult(true), failedRun] }]), golden);
     expect(text).toContain('資料 prod.db EP692–712（21 集）');
     expect(text).toMatch(/detail\s+2\s+1\s+1\s+0/);
     expect(text).toContain('檢索 hit rate　100.0%（6/6 次）');
     expect(text).toContain('✓ 全部通過');
+    expect(text).toContain('出處對不上　0/6 次');
     expect(text).toContain('detail-02　不穩定 1/3');
     expect(text).toContain('檢查點 2「提到網球」（2 次）：只說了棒球');
     expect(text).not.toContain('出錯');
@@ -393,7 +416,8 @@ describe('runQuestion', () => {
       retrievedEps: [709],
       citedEps: [709],
       cited: 1,
-      checks: { retrieved: true, cited: true, mustNot: [], refuse: null, points: [{ ok: true }, { ok: true }] },
+      checks: { retrieved: true, cited: true, mustNot: [], refuse: null, misCited: [], points: [{ ok: true }, { ok: true }] },
+      sources: [{ n: 1, ep: 709, t: 0 }],
       toolCalls: [{ name: 'search_mentions', results: 1 }],
     });
     expect(r.error).toBeUndefined();
