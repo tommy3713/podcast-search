@@ -7,7 +7,7 @@ import { askCost } from '../../src/lib/cost.ts';
 import type { DB } from '../../src/lib/db.ts';
 import type { GoldenQuestion } from './golden.ts';
 import { judge } from './judge.ts';
-import { type Checks, type PointVerdict, type RunResult, ruleChecks, runPassed } from './score.ts';
+import { type Checks, type PointVerdict, type RunResult, ruleChecks, runPassed, type SourceRef } from './score.ts';
 
 const JUDGE_TIMEOUT_MS = 60_000;
 
@@ -18,7 +18,7 @@ export type RunDeps = { db: DB; client: OpenAI; coverage: Coverage; timeoutMs?: 
 export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<RunResult> {
   const trace = newTrace();
   const recorder = new AnswerRecorder();
-  const epOf = new Map<number, number>(); // source number → episode
+  const refs = new Map<number, SourceRef>();
   const started = Date.now();
   const signal = AbortSignal.timeout(deps.timeoutMs ?? ASK_TIMEOUT_MS);
   let error: string | undefined;
@@ -31,7 +31,7 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
       signal,
       emit: (e) => {
         recorder.see(e);
-        if (e.type === 'sources') for (const s of e.sources) epOf.set(s.n, s.ep);
+        if (e.type === 'sources') for (const s of e.sources) refs.set(s.n, { n: s.n, ep: s.ep });
       },
     });
   } catch (e) {
@@ -43,8 +43,9 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
   const citedNs = recorder.citedNumbers();
   const facts = {
     answer: recorder.text,
-    retrievedEps: uniqueSorted([...epOf.values()]),
-    citedEps: uniqueSorted(citedNs.map((n) => epOf.get(n)!)),
+    sources: [...refs.values()],
+    retrievedEps: uniqueSorted([...refs.values()].map((s) => s.ep)),
+    citedEps: uniqueSorted(citedNs.map((n) => refs.get(n)!.ep)),
     cited: citedNs.length,
   };
 
