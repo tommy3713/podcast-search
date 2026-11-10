@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { taipeiDayStart } from '@/lib/ask/quota.ts';
 import { type DB, defaultDbPath, openDb } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { isProduction } from '@/lib/env.ts';
@@ -103,7 +104,7 @@ async function weeklyDigest(db: DB, now: Date): Promise<void> {
 // At the last poll of a release day, say so if nothing published today went live
 async function reportReleaseDay(db: DB, now: Date): Promise<void> {
   const { date } = taipeiTime(now);
-  const dayStartUtc = new Date(`${date}T00:00:00+08:00`).toISOString();
+  const dayStartUtc = taipeiDayStart(date).toISOString();
   const rows = db
     .prepare('SELECT episode_no, status FROM episodes WHERE published_at >= ? ORDER BY episode_no')
     .all(dayStartUtc) as { episode_no: number; status: string }[];

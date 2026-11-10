@@ -6,7 +6,7 @@ import type { DB } from '../db.ts';
 import { formatTimestamp, MENTION_CATEGORIES, STOCK_CATEGORY } from '../summary.ts';
 import { escapeSourceText, escapeTags } from '../tags.ts';
 import { taipeiDate } from './quota.ts';
-import { searchMentions, searchTranscript } from './search.ts';
+import { describeMentionSearch, MENTION_LIMIT, searchMentions, searchTranscript } from './search.ts';
 
 export const ASK_MODEL = process.env.ASK_MODEL ?? 'gpt-5.4-mini';
 export const MAX_QUESTION_CHARS = 300;
@@ -36,11 +36,26 @@ export type AskTrace = AskUsage & { toolCalls: ToolCallLog[] };
 export const newTrace = (): AskTrace => ({ toolCalls: [], inputTokens: 0, cachedTokens: 0, outputTokens: 0, embeddingTokens: 0 });
 
 const TranscriptArgs = z.object({ query: z.string().trim().min(1).max(50) });
-const MentionArgs = z.object({
-  category: z.enum(CATEGORIES).nullable(),
-  keyword: z.string().trim().min(1).max(50).nullable(),
-  since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
-});
+// A real calendar day: 2026-02-30 matches the pattern but isn't one
+const Day = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((d) => {
+    const t = Date.parse(`${d}T00:00:00Z`);
+    return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === d;
+  }, '不是有效的日期')
+  .nullable();
+// The strict schema makes the model send every field; the defaults are for callers that don't
+const MentionArgs = z
+  .object({
+    category: z.enum(CATEGORIES).nullable(),
+    keyword: z.string().trim().min(1).max(50).nullable(),
+    episode: z.number().int().positive().nullable().default(null),
+    since: Day.default(null),
+    until: Day.default(null),
+  })
+  // An empty range would come back as 沒有符合的提及, which reads as "never mentioned"
+  .refine((a) => !a.since || !a.until || a.since <= a.until, 'since 要早於或等於 until');
 
 const TOOLS: OpenAI.Responses.Tool[] = [
   {
@@ -58,16 +73,18 @@ const TOOLS: OpenAI.Responses.Tool[] = [
   {
     type: 'function',
     name: 'search_mentions',
-    description: '查每集整理出的提及清單：提到的股票、餐廳美食、運動、旅遊、書影音、遊戲、產品等。適合「有哪些」「推薦過」「最近」這類問題。',
+    description: `查每集整理出的提及清單：提到的股票、餐廳美食、運動、旅遊、書影音、遊戲、產品等。適合「有哪些」「推薦過」「最近」這類問題。一次最多回傳 ${MENTION_LIMIT} 筆，新的集數在前，所以問某一集或某段時間時要用 episode、since、until 縮小範圍。`,
     strict: true,
     parameters: {
       type: 'object',
       properties: {
         category: { type: ['string', 'null'], enum: [...CATEGORIES, null], description: '類別，不限就 null' },
         keyword: { type: ['string', 'null'], description: '名稱關鍵字，不限就 null' },
-        since: { type: ['string', 'null'], description: '只查這天（YYYY-MM-DD）之後的集數，不限就 null' },
+        episode: { type: ['integer', 'null'], description: '只查這一集（EP 編號），不限就 null' },
+        since: { type: ['string', 'null'], description: '只查這天（YYYY-MM-DD，含）之後的集數，不限就 null' },
+        until: { type: ['string', 'null'], description: '只查這天（YYYY-MM-DD，含）之前的集數，不限就 null' },
       },
-      required: ['category', 'keyword', 'since'],
+      required: ['category', 'keyword', 'episode', 'since', 'until'],
       additionalProperties: false,
     },
   },
@@ -89,7 +106,7 @@ export function systemPrompt(c: Coverage): string {
 目前收錄 EP${c.oldest}–EP${c.newest}，共 ${c.count} 集，中間可能有缺集。今天是 ${c.today}。
 
 做法：
-- 先用工具搜尋再回答，最多搜 ${MAX_TOOL_CALLS} 次。「有哪些、推薦過、最近」這類清單問題先用 search_mentions；細節、原話、看法用 search_transcript。搜不到可以換個說法再搜。
+- 先用工具搜尋再回答，最多搜 ${MAX_TOOL_CALLS} 次。「有哪些、推薦過、最近」這類清單問題先用 search_mentions；細節、原話、看法用 search_transcript。問某一集或某段時間的清單，用 search_mentions 的 episode、since、until 縮小範圍。搜不到可以換個說法再搜。
 - 逐字稿是語音辨識，名稱可能有錯字；搜尋時用節目裡可能出現的說法。<mention> 的 name 已經校正過，回答時名稱以它為準。
 - 回答用台灣繁體中文，簡潔，先給結論（問多空、能不能買的除外，見最後一條），細節用「- 」開頭條列，可以用 **粗體** 標重點。不要用其他 Markdown。
 - 每個事實後面標出處 [n]：每筆搜尋結果的內容開頭都有它自己的 [n] 和它是哪一集，照抄寫出那個事實的那一筆。只能用搜尋結果裡出現過的編號。
@@ -173,7 +190,7 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
   if (name === 'search_mentions') {
     const p = MentionArgs.safeParse(args);
     if (!p.success) return { output: `參數錯誤：${p.error.issues[0]?.message}`, log: { name, args, results: 0 } };
-    deps.emit({ type: 'status', text: `查提及清單：${[p.data.category, p.data.keyword].filter(Boolean).join('・') || '全部'}` });
+    deps.emit({ type: 'status', text: `查提及清單：${describeMentionSearch(p.data)}` });
     const hits = searchMentions(deps.db, p.data);
     const lines = hits.map((h) => {
       const body = [h.detail, h.quote].filter(Boolean).join('／');
@@ -186,7 +203,9 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
       return `<mention n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${taipeiDay(h.publishedAt)}" category="${attr(h.category)}" name="${attr(h.name)}"${h.code ? ` code="${attr(h.code)}"` : ''}>${head(s.n, h.episodeNo, h.publishedAt)}${escapeSourceText(body)}</mention>`;
     });
     if (fresh.length) deps.emit({ type: 'sources', sources: fresh });
-    return { output: lines.join('\n') || '沒有符合的提及', log: { name, args: p.data, results: hits.length } };
+    // A full page looks the same as a complete list unless the model is told
+    const cut = hits.length === MENTION_LIMIT ? `\n（已達 ${MENTION_LIMIT} 筆上限：符合條件但較舊的集數沒有列出，要找就用 episode 或更窄的 since、until 再查）` : '';
+    return { output: (lines.join('\n') || '沒有符合的提及') + cut, log: { name, args: p.data, results: hits.length } };
   }
 
   return { output: `沒有這個工具：${name}`, log: { name, args, results: 0 } };

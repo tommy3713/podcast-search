@@ -12,6 +12,12 @@ export function taipeiDate(now = new Date()): string {
   return new Date(now.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
 }
 
+// When a Taipei day (YYYY-MM-DD) starts, plusDays later. Format it for the column it is
+// compared with: toDbTime for created_at, toISOString for published_at (which keeps ms).
+export function taipeiDayStart(day: string, plusDays = 0): Date {
+  return new Date(Date.parse(`${day}T00:00:00+08:00`) + plusDays * 86_400_000);
+}
+
 export function remaining(db: DB, userId: string, now = new Date()): number {
   const row = db.prepare('SELECT count FROM ask_usage WHERE user_id = ? AND date = ?').get(userId, taipeiDate(now)) as
     | { count: number }
@@ -89,7 +95,7 @@ export function logAsk(db: DB, e: AskLogEntry): void {
 // A user over the limit may keep retrying; only the first rejection of their day is kept,
 // so the log stays bounded and `quota` counts people turned away, not retries
 export function logQuotaRejection(db: DB, userId: string, question: string, now = new Date()): void {
-  const dayStart = toDbTime(new Date(`${taipeiDate(now)}T00:00:00+08:00`));
+  const dayStart = toDbTime(taipeiDayStart(taipeiDate(now)));
   try {
     const seen = db.prepare(`SELECT 1 FROM ask_log WHERE created_at >= ? AND user_id = ? AND outcome = 'quota'`).get(dayStart, userId);
     if (!seen) logAsk(db, { userId, question, outcome: 'quota' });
