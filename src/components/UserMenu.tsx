@@ -3,21 +3,30 @@
 import { signIn, signOut } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 
-export function LoginButton({ callbackUrl }: { callbackUrl?: string }) {
+// compact: the header's button, which reads just "登入" on phones (CSS hides .login-long
+// there) while its accessible name stays the full one
+export function LoginButton({ callbackUrl, compact = false }: { callbackUrl?: string; compact?: boolean }) {
   const pathname = usePathname();
   return (
-    // The header hides "用 Google " on phones (.login-long); the label keeps the full name
-    <button className="btn primary" aria-label="用 Google 登入" onClick={() => signIn('google', { callbackUrl: callbackUrl ?? pathname })}>
+    <button
+      className="btn primary"
+      aria-label={compact ? '用 Google 登入' : undefined}
+      onClick={() => signIn('google', { callbackUrl: callbackUrl ?? pathname })}
+    >
       <span className="gmark" aria-hidden="true">G</span>
-      <span>
-        <span className="login-long">用 Google </span>登入
-      </span>
+      {compact ? (
+        <span>
+          <span className="login-long">用 Google </span>登入
+        </span>
+      ) : (
+        '用 Google 登入'
+      )}
     </button>
   );
 }
 
 export function UserMenu({ name }: { name: string | null }) {
-  if (name === null) return <div className="user"><LoginButton /></div>;
+  if (name === null) return <div className="user"><LoginButton compact /></div>;
   const initial = [...name.trim()][0]?.toUpperCase() ?? '?';
   return (
     <div className="user">

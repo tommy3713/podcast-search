@@ -46,10 +46,15 @@ a { color: var(--accent); }
 /* header */
 header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
 header.top .wrap { height: 56px; display: flex; align-items: center; gap: 24px; }
-/* Brand, DEV pill and the user area keep their size; on a narrow screen the gaps shrink and the
-   login button shortens instead of anything wrapping to two lines */
-.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 18px; letter-spacing: .02em; flex: none; white-space: nowrap; }
-header.top .pill { flex: none; }
+/* Nothing in the header wraps to a second line or gets squeezed. The display name is capped at
+   10em with an ellipsis (phones hide it), and on phones the gap shrinks and the login button reads
+   just "登入". The brand text is the only thing that can shrink, to an ellipsis, so on a very
+   narrow screen or with large text the header still never scrolls sideways */
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 18px; letter-spacing: .02em; min-width: 0; }
+.brand-name, .user .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user .name { max-width: 10em; }
+header.top .btn, nav.desk a { white-space: nowrap; }
+nav.desk, .user, .avatar { flex: none; }
 .brand-mark { width: 28px; height: 28px; flex: none; display: block; }
 .brand-mark .bm-bg { fill: var(--fg); }
 .brand-mark .bm-fg { stroke: var(--surface); }
@@ -57,9 +62,9 @@ header.top .pill { flex: none; }
 nav.desk { display: flex; gap: 4px; }
 nav.desk a { text-decoration: none; color: var(--muted); padding: 6px 12px; border-radius: 8px; font-weight: 500; }
 nav.desk a[aria-current="page"] { color: var(--fg); background: var(--bg); }
-.user { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 14px; flex: none; }
+.user { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
-.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 14px; font-weight: 500; text-decoration: none; color: var(--fg); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 14px; font-weight: 500; text-decoration: none; color: var(--fg); display: inline-flex; align-items: center; gap: 8px; }
 .btn.primary { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 22%, transparent); }
 .btn.primary:hover { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
