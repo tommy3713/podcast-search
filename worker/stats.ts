@@ -1,5 +1,26 @@
+import { ASK_LOG_DAYS } from '@/lib/ask/quota.ts';
 import { type DB, toDbTime } from '@/lib/db.ts';
 import type { TaipeiTime } from './schedule.ts';
+
+export function purgeAskLog(db: DB): number {
+  const r = db.prepare(`DELETE FROM ask_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)`).run(`-${ASK_LOG_DAYS} days`);
+  db.prepare(`DELETE FROM ask_usage WHERE date < date('now', '-7 days')`).run();
+  return r.changes;
+}
+
+// /about and /ask promise questions and answers are gone after ASK_LOG_DAYS, text included,
+// and a DELETE doesn't do that: the text stays readable in free pages, and pages that were
+// split or rebalanced while rows were inserted keep stale copies of them in unused space
+// (secure_delete only zeroes deleted cells, so it doesn't cover those). VACUUM rebuilds the
+// file from the live rows only. The checkpoint then empties app.db-wal, which otherwise keeps
+// the VACUUM's rewrite (and older pages) at its tail. Nightly after the purge, at 03:00: a
+// few seconds at most for this database. Returns false when a reader in the middle of a
+// transaction blocked the truncate; the next night tries again.
+export function compactDb(db: DB): boolean {
+  db.exec('VACUUM');
+  const [r] = db.pragma('wal_checkpoint(TRUNCATE)') as { busy: number }[];
+  return r?.busy === 0;
+}
 
 // ask_log.created_at is UTC; days are counted in Taipei time. Only used to label rows:
 // filters compare created_at with UTC bounds, so the ask_log_created index applies.

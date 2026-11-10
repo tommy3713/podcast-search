@@ -21,12 +21,11 @@ export async function backupToR2(db: DB, now = new Date()): Promise<string | nul
     return null;
   }
   fs.mkdirSync(WORK_DIR, { recursive: true });
-  const raw = path.join(WORK_DIR, 'backup-raw.db');
   const file = path.join(WORK_DIR, 'backup.db');
   try {
     // Online backup: consistent even while web is writing ask_usage
-    await db.backup(raw);
-    stripAskLog(raw, file);
+    await db.backup(file);
+    stripAskLog(file);
     verifyBackup(file);
     const body = await promisify(gzip)(fs.readFileSync(file));
     const key = `backups/app-${now.toISOString().slice(0, 10)}.db.gz`;
@@ -40,25 +39,24 @@ export async function backupToR2(db: DB, now = new Date()): Promise<string | nul
     console.log(`backup: uploaded ${key} (${(body.length / 1e6).toFixed(1)} MB)`);
     return key;
   } finally {
-    // The raw copy still holds every question, so it must not outlive the run, killed or not;
-    // opening either file can leave any of these sidecars behind
-    for (const base of [raw, file]) for (const f of [base, `${base}-wal`, `${base}-shm`, `${base}-journal`]) fs.rmSync(f, { force: true });
+    // Until stripAskLog finishes the copy holds every question, so it must not outlive the
+    // run, killed or not; opening it can leave any of these sidecars behind
+    for (const f of [file, `${file}-wal`, `${file}-shm`, `${file}-journal`]) fs.rmSync(f, { force: true });
   }
 }
 
 // /about and /ask promise questions and answers are gone after ASK_LOG_DAYS, but R2 keeps
 // each backup another 30 days, so backups carry no ask_log rows at all (a restore starts
-// with an empty log; ask_daily keeps the totals). VACUUM INTO writes a fresh file with only
-// the live rows, so none of the deleted text survives in free pages. The raw copy is thrown
-// away afterwards, so it runs without a journal: nothing to roll back to, and no -journal
-// file holding the deleted rows.
-export function stripAskLog(raw: string, dest: string): void {
-  fs.rmSync(dest, { force: true });
-  const db = openDb(raw, { migrate: false });
+// with an empty log; ask_daily keeps the totals). The DELETE alone would leave the text in
+// the file (see compactDb in stats.ts); VACUUM rebuilds it from the remaining rows. The copy
+// is thrown away on failure, so it runs without a journal: nothing to roll back to, and no
+// -journal file holding the deleted rows.
+export function stripAskLog(file: string): void {
+  const db = openDb(file, { migrate: false });
   try {
     db.pragma('journal_mode = OFF');
     db.exec('DELETE FROM ask_log');
-    db.prepare('VACUUM INTO ?').run(dest);
+    db.exec('VACUUM');
   } finally {
     db.close();
   }

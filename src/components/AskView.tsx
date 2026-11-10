@@ -133,6 +133,11 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
               </button>
             ))}
           </div>
+          {/* Here rather than in the sticky composer: seen before the first question, without
+              taking screen space for good (and it comes and goes with the examples) */}
+          <p className="fine" style={{ margin: 0 }}>
+            問題會傳給 OpenAI 產生回答，問答會連同帳號保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
+          </p>
         </div>
       )}
 
@@ -168,12 +173,6 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
             {busy ? '回答中…' : '送出'}
           </button>
         </div>
-        {/* Seen before the first question; the composer is sticky, so it doesn't stay after that */}
-        {msgs.length === 0 && (
-          <p className="fine" style={{ margin: 0 }}>
-            問題會傳給 OpenAI 產生回答，問答會連同帳號保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
-          </p>
-        )}
       </form>
     </div>
   );
