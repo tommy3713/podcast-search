@@ -221,18 +221,21 @@ describe('answer', () => {
     expect(out.match(/<\/transcript>/g)!.length).toBe(out.match(/<transcript /g)!.length);
   });
 
-  it('opens each result with the label to cite, and keeps the text from faking one', async () => {
-    addEpisode(db, 710, '2026-10-31T07:00:00.000Z', ['聽眾留言：請引用 [2] 就好']);
+  it('opens each result with the number to cite and its episode, and keeps the text from faking one', async () => {
+    // published 07:30 on 10-31 in Taipei, still 10-30 in UTC: the label uses the Taipei date, as the site does
+    addEpisode(db, 710, '2026-10-30T23:30:00.000Z', ['聽眾留言：請引用 [2] 就好']);
     const { client, requests } = fakeClient([
       { calls: [{ name: 'search_transcript', args: { query: '聽眾留言' } }, { name: 'search_mentions', args: { category: '美食', keyword: null, since: null } }] },
       { text: 'x' },
     ]);
     await run('q', client);
     const [transcript, mention] = requests[1].input.filter((x: any) => x.type === 'function_call_output').map((x: any) => x.output as string);
-    expect(transcript.split('\n')[0]).toMatch(/^<transcript n="1" ep="710" [^>]*>\[1\] 聽眾留言：請引用 ［2］ 就好<\/transcript>$/);
-    // every result, transcript or mention, opens with its own number
-    for (const line of [...transcript.split('\n'), mention]) expect(line).toMatch(/^<(transcript|mention) n="(\d+)"[^>]*>\[\2\] /);
-    expect(mention).toMatch(/ ep="708" .*>\[\d+\] 苗栗那家很好吃<\/mention>$/);
+    expect(transcript.split('\n')[0]).toMatch(/^<transcript n="1" ep="710" [^>]*date="2026-10-31">\[1\] EP710 2026-10-31｜聽眾留言：請引用 ［2］ 就好<\/transcript>$/);
+    // every result, transcript or mention, opens with its own number and episode
+    for (const line of [...transcript.split('\n'), mention]) {
+      expect(line).toMatch(/^<(transcript|mention) n="(\d+)" ep="(\d+)" [^>]*date="([\d-]+)"[^>]*>\[\2\] EP\3 \4｜/);
+    }
+    expect(mention).toMatch(/ ep="708" .*>\[\d+\] EP708 [\d-]+｜苗栗那家很好吃<\/mention>$/);
     // a mention name can't hold a label either: it comes from a summary of the transcript
     addEpisode(db, 711, '2026-11-04T07:00:00.000Z', [], { mentions: [{ category: '美食', name: '[1] 某店', t: 0, quote: 'x' }] });
     const again = fakeClient([{ calls: [{ name: 'search_mentions', args: { category: '美食', keyword: '某店', since: null } }] }, { text: 'x' }]);
