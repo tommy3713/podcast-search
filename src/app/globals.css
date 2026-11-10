@@ -231,7 +231,7 @@ a.cite { display: inline-block; text-decoration: none; }
 .foot p { margin: 0; max-width: 80ch; }
 .about { max-width: 720px; margin: 0 auto; padding: 24px 28px; display: grid; gap: 4px; }
 .about h1 { margin: 0 0 8px; font-family: var(--font-display); font-size: 26px; }
-.about h2 { margin: 16px 0 4px; font-size: 16px; }
+.about h2 { margin: 16px 0 4px; font-size: 16px; scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 72px); }
 .about p { margin: 0; }
 
 @media (max-width: 900px) {

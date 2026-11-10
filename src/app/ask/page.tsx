@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { AskView } from '@/components/AskView';
 import { LoginButton } from '@/components/UserMenu';
-import { remaining, USER_DAILY_LIMIT } from '@/lib/ask/quota';
+import { ASK_LOG_DAYS, remaining, USER_DAILY_LIMIT } from '@/lib/ask/quota';
 import { currentUser } from '@/lib/auth';
 import { countEpisodes } from '@/lib/episodes';
 import { readDb } from '@/lib/server-db';
@@ -25,9 +26,13 @@ export default async function AskPage() {
             每次回答都會呼叫 AI 搜尋逐字稿，所以需要登入，每人每天可以問 {USER_DAILY_LIMIT} 次。閱讀集數和逐字稿不需要登入。
           </p>
           <LoginButton callbackUrl="/ask" />
+          <p style={{ margin: 0 }} className="fine">
+            登入只保存 Google 帳號識別碼和顯示名稱，用來計算每日次數；問答紀錄保存 {ASK_LOG_DAYS} 天後自動刪除。
+            <Link href="/about#privacy">隱私說明</Link>
+          </p>
         </div>
       </div>
     );
   }
-  return <AskView episodeCount={count} initialQuota={remaining(await readDb(), user.id)} dailyLimit={USER_DAILY_LIMIT} examples={EXAMPLES} />;
+  return <AskView episodeCount={count} initialQuota={remaining(await readDb(), user.id)} dailyLimit={USER_DAILY_LIMIT} logDays={ASK_LOG_DAYS} examples={EXAMPLES} />;
 }

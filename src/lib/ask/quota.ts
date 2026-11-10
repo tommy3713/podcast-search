@@ -3,6 +3,9 @@ import type { ToolCallLog } from './agent.ts';
 
 export const USER_DAILY_LIMIT = 20;
 export const SITE_DAILY_LIMIT = 500;
+// Nightly deletes ask_log rows older than this (and backups carry none); /about and /ask
+// tell users so, so change all of them together by changing this
+export const ASK_LOG_DAYS = 30;
 
 // Days reset at 00:00 Taipei (UTC+8, no DST)
 export function taipeiDate(now = new Date()): string {

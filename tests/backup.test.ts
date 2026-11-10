@@ -48,7 +48,13 @@ describe('backupToR2', () => {
     expect(req.headers.get('authorization')).toMatch(/^AWS4-HMAC-SHA256 Credential=id\//);
     const restored = gunzipSync(Buffer.from(await req.arrayBuffer()));
     expect(restored.subarray(0, 15).toString()).toBe('SQLite format 3');
-    // The verified copy is WAL-mode; none of its files may outlive the run
-    for (const f of ['backup.db', 'backup.db-wal', 'backup.db-shm']) expect(fs.existsSync(path.join(WORK_DIR, f))).toBe(false);
+    // Questions never reach R2 (stripAskLog), while the live database keeps them
+    fs.writeFileSync(path.join(dir, 'restored.db'), restored);
+    const copy = openDb(path.join(dir, 'restored.db'), { readonly: true });
+    expect(copy.prepare('SELECT COUNT(*) AS n FROM ask_log').get()).toEqual({ n: 0 });
+    copy.close();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM ask_log').get()).toEqual({ n: 1 });
+    // Neither the copy nor any sidecar may outlive the run
+    for (const f of ['backup.db', 'backup.db-wal', 'backup.db-shm', 'backup.db-journal']) expect(fs.existsSync(path.join(WORK_DIR, f))).toBe(false);
   });
 });

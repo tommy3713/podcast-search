@@ -12,7 +12,7 @@ import { diskWarning, ping, queueHealthy } from './monitor.ts';
 import { getEpisode, getState, setState } from './repo.ts';
 import { fetchFeed, parseFeed } from './rss.ts';
 import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } from './schedule.ts';
-import { askStats, digestDue, formatStats, rollupAskDaily, unanswered } from './stats.ts';
+import { askStats, compactDb, digestDue, formatStats, purgeAskLog, rollupAskDaily, unanswered } from './stats.ts';
 
 const USAGE = `usage: worker <command>
   run                 scheduler (poll RSS Wed/Sat 10:00–23:30 Taipei every 30 min, nightly
@@ -28,7 +28,7 @@ const USAGE = `usage: worker <command>
                       re-summarized. --retranscribe redoes everything.
                       --segments-file uses a JSON transcript ([{start,end,text}] or {segments})
                       instead of downloading and transcribing (dev only)
-  nightly             delete ask_log rows older than 30 days, back up app.db to R2, check
+  nightly             delete ask_log rows older than ASK_LOG_DAYS (30), back up app.db to R2, check
                       the live episode count and free disk space
   status              list episodes and their state
   check-db <file>     integrity check and live episode count of a database (restore drills)
@@ -69,12 +69,14 @@ async function nightly(db: DB): Promise<void> {
     rollupAskDaily(db, taipeiTime(new Date()).date);
     return null;
   });
+  let purged = 0;
   check('清理問答紀錄', () => {
-    const r = db.prepare(`DELETE FROM ask_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days')`).run();
-    db.prepare(`DELETE FROM ask_usage WHERE date < date('now', '-7 days')`).run();
-    console.log(`nightly: deleted ${r.changes} ask_log rows`);
+    purged = purgeAskLog(db);
+    console.log(`nightly: deleted ${purged} ask_log rows`);
     return null;
   });
+  // Separate from the purge, so a failed VACUUM isn't reported as a failed purge
+  check('VACUUM', () => compactDb(db, purged));
   let key: string | null = null;
   try {
     key = await backupToR2(db);
