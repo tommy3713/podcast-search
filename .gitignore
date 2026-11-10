@@ -12,5 +12,8 @@ data/
 # Local only: the v1 episode JSON
 /notes/
 
+# Eval results hold answers and cost; the golden set next to them is tracked
+/evals/results/
+
 .claude/settings.local.json
 .claude/worktrees/

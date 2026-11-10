@@ -15,6 +15,10 @@ export type MentionHit = {
 
 const RRF_K = 60;
 const MAX_TERMS = 5;
+// How many matching chunks keyword search reads per term, and how many mentions one search
+// returns. Exported so the eval can report the questions whose terms go over them.
+export const TERM_MATCH_LIMIT = 200;
+export const MENTION_LIMIT = 30;
 
 // Words in the model's query. Trigram FTS needs 3+ characters, so shorter terms such as
 // 苗栗 fall back to LIKE; with a few thousand chunks a scan takes milliseconds.
@@ -23,13 +27,13 @@ export function queryTerms(query: string): string[] {
 }
 
 const ftsPhrase = (term: string) => `"${term.replace(/"/g, '""')}"`;
-const likePattern = (term: string) => `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+export const likePattern = (term: string) => `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
 // Chunk ids ranked by how many query terms they contain, newest episode first on ties
 function keywordRanking(db: DB, terms: string[], limit: number): number[] {
   const matches = new Map<number, number>();
-  const fts = db.prepare('SELECT rowid AS id FROM chunks_fts WHERE chunks_fts MATCH ? LIMIT 200');
-  const like = db.prepare(`SELECT id FROM chunks WHERE text LIKE ? ESCAPE '\\' LIMIT 200`);
+  const fts = db.prepare(`SELECT rowid AS id FROM chunks_fts WHERE chunks_fts MATCH ? LIMIT ${TERM_MATCH_LIMIT}`);
+  const like = db.prepare(`SELECT id FROM chunks WHERE text LIKE ? ESCAPE '\\' LIMIT ${TERM_MATCH_LIMIT}`);
   for (const term of terms) {
     const rows = ([...term].length >= 3 ? fts.all(ftsPhrase(term)) : like.all(likePattern(term))) as { id: number }[];
     for (const r of rows) matches.set(r.id, (matches.get(r.id) ?? 0) + 1);
@@ -78,7 +82,7 @@ export function searchTranscript(db: DB, query: string, embedding: number[] | nu
 export function searchMentions(
   db: DB,
   args: { category: string | null; keyword: string | null; since: string | null },
-  limit = 30,
+  limit = MENTION_LIMIT,
 ): MentionHit[] {
   const kw = args.keyword ? likePattern(args.keyword) : null;
   const rows = db

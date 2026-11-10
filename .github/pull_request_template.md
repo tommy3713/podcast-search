@@ -5,6 +5,7 @@
 - [ ] `npm run check`（typecheck + test + build）
 - [ ] `/code-review`
 - [ ] 手動測過（`npm run dev` / `DB_PATH=data/prod.db npm run dev`）：
+- [ ] 動到 `src/lib/ask/`、prompt 或 `ASK_MODEL`：附上 `npm run eval` 的結果（跟改之前用同一份快照比，見 `evals/README.md`）
 
 ## 部署
 

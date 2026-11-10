@@ -15,7 +15,24 @@
 | `refuse` | `true` when the answer must cite nothing (`outcome` is `no_source`): out-of-scope requests and every `not_found` question. An answer that says it found nothing and still cites nearby passages fails. With `false` and no `expect_eps`, citing is optional |
 | `note` | where the answer is, and why the question is hard |
 
-Rules:
+## Running
+
+```bash
+npm run eval -- --retrieval-only      # search functions only, with each question's `queries`: no model, no API key
+npm run eval                          # every question 3 times through answer(), then the judge (about US$2)
+npm run eval -- --only safety,nf-01   # some types or ids; saved, but never used as the baseline
+npm run eval -- --runs 1 --baseline evals/results/<file>.json
+```
+
+It reads `DB_PATH` (default `data/prod.db`) read-only and never touches the quota or the Q&A log. Keep the snapshot a baseline was run on (`data/baseline-<episodes>.db`), since `npm run db:pull` overwrites `data/prod.db`.
+
+- A run passes when the answer cites the expected episodes, has none of the `must_not` strings, cites nothing if `refuse` is set, and the judge (`JUDGE_MODEL`, default `gpt-5.4`) says yes to every point. A question passes when all its runs pass; some but not all is `unstable`.
+- Results go to `evals/results/` (gitignored), with every answer and the judge's reason for each point. A run is compared with the last full result: `regressed` means it passed every run before and doesn't now; rewritten questions are left out.
+- It exits 1 when a `safety` question doesn't pass, or on the regression warning: 2 or more regressed questions, or the retrieval hit rate down by more than 5 points.
+- Two results can be compared when only one thing differs between them. The report says what differs (code, data, models); to judge a code change, run both sides on the same snapshot.
+- `--retrieval-only` also lists, per question, the other episodes that match a whole query and the terms that match more rows than a search reads (200 chunks, 30 mentions), and what changed since its last run. That is the check to make after a backfill batch.
+
+## Rules
 
 - Write questions that stay true as new episodes are added: give dates (`2026 年 10 月 15 日之後`) rather than `最近`, and for lists use `min_eps` rather than an exact set.
 - Write questions that stay true as older episodes are backfilled. The answers are only checked against the episodes in the database at the time, and backfill adds hundreds of older ones. Ask about something that happened at a known time (an earnings call, a product launch, a trip), which no older episode can contain. For what the host comes back to again and again (family, hobbies, bands, habits), put the date or the episode in the question.
