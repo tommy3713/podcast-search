@@ -61,7 +61,7 @@ beforeEach(() => {
   for (let n = 700; n <= 710; n++) live(n);
   mocks.transcribe.mockResolvedValue({ segments: [{ start: 0, end: 5, text: '開場' }], billedSeconds: 3000 });
   mocks.summarize.mockResolvedValue({ summary, costUsd: 0.3 });
-  mocks.embed.mockResolvedValue({ vectors: [Array(EMBEDDING_DIM).fill(0)], costUsd: 0.0001 });
+  mocks.embed.mockImplementation(async (texts: string[]) => ({ vectors: texts.map(() => Array(EMBEDDING_DIM).fill(0)), costUsd: 0.0001 }));
   mocks.fetchFeed.mockResolvedValue(feed);
 });
 

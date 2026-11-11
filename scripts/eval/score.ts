@@ -130,14 +130,15 @@ export type RunResult = RunFacts & {
 export type QuestionResult = { id: string; type: QuestionType; hash: string; status: Status; runs: RunResult[] };
 
 // Which data a result was run on. `stamp` changes when an episode is published again
-// (new chunk and mention ids), which the episode range alone doesn't show.
+// (new chunk and mention ids) or summary points are added, which the episode range alone
+// doesn't show.
 export type DbInfo = { file: string; count: number; oldest: number; newest: number; stamp: string };
 
 // How two results' data differ, or undefined when it is the same
 export function dataChange(a: DbInfo, b: DbInfo): string | undefined {
   const range = (d: DbInfo) => `EP${d.oldest}–${d.newest}（${d.count} 集）`;
   if (a.count !== b.count || a.oldest !== b.oldest || a.newest !== b.newest) return `資料 ${range(a)} → ${range(b)}`;
-  if (a.stamp !== b.stamp) return `資料 ${range(a)}，集數一樣但內容不同（有集數重新處理過）`;
+  if (a.stamp !== b.stamp) return `資料 ${range(a)}，集數一樣但內容不同（有集數重新處理過，或摘要索引不同）`;
   return undefined;
 }
 

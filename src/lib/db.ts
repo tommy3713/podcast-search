@@ -116,6 +116,22 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE episodes ADD COLUMN source TEXT NOT NULL DEFAULT 'rss'; -- rss | backfill
   `,
+  // The summary's chapters and key points, embedded so search can find a passage by the
+  // written words of its summary rather than the spoken words of the transcript. Only used
+  // to rank transcript chunks; the model never sees these texts.
+  `
+  CREATE TABLE summary_points (
+    id         INTEGER PRIMARY KEY,
+    episode_id INTEGER NOT NULL REFERENCES episodes (id) ON DELETE CASCADE,
+    start_sec  INTEGER NOT NULL,                 -- start of the chapter the point belongs to
+    end_sec    INTEGER,                          -- start of the next chapter; NULL: end of the episode
+    text       TEXT    NOT NULL
+  );
+  CREATE INDEX summary_points_episode ON summary_points (episode_id);
+
+  -- rowid = summary_points.id; like chunks_vec, delete rows here when points are deleted
+  CREATE VIRTUAL TABLE summary_points_vec USING vec0 (embedding float[${EMBEDDING_DIM}]);
+  `,
 ];
 
 export function defaultDbPath(): string {
