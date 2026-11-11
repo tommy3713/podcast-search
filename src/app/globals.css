@@ -207,6 +207,11 @@ mark.cur { background: var(--warn); color: var(--surface); }
 /* ask */
 .ask { max-width: 820px; margin: 0 auto; display: grid; gap: 18px; }
 .ask-head { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; justify-content: space-between; }
+.ask-tools { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.btn.sm { padding: 4px 10px; font-size: 13px; line-height: 20px; }
+.btn.ghost.sm { padding-inline: 8px; }
+.btn.ghost:not(:disabled):hover { color: var(--fg); background: var(--bg); }
+.btn.danger { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 25%, transparent); }
 .ask-head h1 { margin: 0; font-family: var(--font-display); font-size: 28px; }
 .gate { padding: 28px; display: grid; gap: 12px; justify-items: start; }
 .gate h2 { margin: 0; font-family: var(--font-display); font-size: 22px; }

@@ -44,7 +44,21 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
   const [quota, setQuota] = useState(initialQuota);
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState('');
+  const [confirming, setConfirming] = useState(false);
   const loaded = useRef(false);
+
+  // Answers cost quota, so clearing takes a second tap; the first one times out after 3 s
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(false), 3000);
+    return () => clearTimeout(t);
+  }, [confirming]);
+
+  function clear() {
+    if (!confirming) return setConfirming(true);
+    setConfirming(false);
+    setMsgs([]);
+  }
 
   useEffect(() => {
     setMsgs(load());
@@ -120,7 +134,14 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
           <h1>問所有集數</h1>
           <div className="fine">目前收錄 {episodeCount} 集，回答會附上集數和時間點</div>
         </div>
-        <span className={`pill ${out ? 'warn' : 'info'}`}>今天剩 {quota} 次</span>
+        <div className="ask-tools">
+          {msgs.length > 0 && (
+            <button type="button" className={`btn ${confirming ? 'danger' : 'ghost'} sm`} onClick={clear} disabled={busy}>
+              {confirming ? '確定清除？' : '清除對話'}
+            </button>
+          )}
+          <span className={`pill ${out ? 'warn' : 'info'}`}>今天剩 {quota} 次</span>
+        </div>
       </div>
 
       {msgs.length === 0 && (
