@@ -107,6 +107,9 @@ export function readCoverage(db: DB, today: string): Coverage {
   return { ...row, today };
 }
 
+// Server text for the one retry after an empty turn
+const EMPTY_RETRY = '上一輪沒有寫出回答。請直接用目前的搜尋結果回答聽眾的問題，規則照舊；搜尋結果裡沒有就說在收錄的集數裡找不到。';
+
 // Rules only. Coverage and date are server facts; the question never goes in here.
 export function systemPrompt(c: Coverage): string {
   return `你是「股癌搜尋」的問答助理，回答聽眾關於 Podcast《股癌 Gooaye》節目內容的問題。主持人是謝孟恭，聽眾稱他「主委」。
@@ -257,9 +260,11 @@ export async function answer(question: string, deps: Deps): Promise<void> {
   ];
   const sources = new SourceTable();
   const logs = deps.trace.toolCalls;
+  let retriedEmpty = false;
 
   for (;;) {
-    const toolsLeft = MAX_TOOL_CALLS - logs.length;
+    // After an empty turn, the retry may only write
+    const toolsLeft = retriedEmpty ? 0 : MAX_TOOL_CALLS - logs.length;
     const stream = deps.client.responses.stream(
       {
         model: ASK_MODEL,
@@ -286,7 +291,15 @@ export async function answer(question: string, deps: Deps): Promise<void> {
     deps.trace.cachedTokens += res.usage?.input_tokens_details?.cached_tokens ?? 0;
     deps.trace.outputTokens += res.usage?.output_tokens ?? 0;
     const calls = res.output.filter((o) => o.type === 'function_call');
-    if (!calls.length) return;
+    if (!calls.length) {
+      if (streamed) return;
+      // A turn with neither text nor a search would end as an empty answer: ask once more
+      // for the answer, then give up as an error (the route refunds what never streamed)
+      if (retriedEmpty) throw new Error(`empty answer (status ${res.status})`);
+      retriedEmpty = true;
+      input.push(...res.output.map(toInputItem), { role: 'system', content: EMPTY_RETRY });
+      continue;
+    }
 
     // Text written before deciding to search again isn't the answer
     if (streamed) deps.emit({ type: 'reset' });

@@ -328,6 +328,26 @@ describe('answer', () => {
     expect(outputs.at(-1).output).toContain('上限');
   });
 
+  it('asks once more after a turn with neither text nor a search', async () => {
+    const { client, requests } = fakeClient([
+      { calls: [{ name: 'search_mentions', args: { category: '美食', keyword: null, since: null } }] },
+      {},
+      { text: '推薦過**客家菜館** [1]' },
+    ]);
+    const events: AskEvent[] = [];
+    await run('主委推薦的餐廳？', client, (e) => events.push(e));
+    expect(events.at(-1)).toEqual({ type: 'delta', text: '推薦過**客家菜館** [1]' });
+    // the retry may only write, and is told why
+    expect(requests[2].tool_choice).toBe('none');
+    expect(requests[2].input.at(-1)).toMatchObject({ role: 'system', content: expect.stringContaining('上一輪沒有寫出回答') });
+  });
+
+  it('fails rather than end with an empty answer', async () => {
+    const { client, requests } = fakeClient([{}, {}, { text: 'never asked' }]);
+    await expect(run('q', client)).rejects.toThrow('empty answer');
+    expect(requests).toHaveLength(2);
+  });
+
   it('rejects bad tool arguments without running a query', async () => {
     const { client, requests } = fakeClient([
       { calls: [{ name: 'search_mentions', args: { category: 'DROP TABLE', keyword: null, since: null } }, { name: 'rm_rf', args: {} }] },
