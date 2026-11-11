@@ -336,7 +336,9 @@ describe('retrievalCheck', () => {
     expect(r.overLimit).toEqual([{ term: '台積電', chunks: 203, mentions: 1 }]);
     const text = reportRetrieval({ meta: { startedAt: 't', sha: 's', db: { file: 'x.db', count: 3, oldest: 708, newest: 710, stamp: 's' }, partial: false }, questions: [r] }, [question()]);
     expect(text).toContain('「台積電」符合 203 個 chunk、1 筆提及');
-    expect(text).toContain('有預期集數的 1 題裡，1 題用 queries 搜得到');
+    // each read takes the newest episodes' chunks, so EP710's 201 fill the 台積電 read and
+    // EP709's chunk counts only for 德州, behind EP710's: the case the limit warning is for
+    expect(text).toContain('有預期集數的 1 題裡，0 題用 queries 搜得到');
   });
 
   it('shows what changed since the last run', () => {

@@ -58,31 +58,49 @@ export function episodesInScope(db: DB, scope: EpisodeScope): number[] | null {
   return rows.map((r) => r.id);
 }
 
-// ` AND rowid IN (chunks of these episodes)`, or nothing without a scope. It sits inside
+// ` AND <col> IN (chunks of these episodes)`, or nothing without a scope. It sits inside
 // each ranking's query, so the read limits apply within the scope rather than cutting it
-// off. chunks.id is its rowid, so the same filter fits chunks, chunks_fts and chunks_vec.
-function chunkFilter(episodeIds: number[] | null) {
+// off.
+function chunkFilter(episodeIds: number[] | null, col = 'rowid') {
   if (!episodeIds) return { sql: '', params: {} };
   return {
-    sql: ' AND rowid IN (SELECT id FROM chunks WHERE episode_id IN (SELECT value FROM json_each(@episodeIds)))',
+    sql: ` AND ${col} IN (SELECT id FROM chunks WHERE episode_id IN (SELECT value FROM json_each(@episodeIds)))`,
     params: { episodeIds: JSON.stringify(episodeIds) },
   };
 }
 
-// Chunk ids ranked by how many query terms they contain, newest episode first on ties
-function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: number[] | null): number[] {
-  const matches = new Map<number, number>();
-  const f = chunkFilter(episodeIds);
-  const fts = db.prepare(`SELECT rowid AS id FROM chunks_fts WHERE chunks_fts MATCH @q${f.sql} LIMIT ${TERM_MATCH_LIMIT}`);
-  const like = db.prepare(`SELECT id FROM chunks WHERE text LIKE @q ESCAPE '\\'${f.sql} LIMIT ${TERM_MATCH_LIMIT}`);
+// Chunk ids ranked by how many query terms they contain, and the terms that matched more
+// chunks than one read takes. Each read takes the chunks of the newest episodes (chunk ids
+// follow insertion order, and backfill inserts older episodes last), and ties go the same
+// way: newer episode first, then earlier in the episode.
+function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: number[] | null): { ids: number[]; cutTerms: string[] } {
+  const f = chunkFilter(episodeIds, 'c.id');
+  // One row past the limit tells a term that was cut from one that just fills it
+  const newestFirst = `AND e.status = 'done'${f.sql} ORDER BY e.episode_no DESC, c.id LIMIT ${TERM_MATCH_LIMIT + 1}`;
+  const fts = db.prepare(
+    `SELECT c.id, e.episode_no AS ep FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid JOIN episodes e ON e.id = c.episode_id
+     WHERE chunks_fts MATCH @q ${newestFirst}`,
+  );
+  const like = db.prepare(
+    `SELECT c.id, e.episode_no AS ep FROM chunks c JOIN episodes e ON e.id = c.episode_id
+     WHERE c.text LIKE @q ESCAPE '\\' ${newestFirst}`,
+  );
+  const matches = new Map<number, { n: number; ep: number }>();
+  const cutTerms: string[] = [];
   for (const term of terms) {
-    const q = [...term].length >= 3 ? ftsPhrase(term) : likePattern(term);
-    const rows = ([...term].length >= 3 ? fts : like).all({ q, ...f.params }) as { id: number }[];
-    for (const r of rows) matches.set(r.id, (matches.get(r.id) ?? 0) + 1);
+    const short = [...term].length < 3;
+    let rows = (short ? like : fts).all({ q: short ? likePattern(term) : ftsPhrase(term), ...f.params }) as { id: number; ep: number }[];
+    if (rows.length > TERM_MATCH_LIMIT) {
+      cutTerms.push(term);
+      rows = rows.slice(0, TERM_MATCH_LIMIT);
+    }
+    for (const r of rows) matches.set(r.id, { n: (matches.get(r.id)?.n ?? 0) + 1, ep: r.ep });
   }
-  if (!matches.size) return [];
-  // Higher chunk id = later insert ≈ newer episode
-  return [...matches.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0]).slice(0, limit).map(([id]) => id);
+  const ids = [...matches.entries()]
+    .sort(([ia, a], [ib, b]) => b.n - a.n || b.ep - a.ep || ia - ib)
+    .slice(0, limit)
+    .map(([id]) => id);
+  return { ids, cutTerms };
 }
 
 // sqlite-vec (0.1.9) takes a rowid IN filter inside the KNN query itself
@@ -103,14 +121,19 @@ export function fuse(rankings: number[][], limit: number): number[] {
   return [...score.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([id]) => id);
 }
 
-export function searchTranscript(db: DB, query: string, embedding: number[] | null, scope: EpisodeScope = {}, limit = 8): TranscriptHit[] {
+// `cutTerms`: terms with more matching chunks than keyword search reads, so the model can
+// be told the results may miss episodes
+export type TranscriptResult = { hits: TranscriptHit[]; cutTerms: string[] };
+
+export function searchTranscript(db: DB, query: string, embedding: number[] | null, scope: EpisodeScope = {}, limit = 8): TranscriptResult {
   const terms = queryTerms(query);
   const episodeIds = episodesInScope(db, scope);
-  if (episodeIds?.length === 0) return [];
-  const rankings = [keywordRanking(db, terms, 30, episodeIds)];
+  if (episodeIds?.length === 0) return { hits: [], cutTerms: [] };
+  const keyword = keywordRanking(db, terms, 30, episodeIds);
+  const rankings = [keyword.ids];
   if (embedding) rankings.push(vectorRanking(db, embedding, 30, episodeIds));
   const ids = fuse(rankings, limit);
-  if (!ids.length) return [];
+  if (!ids.length) return { hits: [], cutTerms: keyword.cutTerms };
   const rows = db
     .prepare(
       `SELECT c.id, e.episode_no, e.published_at, c.start_sec, c.text
@@ -119,10 +142,11 @@ export function searchTranscript(db: DB, query: string, embedding: number[] | nu
     )
     .all(...ids) as { id: number; episode_no: number; published_at: string; start_sec: number; text: string }[];
   const byId = new Map(rows.map((r) => [r.id, r]));
-  return ids
+  const hits = ids
     .map((id) => byId.get(id))
     .filter((r) => r !== undefined)
     .map((r) => ({ episodeNo: r.episode_no, publishedAt: r.published_at, startSec: r.start_sec, text: r.text }));
+  return { hits, cutTerms: keyword.cutTerms };
 }
 
 export type MentionQuery = EpisodeScope & { category: string | null; keyword: string | null };

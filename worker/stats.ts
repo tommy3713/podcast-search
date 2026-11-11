@@ -156,7 +156,7 @@ export function formatAsk(db: DB, id: number): string {
     .prepare('SELECT id, created_at, user_id, outcome, question, answer, cited, ms, cost_usd, tool_calls_json FROM ask_log WHERE id = ?')
     .get(id) as AskRow | undefined;
   if (!r) return `找不到 #${id}（紀錄保留 ${ASK_LOG_DAYS} 天）`;
-  const calls = JSON.parse(r.tool_calls_json ?? '[]') as { name?: string; args?: Record<string, unknown> | string; results?: number }[];
+  const calls = JSON.parse(r.tool_calls_json ?? '[]') as { name?: string; args?: Record<string, unknown> | string; results?: number; cut?: string[] }[];
   const describe: Record<string, (a: Record<string, unknown>) => string> = {
     search_mentions: describeMentionSearch,
     search_transcript: describeTranscriptSearch,
@@ -164,7 +164,7 @@ export function formatAsk(db: DB, id: number): string {
   // args is the raw string when the model's JSON didn't parse
   const what = ({ name, args }: (typeof calls)[number]) =>
     typeof args === 'string' ? args : args && name && describe[name] ? describe[name]!(args) : Object.values(args ?? {}).filter(Boolean).join(' ');
-  const searches = calls.map((c) => `${what(c)}（${c.results ?? 0} 筆）`).join('、');
+  const searches = calls.map((c) => `${what(c)}（${c.results ?? 0} 筆${c.cut?.length ? `，${c.cut.map((t) => `「${t}」`).join('')}超過讀取上限` : ''}）`).join('、');
   const facts = [
     `${icon(r.outcome)} ${r.outcome ?? '—'}`,
     r.cited !== null ? `引用 ${r.cited}` : null,

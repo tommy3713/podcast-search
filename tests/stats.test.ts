@@ -143,7 +143,7 @@ describe('/questions', () => {
       JSON.stringify([
         { name: 'search_mentions', args: { category: '美食', keyword: '拉麵', since: null }, results: 3 },
         { name: 'search_mentions', args: { category: '股票', keyword: null, episode: 704, since: null, until: '2026-09-30' }, results: 0 },
-        { name: 'search_transcript', args: { query: '拉麵 一蘭' }, results: 8 },
+        { name: 'search_transcript', args: { query: '拉麵 一蘭' }, results: 8, cut: ['拉麵'] },
         { name: 'search_transcript', args: { query: '拉麵', episode: null, since: '2026-10-01', until: '2026-10-31' }, results: 2 },
         { name: 'search_transcript', args: '{"query": 拉麵', results: 0 },
       ]),
@@ -154,7 +154,7 @@ describe('/questions', () => {
         `#${id} 11-03 10:05 u12345`,
         '問：主委推薦哪家拉麵',
         '✅ answered・引用 1・5.4 秒・US$0.0062',
-        '搜尋：美食・拉麵（3 筆）、EP704・股票・～2026-09-30（0 筆）、拉麵 一蘭（8 筆）、拉麵・2026-10-01～2026-10-31（2 筆）、{"query": 拉麵（0 筆）',
+        '搜尋：美食・拉麵（3 筆）、EP704・股票・～2026-09-30（0 筆）、拉麵 一蘭（8 筆，「拉麵」超過讀取上限）、拉麵・2026-10-01～2026-10-31（2 筆）、{"query": 拉麵（0 筆）',
         '',
         '答：推薦過一蘭 [1]',
       ].join('\n'),

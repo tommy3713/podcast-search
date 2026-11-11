@@ -36,25 +36,25 @@ beforeEach(() => {
 
 describe('searchTranscript', () => {
   it('finds 2-character terms with LIKE and longer ones with FTS', () => {
-    expect(searchTranscript(db, '苗栗', null).map((h) => h.episodeNo)).toEqual([708]);
-    expect(searchTranscript(db, '客家菜', null)[0]!.text).toContain('苗栗');
-    expect(searchTranscript(db, 'anthropic', null)[0]!.episodeNo).toBe(709);
+    expect(searchTranscript(db, '苗栗', null).hits.map((h) => h.episodeNo)).toEqual([708]);
+    expect(searchTranscript(db, '客家菜', null).hits[0]!.text).toContain('苗栗');
+    expect(searchTranscript(db, 'anthropic', null).hits[0]!.episodeNo).toBe(709);
   });
 
   it('ranks chunks matching more terms first and fuses vector hits', () => {
-    expect(searchTranscript(db, '網球 苗栗 客家菜', null)[0]!.text).toContain('苗栗');
+    expect(searchTranscript(db, '網球 苗栗 客家菜', null).hits[0]!.text).toContain('苗栗');
     // vector-only hit: the embedding for EP709 chunk 0 ranks it even without a keyword match
-    expect(searchTranscript(db, '運動', vec(90))[0]).toMatchObject({ episodeNo: 709, startSec: 0 });
+    expect(searchTranscript(db, '運動', vec(90)).hits[0]).toMatchObject({ episodeNo: 709, startSec: 0 });
   });
 
   it('narrows both halves to one episode or a range of days', () => {
     const eps = (hits: { episodeNo: number }[]) => [...new Set(hits.map((h) => h.episodeNo))];
     // keyword half: 台積電 is only in EP708
-    expect(searchTranscript(db, '台積電', null, { episode: 709 })).toEqual([]);
+    expect(searchTranscript(db, '台積電', null, { episode: 709 }).hits).toEqual([]);
     // vector half: the embedding is EP709's, but the scope keeps it out
-    expect(eps(searchTranscript(db, '運動', vec(90), { episode: 708 }))).toEqual([708]);
-    expect(eps(searchTranscript(db, '運動', vec(80), { since: '2026-10-25' }))).toEqual([709]);
-    expect(eps(searchTranscript(db, '運動', vec(90), { until: '2026-10-24' }))).toEqual([708]);
+    expect(eps(searchTranscript(db, '運動', vec(90), { episode: 708 }).hits)).toEqual([708]);
+    expect(eps(searchTranscript(db, '運動', vec(80), { since: '2026-10-25' }).hits)).toEqual([709]);
+    expect(eps(searchTranscript(db, '運動', vec(90), { until: '2026-10-24' }).hits)).toEqual([708]);
   });
 
   it('filters inside the vector search, not after it picks its nearest chunks', () => {
@@ -62,24 +62,48 @@ describe('searchTranscript', () => {
     // nearest afterwards would leave nothing from EP708
     addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: 35 }, (_, i) => `段落 ${i}`));
     const query = vec(-1).map((_, i) => (i >= 110 && i < 145 ? 1 : i === 80 ? 0.1 : 0));
-    expect(new Set(searchTranscript(db, 'zzz', query).map((h) => h.episodeNo))).toEqual(new Set([711]));
-    const scoped = searchTranscript(db, 'zzz', query, { episode: 708 });
+    expect(new Set(searchTranscript(db, 'zzz', query).hits.map((h) => h.episodeNo))).toEqual(new Set([711]));
+    const scoped = searchTranscript(db, 'zzz', query, { episode: 708 }).hits;
     expect(scoped.length).toBeGreaterThan(0);
     expect(scoped.every((h) => h.episodeNo === 708)).toBe(true);
+  });
+
+  it('reads the newest episodes first, whatever order they were inserted in', () => {
+    // a backfilled batch inserted before the newest episode fills a read of 台股 by itself
+    addEpisode(db, 705, '2026-10-14T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT + 1 }, (_, i) => `台股第 ${i} 段`));
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', ['台股今天大跌']);
+    expect(searchTranscript(db, '台股', null).hits[0]!.episodeNo).toBe(711);
   });
 
   it('reaches a backfilled episode past the keyword read limit once scoped to it', () => {
     addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT + 5 }, (_, i) => `台股第 ${i} 段`));
     // an older episode inserted last, as backfill does
     addEpisode(db, 705, '2026-10-14T07:00:00.000Z', ['台股的老話題']);
-    expect(searchTranscript(db, '台股', null, {}, 50).some((h) => h.episodeNo === 705)).toBe(false);
-    expect(searchTranscript(db, '台股', null, { episode: 705 }).map((h) => h.episodeNo)).toEqual([705]);
-    expect(searchTranscript(db, '台股', null, { until: '2026-10-20' }).map((h) => h.episodeNo)).toEqual([705]);
+    expect(searchTranscript(db, '台股', null, {}, 50).hits.some((h) => h.episodeNo === 705)).toBe(false);
+    expect(searchTranscript(db, '台股', null, { episode: 705 }).hits.map((h) => h.episodeNo)).toEqual([705]);
+    expect(searchTranscript(db, '台股', null, { until: '2026-10-20' }).hits.map((h) => h.episodeNo)).toEqual([705]);
+  });
+
+  it('breaks ties by the newer episode, not by the later insert', () => {
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', ['台股今天大跌']);
+    // backfilled: older, but inserted last, so its chunk has the higher id
+    addEpisode(db, 705, '2026-10-14T07:00:00.000Z', ['台股今天大漲']);
+    expect(searchTranscript(db, '台股 今天', null).hits.map((h) => h.episodeNo)).toEqual([711, 705]);
+  });
+
+  it('names the terms that matched more chunks than one read takes', () => {
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT }, (_, i) => `台股第 ${i} 段`));
+    // exactly the limit: every chunk was read
+    expect(searchTranscript(db, '台股', null).cutTerms).toEqual([]);
+    addEpisode(db, 712, '2026-11-07T07:00:00.000Z', ['台股又一段']);
+    expect(searchTranscript(db, '台股 苗栗', null).cutTerms).toEqual(['台股']);
+    // within a scope the read is counted within it
+    expect(searchTranscript(db, '台股', null, { episode: 708 }).cutTerms).toEqual([]);
   });
 
   it('treats FTS and LIKE syntax in the query as plain text', () => {
     expect(() => searchTranscript(db, '"OR" NEAR( * %_ \\', null)).not.toThrow();
-    expect(searchTranscript(db, '%', null)).toEqual([]);
+    expect(searchTranscript(db, '%', null).hits).toEqual([]);
   });
 
   it('splits and caps query terms', () => {
@@ -350,6 +374,31 @@ describe('answer', () => {
     expect(outputs[1]).toContain('沒有收錄的集數');
     // EP708 is in the database and just has no game in it
     expect(outputs[2]).toBe('沒有符合的提及');
+  });
+
+  it('tells the model when a keyword read was cut at the limit', async () => {
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT + 1 }, (_, i) => `台股第 ${i} 段`));
+    const { client, requests } = fakeClient([
+      {
+        calls: [
+          { name: 'search_transcript', args: { query: '台股', episode: null, since: null, until: null } },
+          { name: 'search_transcript', args: { query: '苗栗', episode: null, since: null, until: null } },
+        ],
+      },
+      { text: 'x' },
+    ]);
+    await run('q', client);
+    const outputs = requests[1].input.filter((x: any) => x.type === 'function_call_output').map((x: any) => x.output as string);
+    expect(outputs[0]).toContain(`「台股」符合的段落超過 ${TERM_MATCH_LIMIT} 段`);
+    expect(outputs[1]).not.toContain('超過');
+    const logs = (await run('q', fakeClient([{ calls: [{ name: 'search_transcript', args: { query: '台股 <b>', episode: null, since: null, until: null } }] }, { text: 'x' }]).client)).toolCalls;
+    expect(logs[0]).toMatchObject({ results: 8, cut: ['台股'] });
+    // the terms come from the model's query, so they can't open or close a tag
+    addEpisode(db, 712, '2026-11-07T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT + 1 }, (_, i) => `<x> 第 ${i} 段`));
+    const tagged = fakeClient([{ calls: [{ name: 'search_transcript', args: { query: '<x>', episode: null, since: null, until: null } }] }, { text: 'x' }]);
+    await run('q', tagged.client);
+    const out = tagged.requests[1].input.find((x: any) => x.type === 'function_call_output').output as string;
+    expect(out).toContain('「＜x＞」符合的段落');
   });
 
   it('tells the model when the mention list was cut at the limit', async () => {
