@@ -272,7 +272,8 @@ export async function answer(question: string, deps: Deps): Promise<void> {
         tools: TOOLS,
         tool_choice: toolsLeft > 0 ? 'auto' : 'none',
         reasoning: { effort: 'low' },
-        max_output_tokens: MAX_OUTPUT_TOKENS,
+        // An empty turn is often reasoning that used up the budget, so the retry gets more
+        max_output_tokens: retriedEmpty ? MAX_OUTPUT_TOKENS * 2 : MAX_OUTPUT_TOKENS,
         // Stateless: nothing kept on OpenAI's side, reasoning passed back encrypted
         store: false,
         include: ['reasoning.encrypted_content'],
@@ -280,9 +281,12 @@ export async function answer(question: string, deps: Deps): Promise<void> {
       { signal: deps.signal },
     );
     let streamed = false;
+    let text = '';
     for await (const ev of stream) {
-      if (ev.type === 'response.output_text.delta') {
+      // A refusal is the model's answer too
+      if (ev.type === 'response.output_text.delta' || ev.type === 'response.refusal.delta') {
         streamed = true;
+        text += ev.delta;
         deps.emit({ type: 'delta', text: ev.delta });
       }
     }
@@ -291,18 +295,22 @@ export async function answer(question: string, deps: Deps): Promise<void> {
     deps.trace.cachedTokens += res.usage?.input_tokens_details?.cached_tokens ?? 0;
     deps.trace.outputTokens += res.usage?.output_tokens ?? 0;
     const calls = res.output.filter((o) => o.type === 'function_call');
+    // Text written before deciding to search again isn't the answer, and whitespace isn't one
+    const answered = text.trim() !== '';
+    if (!calls.length && answered) return;
+    if (streamed) deps.emit({ type: 'reset' });
+
     if (!calls.length) {
-      if (streamed) return;
       // A turn with neither text nor a search would end as an empty answer: ask once more
-      // for the answer, then give up as an error (the route refunds what never streamed)
-      if (retriedEmpty) throw new Error(`empty answer (status ${res.status})`);
+      // for the answer, then give up as an error, which the route refunds since no answer
+      // was left standing. The empty turn isn't sent back: it is usually a lone reasoning
+      // item, which the API rejects without the item that should follow it.
+      if (retriedEmpty) throw new Error(`empty answer (status ${res.status}${res.incomplete_details ? `, ${res.incomplete_details.reason}` : ''})`);
       retriedEmpty = true;
-      input.push(...res.output.map(toInputItem), { role: 'system', content: EMPTY_RETRY });
+      input.push({ role: 'system', content: EMPTY_RETRY });
       continue;
     }
 
-    // Text written before deciding to search again isn't the answer
-    if (streamed) deps.emit({ type: 'reset' });
     input.push(...res.output.map(toInputItem));
     for (const call of calls) {
       // Every call needs an output, even past the limit

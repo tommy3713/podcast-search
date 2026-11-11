@@ -223,7 +223,8 @@ describe('parseAnswer', () => {
 });
 
 // Minimal stand-in for the OpenAI client: each responses.stream call plays back one turn
-type Turn = { text?: string; calls?: { name: string; args: unknown }[] };
+// `cutOff`: what an empty turn really looks like, reasoning that used up the output budget
+type Turn = { text?: string; calls?: { name: string; args: unknown }[]; cutOff?: boolean };
 function fakeClient(turns: Turn[]) {
   const requests: any[] = [];
   let i = 0;
@@ -234,6 +235,7 @@ function fakeClient(turns: Turn[]) {
         requests.push(structuredClone(req));
         const turn = turns[Math.min(i++, turns.length - 1)]!;
         const output = [
+          ...(turn.cutOff ? [{ type: 'reasoning', id: `rs_${i}`, summary: [], encrypted_content: 'x' }] : []),
           ...(turn.text ? [{ type: 'message', content: [{ type: 'output_text', text: turn.text }] }] : []),
           ...(turn.calls ?? []).map((c, k) => ({ type: 'function_call', call_id: `c${i}_${k}`, name: c.name, arguments: JSON.stringify(c.args) })),
         ];
@@ -241,7 +243,11 @@ function fakeClient(turns: Turn[]) {
           async *[Symbol.asyncIterator]() {
             if (turn.text) yield { type: 'response.output_text.delta', delta: turn.text };
           },
-          finalResponse: async () => ({ output, usage: { input_tokens: 100, input_tokens_details: { cached_tokens: 20 }, output_tokens: 10 } }),
+          finalResponse: async () => ({
+            output,
+            ...(turn.cutOff ? { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } } : { status: 'completed' }),
+            usage: { input_tokens: 100, input_tokens_details: { cached_tokens: 20 }, output_tokens: 10 },
+          }),
         };
       },
     },
@@ -331,20 +337,31 @@ describe('answer', () => {
   it('asks once more after a turn with neither text nor a search', async () => {
     const { client, requests } = fakeClient([
       { calls: [{ name: 'search_mentions', args: { category: '美食', keyword: null, since: null } }] },
-      {},
+      { cutOff: true },
       { text: '推薦過**客家菜館** [1]' },
     ]);
     const events: AskEvent[] = [];
     await run('主委推薦的餐廳？', client, (e) => events.push(e));
     expect(events.at(-1)).toEqual({ type: 'delta', text: '推薦過**客家菜館** [1]' });
-    // the retry may only write, and is told why
+    // the retry may only write, gets a bigger budget and is told why
     expect(requests[2].tool_choice).toBe('none');
+    expect(requests[2].max_output_tokens).toBe(2 * requests[1].max_output_tokens);
     expect(requests[2].input.at(-1)).toMatchObject({ role: 'system', content: expect.stringContaining('上一輪沒有寫出回答') });
+    // the empty turn's lone reasoning item isn't sent back: the API rejects it without its following item
+    expect(requests[2].input.some((x: any) => x.type === 'reasoning')).toBe(false);
+  });
+
+  it('treats a turn of only whitespace as empty', async () => {
+    const { client, requests } = fakeClient([{ text: '\n ' }, { text: '找不到' }]);
+    const events: AskEvent[] = [];
+    await run('q', client, (e) => events.push(e));
+    expect(requests).toHaveLength(2);
+    expect(events.map((e) => e.type)).toEqual(['delta', 'reset', 'delta']);
   });
 
   it('fails rather than end with an empty answer', async () => {
-    const { client, requests } = fakeClient([{}, {}, { text: 'never asked' }]);
-    await expect(run('q', client)).rejects.toThrow('empty answer');
+    const { client, requests } = fakeClient([{ cutOff: true }, { cutOff: true }, { text: 'never asked' }]);
+    await expect(run('q', client)).rejects.toThrow('empty answer (status incomplete, max_output_tokens)');
     expect(requests).toHaveLength(2);
   });
 

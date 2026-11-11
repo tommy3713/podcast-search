@@ -64,7 +64,9 @@ export async function POST(req: Request) {
           signal,
           trace,
           emit: (e) => {
+            // A draft the agent took back (reset) isn't an answer the user keeps
             if (e.type === 'delta') answered = true;
+            if (e.type === 'reset') answered = false;
             recorder.see(e);
             emit(e);
           },
