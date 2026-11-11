@@ -6,7 +6,7 @@ import type { DB } from '../db.ts';
 import { formatTimestamp, MENTION_CATEGORIES, STOCK_CATEGORY } from '../summary.ts';
 import { escapeSourceText, escapeTags } from '../tags.ts';
 import { taipeiDate } from './quota.ts';
-import { describeMentionSearch, describeTranscriptSearch, MENTION_LIMIT, searchMentions, searchTranscript } from './search.ts';
+import { describeMentionSearch, type EpisodeScope, describeTranscriptSearch, episodesInScope, MENTION_LIMIT, searchMentions, searchTranscript } from './search.ts';
 
 export const ASK_MODEL = process.env.ASK_MODEL ?? 'gpt-5.4-mini';
 export const MAX_QUESTION_CHARS = 300;
@@ -161,6 +161,14 @@ class SourceTable {
   }
 }
 
+// An empty scope (an episode not in the database, or dates with no episode) must not read
+// as "he never said it"
+function noResults(deps: Deps, scope: EpisodeScope, none: string): string {
+  if (episodesInScope(deps.db, scope)?.length !== 0) return none;
+  const c = deps.coverage;
+  return `這個集數或日期範圍裡沒有收錄的集數（目前收錄 EP${c.oldest}–EP${c.newest}，中間可能有缺集）。要說的是這部分沒有收錄，不是節目沒講過。`;
+}
+
 async function runTool(name: string, rawArgs: string, deps: Deps, sources: SourceTable): Promise<{ output: string; log: ToolCallLog }> {
   let args: unknown;
   try {
@@ -190,7 +198,7 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
       return `<transcript n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${taipeiDay(h.publishedAt)}">${head(s.n, h.episodeNo, h.publishedAt)}${escapeSourceText(h.text)}</transcript>`;
     });
     if (fresh.length) deps.emit({ type: 'sources', sources: fresh });
-    return { output: lines.join('\n') || '沒有找到相關片段', log: { name, args: p.data, results: hits.length } };
+    return { output: lines.join('\n') || noResults(deps, p.data, '沒有找到相關片段'), log: { name, args: p.data, results: hits.length } };
   }
 
   if (name === 'search_mentions') {
@@ -211,7 +219,7 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
     if (fresh.length) deps.emit({ type: 'sources', sources: fresh });
     // A full page looks the same as a complete list unless the model is told
     const cut = hits.length === MENTION_LIMIT ? `\n（已達 ${MENTION_LIMIT} 筆上限：符合條件但較舊的集數沒有列出，要找就用 episode 或更窄的 since、until 再查）` : '';
-    return { output: (lines.join('\n') || '沒有符合的提及') + cut, log: { name, args: p.data, results: hits.length } };
+    return { output: (lines.join('\n') || noResults(deps, p.data, '沒有符合的提及')) + cut, log: { name, args: p.data, results: hits.length } };
   }
 
   return { output: `沒有這個工具：${name}`, log: { name, args, results: 0 } };

@@ -48,26 +48,36 @@ function scopeSql(s: EpisodeScope): { where: string; params: Record<string, stri
   };
 }
 
-// ` AND <col> IN (chunks of live episodes in the scope)`, or nothing without a scope. The
-// filter sits inside each ranking's query, so the read limits apply within the scope
-// rather than cutting it off.
-function chunkFilter(scope: EpisodeScope, col: string) {
-  if (!hasScope(scope)) return { sql: '', params: {} };
+// Ids of the live episodes in a scope, or null without one. An empty list means the scope
+// holds no episode in the database (not backfilled, a gap, or an episode outside the dates),
+// which the caller must not report as "never said".
+export function episodesInScope(db: DB, scope: EpisodeScope): number[] | null {
+  if (!hasScope(scope)) return null;
   const { where, params } = scopeSql(scope);
-  return { sql: ` AND ${col} IN (SELECT c.id FROM chunks c JOIN episodes e ON e.id = c.episode_id WHERE e.status = 'done' AND ${where})`, params };
+  const rows = db.prepare(`SELECT e.id FROM episodes e WHERE e.status = 'done' AND ${where}`).all(params) as { id: number }[];
+  return rows.map((r) => r.id);
+}
+
+// ` AND rowid IN (chunks of these episodes)`, or nothing without a scope. It sits inside
+// each ranking's query, so the read limits apply within the scope rather than cutting it
+// off. chunks.id is its rowid, so the same filter fits chunks, chunks_fts and chunks_vec.
+function chunkFilter(episodeIds: number[] | null) {
+  if (!episodeIds) return { sql: '', params: {} };
+  return {
+    sql: ' AND rowid IN (SELECT id FROM chunks WHERE episode_id IN (SELECT value FROM json_each(@episodeIds)))',
+    params: { episodeIds: JSON.stringify(episodeIds) },
+  };
 }
 
 // Chunk ids ranked by how many query terms they contain, newest episode first on ties
-function keywordRanking(db: DB, terms: string[], limit: number, scope: EpisodeScope = {}): number[] {
+function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: number[] | null): number[] {
   const matches = new Map<number, number>();
-  const ftsScope = chunkFilter(scope, 'rowid');
-  const likeScope = chunkFilter(scope, 'id');
-  const fts = db.prepare(`SELECT rowid AS id FROM chunks_fts WHERE chunks_fts MATCH @q${ftsScope.sql} LIMIT ${TERM_MATCH_LIMIT}`);
-  const like = db.prepare(`SELECT id FROM chunks WHERE text LIKE @q ESCAPE '\\'${likeScope.sql} LIMIT ${TERM_MATCH_LIMIT}`);
+  const f = chunkFilter(episodeIds);
+  const fts = db.prepare(`SELECT rowid AS id FROM chunks_fts WHERE chunks_fts MATCH @q${f.sql} LIMIT ${TERM_MATCH_LIMIT}`);
+  const like = db.prepare(`SELECT id FROM chunks WHERE text LIKE @q ESCAPE '\\'${f.sql} LIMIT ${TERM_MATCH_LIMIT}`);
   for (const term of terms) {
-    const rows = (
-      [...term].length >= 3 ? fts.all({ q: ftsPhrase(term), ...ftsScope.params }) : like.all({ q: likePattern(term), ...likeScope.params })
-    ) as { id: number }[];
+    const q = [...term].length >= 3 ? ftsPhrase(term) : likePattern(term);
+    const rows = ([...term].length >= 3 ? fts : like).all({ q, ...f.params }) as { id: number }[];
     for (const r of rows) matches.set(r.id, (matches.get(r.id) ?? 0) + 1);
   }
   if (!matches.size) return [];
@@ -76,8 +86,8 @@ function keywordRanking(db: DB, terms: string[], limit: number, scope: EpisodeSc
 }
 
 // sqlite-vec (0.1.9) takes a rowid IN filter inside the KNN query itself
-function vectorRanking(db: DB, embedding: number[], limit: number, scope: EpisodeScope = {}): number[] {
-  const f = chunkFilter(scope, 'rowid');
+function vectorRanking(db: DB, embedding: number[], limit: number, episodeIds: number[] | null): number[] {
+  const f = chunkFilter(episodeIds);
   const rows = db
     .prepare(`SELECT rowid AS id FROM chunks_vec WHERE embedding MATCH @v AND k = @k${f.sql} ORDER BY distance`)
     .all({ v: toVecBlob(embedding), k: limit, ...f.params }) as { id: number }[];
@@ -95,8 +105,10 @@ export function fuse(rankings: number[][], limit: number): number[] {
 
 export function searchTranscript(db: DB, query: string, embedding: number[] | null, scope: EpisodeScope = {}, limit = 8): TranscriptHit[] {
   const terms = queryTerms(query);
-  const rankings = [keywordRanking(db, terms, 30, scope)];
-  if (embedding) rankings.push(vectorRanking(db, embedding, 30, scope));
+  const episodeIds = episodesInScope(db, scope);
+  if (episodeIds?.length === 0) return [];
+  const rankings = [keywordRanking(db, terms, 30, episodeIds)];
+  if (embedding) rankings.push(vectorRanking(db, embedding, 30, episodeIds));
   const ids = fuse(rankings, limit);
   if (!ids.length) return [];
   const rows = db
@@ -113,7 +125,7 @@ export function searchTranscript(db: DB, query: string, embedding: number[] | nu
     .map((r) => ({ episodeNo: r.episode_no, publishedAt: r.published_at, startSec: r.start_sec, text: r.text }));
 }
 
-export type MentionQuery = EpisodeScope & { category: string | null; keyword: string | null; since: string | null };
+export type MentionQuery = EpisodeScope & { category: string | null; keyword: string | null };
 
 // What a search looked for, for the status line on /ask and Telegram's ask:<id>. Logged
 // calls from before episode / until existed lack them.
@@ -127,7 +139,7 @@ export function describeMentionSearch(a: Logged<MentionQuery>): string {
 }
 
 export function describeTranscriptSearch(a: Logged<EpisodeScope & { query: string }>): string {
-  return [a.query, ...describeScope(a)].filter(Boolean).join('・');
+  return [a.query, ...describeScope(a)].filter(Boolean).join('・') || JSON.stringify(a);
 }
 
 export function searchMentions(db: DB, args: MentionQuery, limit = MENTION_LIMIT): MentionHit[] {

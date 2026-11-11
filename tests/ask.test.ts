@@ -57,6 +57,17 @@ describe('searchTranscript', () => {
     expect(eps(searchTranscript(db, '運動', vec(90), { until: '2026-10-24' }))).toEqual([708]);
   });
 
+  it('filters inside the vector search, not after it picks its nearest chunks', () => {
+    // 35 chunks of EP711, all nearer the query than anything in EP708: filtering the 30
+    // nearest afterwards would leave nothing from EP708
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: 35 }, (_, i) => `段落 ${i}`));
+    const query = vec(-1).map((_, i) => (i >= 110 && i < 145 ? 1 : i === 80 ? 0.1 : 0));
+    expect(new Set(searchTranscript(db, 'zzz', query).map((h) => h.episodeNo))).toEqual(new Set([711]));
+    const scoped = searchTranscript(db, 'zzz', query, { episode: 708 });
+    expect(scoped.length).toBeGreaterThan(0);
+    expect(scoped.every((h) => h.episodeNo === 708)).toBe(true);
+  });
+
   it('reaches a backfilled episode past the keyword read limit once scoped to it', () => {
     addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT + 5 }, (_, i) => `台股第 ${i} 段`));
     // an older episode inserted last, as backfill does
@@ -319,6 +330,26 @@ describe('answer', () => {
       expect((await run('q', client)).toolCalls[0]!.results).toBe(0);
       expect(requests[1].input.find((x: any) => x.type === 'function_call_output').output).toContain('參數錯誤');
     }
+  });
+
+  it('says a scope with no episode in the database is not covered, rather than not found', async () => {
+    const { client, requests } = fakeClient([
+      {
+        calls: [
+          { name: 'search_transcript', args: { query: '台積電', episode: 650, since: null, until: null } },
+          { name: 'search_mentions', args: { category: null, keyword: null, episode: 708, since: '2026-11-01', until: null } },
+          { name: 'search_mentions', args: { category: '遊戲', keyword: null, episode: 708, since: null, until: null } },
+        ],
+      },
+      { text: 'x' },
+    ]);
+    await run('q', client);
+    const outputs = requests[1].input.filter((x: any) => x.type === 'function_call_output').map((x: any) => x.output as string);
+    expect(outputs[0]).toContain('沒有收錄的集數');
+    // EP708 exists, but not after 11-01
+    expect(outputs[1]).toContain('沒有收錄的集數');
+    // EP708 is in the database and just has no game in it
+    expect(outputs[2]).toBe('沒有符合的提及');
   });
 
   it('tells the model when the mention list was cut at the limit', async () => {

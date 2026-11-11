@@ -156,13 +156,14 @@ export function formatAsk(db: DB, id: number): string {
     .prepare('SELECT id, created_at, user_id, outcome, question, answer, cited, ms, cost_usd, tool_calls_json FROM ask_log WHERE id = ?')
     .get(id) as AskRow | undefined;
   if (!r) return `找不到 #${id}（紀錄保留 ${ASK_LOG_DAYS} 天）`;
-  const calls = JSON.parse(r.tool_calls_json ?? '[]') as { name?: string; args?: Record<string, unknown>; results?: number }[];
-  const what = (c: (typeof calls)[number]) =>
-    c.name === 'search_mentions' && c.args
-      ? describeMentionSearch(c.args)
-      : c.name === 'search_transcript' && c.args
-        ? describeTranscriptSearch(c.args)
-        : Object.values(c.args ?? {}).filter(Boolean).join(' ');
+  const calls = JSON.parse(r.tool_calls_json ?? '[]') as { name?: string; args?: Record<string, unknown> | string; results?: number }[];
+  const describe: Record<string, (a: Record<string, unknown>) => string> = {
+    search_mentions: describeMentionSearch,
+    search_transcript: describeTranscriptSearch,
+  };
+  // args is the raw string when the model's JSON didn't parse
+  const what = ({ name, args }: (typeof calls)[number]) =>
+    typeof args === 'string' ? args : args && name && describe[name] ? describe[name]!(args) : Object.values(args ?? {}).filter(Boolean).join(' ');
   const searches = calls.map((c) => `${what(c)}（${c.results ?? 0} 筆）`).join('、');
   const facts = [
     `${icon(r.outcome)} ${r.outcome ?? '—'}`,
