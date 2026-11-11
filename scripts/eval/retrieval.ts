@@ -37,7 +37,7 @@ export function retrievalCheck(db: DB, q: GoldenQuestion): RetrievalResult {
   const loads = new Map<string, TermLoad>();
 
   for (const query of q.queries) {
-    for (const h of searchTranscript(db, query, null)) transcript.add(h.episodeNo);
+    for (const h of searchTranscript(db, query, null).hits) transcript.add(h.episodeNo);
     const terms = queryTerms(query);
     for (const term of terms) if (!loads.has(term)) loads.set(term, termLoad(db, term));
     for (const ep of episodesMatchingAll(db, terms)) others.add(ep);
