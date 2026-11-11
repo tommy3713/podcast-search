@@ -3,7 +3,7 @@ import { answer, type AskEvent, MAX_TOOL_CALLS, newTrace, systemPrompt } from '@
 import { logAsk, logQuotaRejection, refundQuota, remaining, SITE_DAILY_LIMIT, taipeiDate, takeQuota, USER_DAILY_LIMIT } from '@/lib/ask/quota';
 import { AnswerRecorder } from '@/lib/ask/record';
 import { citedOrder, parseAnswer, splitEvents } from '@/lib/ask/render';
-import { fuse, MENTION_LIMIT, queryTerms, searchMentions, searchTranscript } from '@/lib/ask/search';
+import { fuse, MENTION_LIMIT, queryTerms, searchMentions, searchTranscript, TERM_MATCH_LIMIT } from '@/lib/ask/search';
 import { type DB, EMBEDDING_DIM, openDb } from '@/lib/db';
 import type { Summary } from '@/lib/summary';
 import { insertDiscovered, publishEpisode, saveSegments } from '../worker/repo.ts';
@@ -45,6 +45,36 @@ describe('searchTranscript', () => {
     expect(searchTranscript(db, '網球 苗栗 客家菜', null)[0]!.text).toContain('苗栗');
     // vector-only hit: the embedding for EP709 chunk 0 ranks it even without a keyword match
     expect(searchTranscript(db, '運動', vec(90))[0]).toMatchObject({ episodeNo: 709, startSec: 0 });
+  });
+
+  it('narrows both halves to one episode or a range of days', () => {
+    const eps = (hits: { episodeNo: number }[]) => [...new Set(hits.map((h) => h.episodeNo))];
+    // keyword half: 台積電 is only in EP708
+    expect(searchTranscript(db, '台積電', null, { episode: 709 })).toEqual([]);
+    // vector half: the embedding is EP709's, but the scope keeps it out
+    expect(eps(searchTranscript(db, '運動', vec(90), { episode: 708 }))).toEqual([708]);
+    expect(eps(searchTranscript(db, '運動', vec(80), { since: '2026-10-25' }))).toEqual([709]);
+    expect(eps(searchTranscript(db, '運動', vec(90), { until: '2026-10-24' }))).toEqual([708]);
+  });
+
+  it('filters inside the vector search, not after it picks its nearest chunks', () => {
+    // 35 chunks of EP711, all nearer the query than anything in EP708: filtering the 30
+    // nearest afterwards would leave nothing from EP708
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: 35 }, (_, i) => `段落 ${i}`));
+    const query = vec(-1).map((_, i) => (i >= 110 && i < 145 ? 1 : i === 80 ? 0.1 : 0));
+    expect(new Set(searchTranscript(db, 'zzz', query).map((h) => h.episodeNo))).toEqual(new Set([711]));
+    const scoped = searchTranscript(db, 'zzz', query, { episode: 708 });
+    expect(scoped.length).toBeGreaterThan(0);
+    expect(scoped.every((h) => h.episodeNo === 708)).toBe(true);
+  });
+
+  it('reaches a backfilled episode past the keyword read limit once scoped to it', () => {
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT + 5 }, (_, i) => `台股第 ${i} 段`));
+    // an older episode inserted last, as backfill does
+    addEpisode(db, 705, '2026-10-14T07:00:00.000Z', ['台股的老話題']);
+    expect(searchTranscript(db, '台股', null, {}, 50).some((h) => h.episodeNo === 705)).toBe(false);
+    expect(searchTranscript(db, '台股', null, { episode: 705 }).map((h) => h.episodeNo)).toEqual([705]);
+    expect(searchTranscript(db, '台股', null, { until: '2026-10-20' }).map((h) => h.episodeNo)).toEqual([705]);
   });
 
   it('treats FTS and LIKE syntax in the query as plain text', () => {
@@ -287,14 +317,39 @@ describe('answer', () => {
   });
 
   it('rejects a date that is not a real day, and an empty range', async () => {
-    for (const [since, until] of [[null, '2026-02-30'], [null, '2026-13-45'], ['2026-09-30', '2026-09-01']]) {
+    const cases = [[null, '2026-02-30'], [null, '2026-13-45'], ['2026-09-30', '2026-09-01']];
+    const calls = cases.flatMap(([since, until]) => [
+      { name: 'search_mentions', args: { category: null, keyword: null, episode: null, since, until } },
+      { name: 'search_transcript', args: { query: '台積電', episode: null, since, until } },
+    ]);
+    for (const call of calls) {
       const { client, requests } = fakeClient([
-        { calls: [{ name: 'search_mentions', args: { category: null, keyword: null, episode: null, since, until } }] },
+        { calls: [call] },
         { text: '找不到' },
       ]);
       expect((await run('q', client)).toolCalls[0]!.results).toBe(0);
       expect(requests[1].input.find((x: any) => x.type === 'function_call_output').output).toContain('參數錯誤');
     }
+  });
+
+  it('says a scope with no episode in the database is not covered, rather than not found', async () => {
+    const { client, requests } = fakeClient([
+      {
+        calls: [
+          { name: 'search_transcript', args: { query: '台積電', episode: 650, since: null, until: null } },
+          { name: 'search_mentions', args: { category: null, keyword: null, episode: 708, since: '2026-11-01', until: null } },
+          { name: 'search_mentions', args: { category: '遊戲', keyword: null, episode: 708, since: null, until: null } },
+        ],
+      },
+      { text: 'x' },
+    ]);
+    await run('q', client);
+    const outputs = requests[1].input.filter((x: any) => x.type === 'function_call_output').map((x: any) => x.output as string);
+    expect(outputs[0]).toContain('沒有收錄的集數');
+    // EP708 exists, but not after 11-01
+    expect(outputs[1]).toContain('沒有收錄的集數');
+    // EP708 is in the database and just has no game in it
+    expect(outputs[2]).toBe('沒有符合的提及');
   });
 
   it('tells the model when the mention list was cut at the limit', async () => {
@@ -315,6 +370,7 @@ describe('answer', () => {
     const { client } = fakeClient([
       { calls: [{ name: 'search_mentions', args: { category: '遊戲', keyword: null, episode: null, since: '2026-09-01', until: '2026-09-30' } }] },
       { calls: [{ name: 'search_mentions', args: { category: '股票', keyword: null, episode: 704, since: null, until: null } }] },
+      { calls: [{ name: 'search_transcript', args: { query: '萬聖節 檢討', episode: null, since: '2026-10-31', until: '2026-10-31' } }] },
       { text: 'x' },
     ]);
     const events: AskEvent[] = [];
@@ -322,6 +378,7 @@ describe('answer', () => {
     expect(events.filter((e) => e.type === 'status').map((e: any) => e.text)).toEqual([
       '查提及清單：遊戲・2026-09-01～2026-09-30',
       '查提及清單：EP704・股票',
+      '搜尋逐字稿：萬聖節 檢討・2026-10-31～2026-10-31',
     ]);
   });
 
