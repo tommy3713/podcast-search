@@ -6,7 +6,7 @@ import type { DB } from '../db.ts';
 import { formatTimestamp, MENTION_CATEGORIES, STOCK_CATEGORY } from '../summary.ts';
 import { escapeSourceText, escapeTags } from '../tags.ts';
 import { taipeiDate } from './quota.ts';
-import { describeMentionSearch, MENTION_LIMIT, searchMentions, searchTranscript } from './search.ts';
+import { describeMentionSearch, describeTranscriptSearch, MENTION_LIMIT, searchMentions, searchTranscript } from './search.ts';
 
 export const ASK_MODEL = process.env.ASK_MODEL ?? 'gpt-5.4-mini';
 export const MAX_QUESTION_CHARS = 300;
@@ -35,7 +35,6 @@ export type ToolCallLog = { name: string; args: unknown; results: number };
 export type AskTrace = AskUsage & { toolCalls: ToolCallLog[] };
 export const newTrace = (): AskTrace => ({ toolCalls: [], inputTokens: 0, cachedTokens: 0, outputTokens: 0, embeddingTokens: 0 });
 
-const TranscriptArgs = z.object({ query: z.string().trim().min(1).max(50) });
 // A real calendar day: 2026-02-30 matches the pattern but isn't one
 const Day = z
   .string()
@@ -45,28 +44,37 @@ const Day = z
     return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === d;
   }, '不是有效的日期')
   .nullable();
-// The strict schema makes the model send every field; the defaults are for callers that don't
+// Both tools can narrow to one episode or a range of days. The strict schema makes the
+// model send every field; the defaults are for callers that don't.
+const Scope = {
+  episode: z.number().int().positive().nullable().default(null),
+  since: Day.default(null),
+  until: Day.default(null),
+};
+// An empty range would come back as no results, which reads as "never said"
+const rangeOk = (a: { since: string | null; until: string | null }) => !a.since || !a.until || a.since <= a.until;
+const RANGE_ERROR = 'since 要早於或等於 until';
+const TranscriptArgs = z.object({ query: z.string().trim().min(1).max(50), ...Scope }).refine(rangeOk, RANGE_ERROR);
 const MentionArgs = z
-  .object({
-    category: z.enum(CATEGORIES).nullable(),
-    keyword: z.string().trim().min(1).max(50).nullable(),
-    episode: z.number().int().positive().nullable().default(null),
-    since: Day.default(null),
-    until: Day.default(null),
-  })
-  // An empty range would come back as 沒有符合的提及, which reads as "never mentioned"
-  .refine((a) => !a.since || !a.until || a.since <= a.until, 'since 要早於或等於 until');
+  .object({ category: z.enum(CATEGORIES).nullable(), keyword: z.string().trim().min(1).max(50).nullable(), ...Scope })
+  .refine(rangeOk, RANGE_ERROR);
+
+const SCOPE_PROPERTIES = {
+  episode: { type: ['integer', 'null'], description: '只查這一集（EP 編號），不限就 null' },
+  since: { type: ['string', 'null'], description: '只查這天（YYYY-MM-DD，含）之後的集數，不限就 null' },
+  until: { type: ['string', 'null'], description: '只查這天（YYYY-MM-DD，含）之前的集數，不限就 null' },
+};
 
 const TOOLS: OpenAI.Responses.Tool[] = [
   {
     type: 'function',
     name: 'search_transcript',
-    description: '搜尋逐字稿原文（關鍵字＋語意）。適合找細節、原話和主持人的看法。',
+    description: '搜尋逐字稿原文（關鍵字＋語意），回傳最相關的幾段。適合找細節、原話和主持人的看法。問某一集或某段時間說的話，用 episode、since、until 只搜那個範圍。',
     strict: true,
     parameters: {
       type: 'object',
-      properties: { query: { type: 'string', description: '要搜的詞，可用空白分開多個詞，最多 50 字' } },
-      required: ['query'],
+      properties: { query: { type: 'string', description: '要搜的詞，可用空白分開多個詞，最多 50 字' }, ...SCOPE_PROPERTIES },
+      required: ['query', 'episode', 'since', 'until'],
       additionalProperties: false,
     },
   },
@@ -80,9 +88,7 @@ const TOOLS: OpenAI.Responses.Tool[] = [
       properties: {
         category: { type: ['string', 'null'], enum: [...CATEGORIES, null], description: '類別，不限就 null' },
         keyword: { type: ['string', 'null'], description: '名稱關鍵字，不限就 null' },
-        episode: { type: ['integer', 'null'], description: '只查這一集（EP 編號），不限就 null' },
-        since: { type: ['string', 'null'], description: '只查這天（YYYY-MM-DD，含）之後的集數，不限就 null' },
-        until: { type: ['string', 'null'], description: '只查這天（YYYY-MM-DD，含）之前的集數，不限就 null' },
+        ...SCOPE_PROPERTIES,
       },
       required: ['category', 'keyword', 'episode', 'since', 'until'],
       additionalProperties: false,
@@ -106,7 +112,7 @@ export function systemPrompt(c: Coverage): string {
 目前收錄 EP${c.oldest}–EP${c.newest}，共 ${c.count} 集，中間可能有缺集。今天是 ${c.today}。
 
 做法：
-- 先用工具搜尋再回答，最多搜 ${MAX_TOOL_CALLS} 次。「有哪些、推薦過、最近」這類清單問題先用 search_mentions；細節、原話、看法用 search_transcript。問某一集或某段時間的清單，用 search_mentions 的 episode、since、until 縮小範圍。搜不到可以換個說法再搜。
+- 先用工具搜尋再回答，最多搜 ${MAX_TOOL_CALLS} 次。「有哪些、推薦過、最近」這類清單問題先用 search_mentions；細節、原話、看法用 search_transcript。問某一集或某段時間，兩個工具都可以用 episode、since、until 縮小範圍。搜不到可以換個說法再搜。
 - 逐字稿是語音辨識，名稱可能有錯字；搜尋時用節目裡可能出現的說法。<mention> 的 name 已經校正過，回答時名稱以它為準。
 - 回答用台灣繁體中文，簡潔，先給結論（問多空、能不能買的除外，見最後一條），細節用「- 」開頭條列，可以用 **粗體** 標重點。不要用其他 Markdown。
 - 每個事實後面標出處 [n]：每筆搜尋結果的內容開頭都有它自己的 [n] 和它是哪一集，照抄寫出那個事實的那一筆。只能用搜尋結果裡出現過的編號。
@@ -172,13 +178,13 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
   if (name === 'search_transcript') {
     const p = TranscriptArgs.safeParse(args);
     if (!p.success) return { output: `參數錯誤：${p.error.issues[0]?.message}`, log: { name, args, results: 0 } };
-    deps.emit({ type: 'status', text: `搜尋逐字稿：${p.data.query}` });
+    deps.emit({ type: 'status', text: `搜尋逐字稿：${describeTranscriptSearch(p.data)}` });
     const emb = await deps.client.embeddings.create(
       { model: 'text-embedding-3-small', input: p.data.query },
       { signal: deps.signal },
     );
     deps.trace.embeddingTokens += emb.usage?.total_tokens ?? 0;
-    const hits = searchTranscript(deps.db, p.data.query, emb.data[0]?.embedding ?? null);
+    const hits = searchTranscript(deps.db, p.data.query, emb.data[0]?.embedding ?? null, p.data);
     const lines = hits.map((h) => {
       const s = keep(`t:${h.episodeNo}:${h.startSec}`, { ep: h.episodeNo, t: h.startSec, text: h.text, label: null });
       return `<transcript n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${taipeiDay(h.publishedAt)}">${head(s.n, h.episodeNo, h.publishedAt)}${escapeSourceText(h.text)}</transcript>`;

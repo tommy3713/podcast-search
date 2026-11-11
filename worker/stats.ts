@@ -1,5 +1,5 @@
 import { ASK_LOG_DAYS, taipeiDayStart } from '@/lib/ask/quota.ts';
-import { describeMentionSearch } from '@/lib/ask/search.ts';
+import { describeMentionSearch, describeTranscriptSearch } from '@/lib/ask/search.ts';
 import { type DB, toDbTime } from '@/lib/db.ts';
 import type { TaipeiTime } from './schedule.ts';
 
@@ -158,7 +158,11 @@ export function formatAsk(db: DB, id: number): string {
   if (!r) return `找不到 #${id}（紀錄保留 ${ASK_LOG_DAYS} 天）`;
   const calls = JSON.parse(r.tool_calls_json ?? '[]') as { name?: string; args?: Record<string, unknown>; results?: number }[];
   const what = (c: (typeof calls)[number]) =>
-    c.name === 'search_mentions' && c.args ? describeMentionSearch(c.args) : Object.values(c.args ?? {}).filter(Boolean).join(' ');
+    c.name === 'search_mentions' && c.args
+      ? describeMentionSearch(c.args)
+      : c.name === 'search_transcript' && c.args
+        ? describeTranscriptSearch(c.args)
+        : Object.values(c.args ?? {}).filter(Boolean).join(' ');
   const searches = calls.map((c) => `${what(c)}（${c.results ?? 0} 筆）`).join('、');
   const facts = [
     `${icon(r.outcome)} ${r.outcome ?? '—'}`,
