@@ -58,45 +58,46 @@ export function episodesInScope(db: DB, scope: EpisodeScope): number[] | null {
   return rows.map((r) => r.id);
 }
 
-// ` AND rowid IN (chunks of these episodes)`, or nothing without a scope. It sits inside
+// ` AND <col> IN (chunks of these episodes)`, or nothing without a scope. It sits inside
 // each ranking's query, so the read limits apply within the scope rather than cutting it
-// off. chunks.id is its rowid, so the same filter fits chunks, chunks_fts and chunks_vec.
-function chunkFilter(episodeIds: number[] | null) {
+// off.
+function chunkFilter(episodeIds: number[] | null, col = 'rowid') {
   if (!episodeIds) return { sql: '', params: {} };
   return {
-    sql: ' AND rowid IN (SELECT id FROM chunks WHERE episode_id IN (SELECT value FROM json_each(@episodeIds)))',
+    sql: ` AND ${col} IN (SELECT id FROM chunks WHERE episode_id IN (SELECT value FROM json_each(@episodeIds)))`,
     params: { episodeIds: JSON.stringify(episodeIds) },
   };
 }
 
-// Chunk ids ranked by how many query terms they contain, newest episode first on ties, and
-// the terms that matched more chunks than one read takes (those reads are in insertion
-// order, which backfill makes unrelated to age, so some episodes were never looked at)
+// Chunk ids ranked by how many query terms they contain, and the terms that matched more
+// chunks than one read takes. Each read takes the chunks of the newest episodes (chunk ids
+// follow insertion order, and backfill inserts older episodes last), and ties go the same
+// way: newer episode first, then earlier in the episode.
 function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: number[] | null): { ids: number[]; cutTerms: string[] } {
-  const matches = new Map<number, number>();
-  const cutTerms: string[] = [];
-  const f = chunkFilter(episodeIds);
-  const fts = db.prepare(`SELECT rowid AS id FROM chunks_fts WHERE chunks_fts MATCH @q${f.sql} LIMIT ${TERM_MATCH_LIMIT}`);
-  const like = db.prepare(`SELECT id FROM chunks WHERE text LIKE @q ESCAPE '\\'${f.sql} LIMIT ${TERM_MATCH_LIMIT}`);
-  for (const term of terms) {
-    const q = [...term].length >= 3 ? ftsPhrase(term) : likePattern(term);
-    const rows = ([...term].length >= 3 ? fts : like).all({ q, ...f.params }) as { id: number }[];
-    if (rows.length === TERM_MATCH_LIMIT) cutTerms.push(term);
-    for (const r of rows) matches.set(r.id, (matches.get(r.id) ?? 0) + 1);
-  }
-  if (!matches.size) return { ids: [], cutTerms };
-  // Chunk ids follow insertion order, and backfill inserts older episodes last, so ties go
-  // by the episode itself
-  const episodeOf = new Map(
-    (
-      db
-        .prepare('SELECT c.id, e.episode_no FROM chunks c JOIN episodes e ON e.id = c.episode_id WHERE c.id IN (SELECT value FROM json_each(?))')
-        .all(JSON.stringify([...matches.keys()])) as { id: number; episode_no: number }[]
-    ).map((r) => [r.id, r.episode_no]),
+  const f = chunkFilter(episodeIds, 'c.id');
+  // One row past the limit tells a term that was cut from one that just fills it
+  const newestFirst = `AND e.status = 'done'${f.sql} ORDER BY e.episode_no DESC, c.id LIMIT ${TERM_MATCH_LIMIT + 1}`;
+  const fts = db.prepare(
+    `SELECT c.id, e.episode_no AS ep FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid JOIN episodes e ON e.id = c.episode_id
+     WHERE chunks_fts MATCH @q ${newestFirst}`,
   );
-  const ep = (id: number) => episodeOf.get(id) ?? 0;
+  const like = db.prepare(
+    `SELECT c.id, e.episode_no AS ep FROM chunks c JOIN episodes e ON e.id = c.episode_id
+     WHERE c.text LIKE @q ESCAPE '\\' ${newestFirst}`,
+  );
+  const matches = new Map<number, { n: number; ep: number }>();
+  const cutTerms: string[] = [];
+  for (const term of terms) {
+    const short = [...term].length < 3;
+    let rows = (short ? like : fts).all({ q: short ? likePattern(term) : ftsPhrase(term), ...f.params }) as { id: number; ep: number }[];
+    if (rows.length > TERM_MATCH_LIMIT) {
+      cutTerms.push(term);
+      rows = rows.slice(0, TERM_MATCH_LIMIT);
+    }
+    for (const r of rows) matches.set(r.id, { n: (matches.get(r.id)?.n ?? 0) + 1, ep: r.ep });
+  }
   const ids = [...matches.entries()]
-    .sort((a, b) => b[1] - a[1] || ep(b[0]) - ep(a[0]) || a[0] - b[0])
+    .sort(([ia, a], [ib, b]) => b.n - a.n || b.ep - a.ep || ia - ib)
     .slice(0, limit)
     .map(([id]) => id);
   return { ids, cutTerms };

@@ -28,7 +28,8 @@ export type AskEvent =
   | { type: 'done' }
   | { type: 'error'; message: string };
 
-export type ToolCallLog = { name: string; args: unknown; results: number };
+// `cut`: keyword terms that matched more chunks than one read takes
+export type ToolCallLog = { name: string; args: unknown; results: number; cut?: string[] };
 
 // Filled in while answering, so the caller can log tool calls and token use even when
 // the answer fails halfway
@@ -198,11 +199,17 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
       return `<transcript n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${taipeiDay(h.publishedAt)}">${head(s.n, h.episodeNo, h.publishedAt)}${escapeSourceText(h.text)}</transcript>`;
     });
     if (fresh.length) deps.emit({ type: 'sources', sources: fresh });
-    // Unlike a full mention list, a cut keyword read shows nothing in the results themselves
+    // Unlike a full mention list, a cut keyword read shows nothing in the results themselves.
+    // The terms come from the model's query, which the question can steer, so they're escaped.
     const cut = cutTerms.length
-      ? `\n（${cutTerms.map((t) => `「${t}」`).join('')}符合的段落超過 ${TERM_MATCH_LIMIT} 段，關鍵字搜尋只讀了其中一部分，有些集數可能沒搜到；要找特定集數或時間，用 episode、since、until 縮小範圍，或換更具體的詞）`
+      ? `\n（${cutTerms.map((t) => `「${escapeSourceText(t)}」`).join('')}符合的段落超過 ${TERM_MATCH_LIMIT} 段，關鍵字搜尋只讀了最新的 ${TERM_MATCH_LIMIT} 段，較舊的集數可能沒搜到；${
+          p.data.episode || p.data.since || p.data.until ? '這個範圍還是太大，' : ''
+        }要找特定集數或時間，用 episode、since、until 縮小範圍，或換更具體的詞）`
       : '';
-    return { output: (lines.join('\n') || noResults(deps, p.data, '沒有找到相關片段')) + cut, log: { name, args: p.data, results: hits.length } };
+    return {
+      output: (lines.join('\n') || noResults(deps, p.data, '沒有找到相關片段')) + cut,
+      log: { name, args: p.data, results: hits.length, ...(cutTerms.length ? { cut: cutTerms } : {}) },
+    };
   }
 
   if (name === 'search_mentions') {

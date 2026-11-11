@@ -68,6 +68,13 @@ describe('searchTranscript', () => {
     expect(scoped.every((h) => h.episodeNo === 708)).toBe(true);
   });
 
+  it('reads the newest episodes first, whatever order they were inserted in', () => {
+    // a backfilled batch inserted before the newest episode fills a read of 台股 by itself
+    addEpisode(db, 705, '2026-10-14T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT + 1 }, (_, i) => `台股第 ${i} 段`));
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', ['台股今天大跌']);
+    expect(searchTranscript(db, '台股', null).hits[0]!.episodeNo).toBe(711);
+  });
+
   it('reaches a backfilled episode past the keyword read limit once scoped to it', () => {
     addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT + 5 }, (_, i) => `台股第 ${i} 段`));
     // an older episode inserted last, as backfill does
@@ -86,6 +93,9 @@ describe('searchTranscript', () => {
 
   it('names the terms that matched more chunks than one read takes', () => {
     addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT }, (_, i) => `台股第 ${i} 段`));
+    // exactly the limit: every chunk was read
+    expect(searchTranscript(db, '台股', null).cutTerms).toEqual([]);
+    addEpisode(db, 712, '2026-11-07T07:00:00.000Z', ['台股又一段']);
     expect(searchTranscript(db, '台股 苗栗', null).cutTerms).toEqual(['台股']);
     // within a scope the read is counted within it
     expect(searchTranscript(db, '台股', null, { episode: 708 }).cutTerms).toEqual([]);
@@ -367,7 +377,7 @@ describe('answer', () => {
   });
 
   it('tells the model when a keyword read was cut at the limit', async () => {
-    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT }, (_, i) => `台股第 ${i} 段`));
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT + 1 }, (_, i) => `台股第 ${i} 段`));
     const { client, requests } = fakeClient([
       {
         calls: [
@@ -381,6 +391,14 @@ describe('answer', () => {
     const outputs = requests[1].input.filter((x: any) => x.type === 'function_call_output').map((x: any) => x.output as string);
     expect(outputs[0]).toContain(`「台股」符合的段落超過 ${TERM_MATCH_LIMIT} 段`);
     expect(outputs[1]).not.toContain('超過');
+    const logs = (await run('q', fakeClient([{ calls: [{ name: 'search_transcript', args: { query: '台股 <b>', episode: null, since: null, until: null } }] }, { text: 'x' }]).client)).toolCalls;
+    expect(logs[0]).toMatchObject({ results: 8, cut: ['台股'] });
+    // the terms come from the model's query, so they can't open or close a tag
+    addEpisode(db, 712, '2026-11-07T07:00:00.000Z', Array.from({ length: TERM_MATCH_LIMIT + 1 }, (_, i) => `<x> 第 ${i} 段`));
+    const tagged = fakeClient([{ calls: [{ name: 'search_transcript', args: { query: '<x>', episode: null, since: null, until: null } }] }, { text: 'x' }]);
+    await run('q', tagged.client);
+    const out = tagged.requests[1].input.find((x: any) => x.type === 'function_call_output').output as string;
+    expect(out).toContain('「＜x＞」符合的段落');
   });
 
   it('tells the model when the mention list was cut at the limit', async () => {
