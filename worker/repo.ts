@@ -2,7 +2,7 @@ import type { DB } from '@/lib/db.ts';
 import { toVecBlob } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { STOCK_CATEGORY, type Summary } from '@/lib/summary.ts';
-import type { Chunk } from './chunk.ts';
+import type { Chunk, SummaryPoint } from './chunk.ts';
 import { MAX_RETRIES } from './config.ts';
 import type { RssEpisode } from './rss.ts';
 
@@ -141,13 +141,64 @@ export function resetRetries(db: DB, id: number): void {
   db.prepare(`UPDATE episodes SET retries = 0 WHERE id = ? AND status != 'done'`).run(id);
 }
 
-// Replaces any earlier chunks and mentions, so re-running an episode is safe.
-// Returns the episode's total cost so far.
+// Replaces an episode's summary points and their vectors. Run inside a transaction.
+function writeSummaryPoints(db: DB, id: number, points: SummaryPoint[], vectors: number[][]): void {
+  if (points.length !== vectors.length) throw new Error(`${points.length} summary points but ${vectors.length} vectors`);
+  const old = db.prepare('SELECT id FROM summary_points WHERE episode_id = ?').all(id) as { id: number }[];
+  const delVec = db.prepare('DELETE FROM summary_points_vec WHERE rowid = ?');
+  for (const p of old) delVec.run(BigInt(p.id));
+  db.prepare('DELETE FROM summary_points WHERE episode_id = ?').run(id);
+  const ins = db.prepare('INSERT INTO summary_points (episode_id, start_sec, end_sec, text) VALUES (?, ?, ?, ?)');
+  const insVec = db.prepare('INSERT INTO summary_points_vec (rowid, embedding) VALUES (?, ?)');
+  points.forEach((p, i) => {
+    const { lastInsertRowid } = ins.run(id, p.startSec, p.endSec, p.text);
+    insVec.run(BigInt(lastInsertRowid), toVecBlob(vectors[i]!));
+  });
+}
+
+// Every live episode's summary and the summary points stored for it, in insertion order
+export function liveSummaryPoints(db: DB): { id: number; episode_no: number; summary_json: string; points: SummaryPoint[] }[] {
+  const stored = new Map<number, SummaryPoint[]>();
+  const rows = db.prepare('SELECT episode_id, start_sec, end_sec, text FROM summary_points ORDER BY id').all() as {
+    episode_id: number;
+    start_sec: number;
+    end_sec: number | null;
+    text: string;
+  }[];
+  for (const r of rows) {
+    const list = stored.get(r.episode_id) ?? [];
+    list.push({ startSec: r.start_sec, endSec: r.end_sec, text: r.text });
+    stored.set(r.episode_id, list);
+  }
+  const eps = db
+    .prepare(`SELECT id, episode_no, summary_json FROM episodes WHERE status = 'done' AND summary_json IS NOT NULL ORDER BY episode_no DESC`)
+    .all() as { id: number; episode_no: number; summary_json: string }[];
+  return eps.map((e) => ({ ...e, points: stored.get(e.id) ?? [] }));
+}
+
+// Replaces the points of an episode that is already live, and adds what embedding them cost
+export function indexSummaryPoints(db: DB, id: number, points: SummaryPoint[], vectors: number[][], costUsd: number): void {
+  db.transaction(() => {
+    writeSummaryPoints(db, id, points, vectors);
+    db.prepare('UPDATE episodes SET cost_usd = COALESCE(cost_usd, 0) + ? WHERE id = ?').run(costUsd, id);
+  })();
+}
+
+// Replaces any earlier chunks, summary points and mentions, so re-running an episode is
+// safe. Returns the episode's total cost so far.
 export function publishEpisode(
   db: DB,
   id: number,
-  data: { summary: Summary; chunks: Chunk[]; vectors: number[][]; costUsd: number },
+  data: {
+    summary: Summary;
+    chunks: Chunk[];
+    vectors: number[][];
+    points: SummaryPoint[];
+    pointVectors: number[][];
+    costUsd: number;
+  },
 ): number {
+  if (data.chunks.length !== data.vectors.length) throw new Error(`${data.chunks.length} chunks but ${data.vectors.length} vectors`);
   return db.transaction(() => {
     const old = db.prepare('SELECT id FROM chunks WHERE episode_id = ?').all(id) as { id: number }[];
     const delVec = db.prepare('DELETE FROM chunks_vec WHERE rowid = ?');
@@ -168,6 +219,7 @@ export function publishEpisode(
     );
     for (const s of data.summary.stocks) insMention.run(id, STOCK_CATEGORY, s.name, s.code, s.note, null, s.t);
     for (const m of data.summary.mentions) insMention.run(id, m.category, m.name, null, null, m.quote, m.t);
+    writeSummaryPoints(db, id, data.points, data.pointVectors);
 
     const row = db
       .prepare(

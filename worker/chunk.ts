@@ -1,6 +1,32 @@
 import type { Segment } from '@/lib/segments.ts';
+import type { Summary } from '@/lib/summary.ts';
 
 export type Chunk = { idx: number; startSec: number; text: string };
+
+// A summary text to embed and the part of the episode it describes: its chapter, from the
+// chapter's start to the next one's (null: the end of the episode)
+export type SummaryPoint = { startSec: number; endSec: number | null; text: string };
+
+// One point per chapter (title and bullets together; one vector per bullet found the same
+// episodes with four times the rows) and one per key point, which covers the chapter it
+// falls in. Ad chapters, and key points inside one, are left out.
+export function summaryPoints(summary: Summary): SummaryPoint[] {
+  const chapters = [...summary.chapters].sort((a, b) => a.t - b.t);
+  const range = (i: number) => ({ startSec: chapters[i]!.t, endSec: chapters[i + 1]?.t ?? null });
+  const points: SummaryPoint[] = [];
+  chapters.forEach((c, i) => {
+    if (c.ad) return;
+    const bullets = c.bullets.map((b) => b.text).join(' ');
+    points.push({ ...range(i), text: bullets ? `${c.title}：${bullets}` : c.title });
+  });
+  for (const k of summary.keys) {
+    const i = chapters.findLastIndex((c) => c.t <= k.t);
+    if (i >= 0 && chapters[i]!.ad) continue;
+    // Before the first chapter (or with none): from the start up to the first chapter
+    points.push({ ...(i >= 0 ? range(i) : { startSec: 0, endSec: chapters[0]?.t ?? null }), text: k.text });
+  }
+  return points;
+}
 
 const TARGET_CHARS = 600;
 

@@ -21,6 +21,7 @@ import OpenAI from 'openai';
 import { ASK_MODEL, readCoverage } from '../src/lib/ask/agent.ts';
 import { taipeiDate } from '../src/lib/ask/quota.ts';
 import { type DB, openDb } from '../src/lib/db.ts';
+import { staleSummaryPoints } from '../worker/summary-index.ts';
 import { type GoldenQuestion, parseGolden, questionHash, QUESTION_TYPES } from './eval/golden.ts';
 import { JUDGE_MODEL } from './eval/judge.ts';
 import { reportDiff, reportEval, reportRetrieval } from './eval/report.ts';
@@ -60,6 +61,16 @@ const db = openDb(dbPath, { readonly: true });
 const coverage = readCoverage(db, taipeiDate());
 if (!coverage.count) throw new Error(`${dbPath} has no live episodes`);
 const dbInfo: DbInfo = { file: path.basename(dbPath), count: coverage.count, oldest: coverage.oldest, newest: coverage.newest, stamp: dbStamp(db) };
+// Vector search also ranks chunks through the summary points, which a snapshot taken before
+// they existed lacks (the live worker adds them at startup). Keyword-only retrieval doesn't use them.
+if (kind === 'full') {
+  const fill = `DB_PATH=${path.relative(ROOT, dbPath)} npm run worker -- index-summaries`;
+  if (!db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'summary_points'`).get()) {
+    throw new Error(`${dbPath} has no summary_points table; run ${fill}`);
+  }
+  const { stale, broken } = staleSummaryPoints(db);
+  if (stale.length || broken.length) console.warn(`⚠️ ${stale.length + broken.length} 集的摘要索引不是最新的，搜尋會跟網站不一樣：${fill}`);
+}
 
 // Taipei time, like the rest of the project's dates: 2026-11-10T15:49
 const startedAt = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }).slice(0, 16).replace(' ', 'T');
@@ -149,7 +160,11 @@ function dbStamp(d: DB): string {
   const one = (table: string) => d.prepare(`SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS top FROM ${table}`).get() as { n: number; top: number };
   const c = one('chunks');
   const m = one('mentions');
-  return `${c.n}.${c.top}.${m.n}.${m.top}`;
+  // Summary points change what vector search finds. Left out while there are none, so a
+  // snapshot from before them keeps the stamp its baselines were saved with.
+  const hasPoints = d.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'summary_points'`).get();
+  const p = hasPoints ? one('summary_points') : { n: 0, top: 0 };
+  return `${c.n}.${c.top}.${m.n}.${m.top}${p.n ? `.${p.n}.${p.top}` : ''}`;
 }
 
 // A file given with --baseline must exist and fit; the default one may be absent

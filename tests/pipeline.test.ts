@@ -31,7 +31,7 @@ beforeEach(() => {
   });
   mocks.transcribe.mockResolvedValue({ segments, billedSeconds: 3000 });
   mocks.summarize.mockResolvedValue({ summary, costUsd: 0.3 });
-  mocks.embed.mockResolvedValue({ vectors: [Array(EMBEDDING_DIM).fill(0)], costUsd: 0.0001 });
+  mocks.embed.mockImplementation(async (texts: string[]) => ({ vectors: texts.map(() => Array(EMBEDDING_DIM).fill(0)), costUsd: 0.0001 }));
 });
 
 const row = () => getEpisode(db, 710)!;
@@ -41,6 +41,15 @@ describe('checkpoints', () => {
     expect(await processEpisode(db, row())).toBe(true);
     expect(row()).toMatchObject({ status: 'done', failed_step: null, summary_draft_json: null });
     expect(row().cost_usd).toBeCloseTo(0.0925 + 0.3 + 0.0001, 3);
+  });
+
+  it('embeds the summary points with the chunks and publishes both', async () => {
+    const withChapter: Summary = { ...summary, chapters: [{ t: 0, title: '開場', ad: false, bullets: [{ t: 1, text: '打招呼' }], quote: null }] };
+    mocks.summarize.mockResolvedValueOnce({ summary: withChapter, costUsd: 0.3 });
+    await processEpisode(db, row());
+    expect(mocks.embed).toHaveBeenCalledTimes(1);
+    expect(mocks.embed.mock.calls[0]![0]).toEqual(['開場', '開場：打招呼']);
+    expect(db.prepare('SELECT start_sec, end_sec, text FROM summary_points').all()).toEqual([{ start_sec: 0, end_sec: null, text: '開場：打招呼' }]);
   });
 
   it('resumes after a summary failure without transcribing again', async () => {

@@ -4,7 +4,7 @@ import type { DB } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
 import type { Summary } from '@/lib/summary.ts';
 import { compress, download } from './audio.ts';
-import { chunkSegments } from './chunk.ts';
+import { chunkSegments, summaryPoints } from './chunk.ts';
 import { estimateCost, MAX_RETRIES, WORK_DIR, whisperCost } from './config.ts';
 import { embed } from './embed.ts';
 import { notify } from './notify.ts';
@@ -93,9 +93,12 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
     // ③ chunks, embeddings, publish
     step = 'embed';
     const chunks = chunkSegments(segments);
-    console.log(`${label}: embedding ${chunks.length} chunks`);
-    const { vectors, costUsd } = await embed(chunks.map((c) => c.text));
-    const total = publishEpisode(db, ep.id, { summary, chunks, vectors, costUsd });
+    const points = summaryPoints(summary);
+    console.log(`${label}: embedding ${chunks.length} chunks and ${points.length} summary points`);
+    const { vectors: all, costUsd } = await embed([...chunks.map((c) => c.text), ...points.map((p) => p.text)]);
+    const vectors = all.slice(0, chunks.length);
+    const pointVectors = all.slice(chunks.length);
+    const total = publishEpisode(db, ep.id, { summary, chunks, vectors, points, pointVectors, costUsd });
     if (opts.quiet) return true;
 
     const mins = Math.max(1, Math.round((Date.now() - started) / 60_000));

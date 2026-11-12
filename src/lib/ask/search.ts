@@ -58,13 +58,13 @@ export function episodesInScope(db: DB, scope: EpisodeScope): number[] | null {
   return rows.map((r) => r.id);
 }
 
-// ` AND <col> IN (chunks of these episodes)`, or nothing without a scope. It sits inside
-// each ranking's query, so the read limits apply within the scope rather than cutting it
-// off.
-function chunkFilter(episodeIds: number[] | null, col = 'rowid') {
+// ` AND <col> IN (rows of `table` from these episodes)`, or nothing without a scope. It
+// sits inside each ranking's query, so the read limits apply within the scope rather than
+// cutting it off.
+function scopeFilter(episodeIds: number[] | null, col = 'rowid', table: 'chunks' | 'summary_points' = 'chunks') {
   if (!episodeIds) return { sql: '', params: {} };
   return {
-    sql: ` AND ${col} IN (SELECT id FROM chunks WHERE episode_id IN (SELECT value FROM json_each(@episodeIds)))`,
+    sql: ` AND ${col} IN (SELECT id FROM ${table} WHERE episode_id IN (SELECT value FROM json_each(@episodeIds)))`,
     params: { episodeIds: JSON.stringify(episodeIds) },
   };
 }
@@ -74,7 +74,7 @@ function chunkFilter(episodeIds: number[] | null, col = 'rowid') {
 // follow insertion order, and backfill inserts older episodes last), and ties go the same
 // way: newer episode first, then earlier in the episode.
 function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: number[] | null): { ids: number[]; cutTerms: string[] } {
-  const f = chunkFilter(episodeIds, 'c.id');
+  const f = scopeFilter(episodeIds, 'c.id');
   // One row past the limit tells a term that was cut from one that just fills it
   const newestFirst = `AND e.status = 'done'${f.sql} ORDER BY e.episode_no DESC, c.id LIMIT ${TERM_MATCH_LIMIT + 1}`;
   const fts = db.prepare(
@@ -105,11 +105,66 @@ function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: numb
 
 // sqlite-vec (0.1.9) takes a rowid IN filter inside the KNN query itself
 function vectorRanking(db: DB, embedding: number[], limit: number, episodeIds: number[] | null): number[] {
-  const f = chunkFilter(episodeIds);
+  const f = scopeFilter(episodeIds);
   const rows = db
     .prepare(`SELECT rowid AS id FROM chunks_vec WHERE embedding MATCH @v AND k = @k${f.sql} ORDER BY distance`)
     .all({ v: toVecBlob(embedding), k: limit, ...f.params }) as { id: number }[];
   return rows.map((r) => r.id);
+}
+
+// How many summary points one search takes. Each brings the one chunk of its chapter
+// nearest the query: on the golden set (62 episodes, vectors of the question text) 2 or 3
+// per point, or 20 points, found fewer of the expected episodes, by crowding out the other
+// rankings' hits.
+const SUMMARY_POINT_LIMIT = 10;
+
+// Chunks found through the summary: the points nearest the query, each replaced by the
+// chunk of its chapter nearest the query. The summary is written language (群組, 推薦)
+// where the transcript is speech-to-text of spoken language (推標的, misheard names), and a
+// point is about one thing where a chunk is mostly small talk, so a question can match a
+// chapter whose chunks it doesn't. Only chunks come out: the model reads and cites what was
+// said, never the summary.
+function summaryRanking(db: DB, embedding: number[], episodeIds: number[] | null): number[] {
+  // A snapshot from before summary points (local tools open it readonly, so unmigrated)
+  // searches without them; live, the migration runs before the web is replaced
+  if (!db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'summary_points_vec'`).get()) return [];
+  const v = toVecBlob(embedding);
+  const scoped = scopeFilter(episodeIds, 'rowid', 'summary_points');
+  const points = db
+    .prepare(
+      `SELECT p.episode_id, p.start_sec, p.end_sec
+       FROM (SELECT rowid AS id, distance FROM summary_points_vec WHERE embedding MATCH @v AND k = @k${scoped.sql}) n
+       JOIN summary_points p ON p.id = n.id ORDER BY n.distance`,
+    )
+    .all({ v, k: SUMMARY_POINT_LIMIT, ...scoped.params }) as { episode_id: number; start_sec: number; end_sec: number | null }[];
+  if (!points.length) return [];
+
+  // The chunks each point's chapter spans: from the one it starts in to the last that
+  // starts before the next chapter
+  const chunksOf = db.prepare('SELECT id, start_sec FROM chunks WHERE episode_id = ? ORDER BY start_sec, idx');
+  const byEpisode = new Map<number, { id: number; start_sec: number }[]>();
+  const spans = points.map((p) => {
+    let chunks = byEpisode.get(p.episode_id);
+    if (!chunks) byEpisode.set(p.episode_id, (chunks = chunksOf.all(p.episode_id) as { id: number; start_sec: number }[]));
+    const first = Math.max(0, chunks.findLastIndex((c) => c.start_sec <= p.start_sec));
+    return chunks.slice(first).filter((c, i) => i === 0 || p.end_sec === null || c.start_sec < p.end_sec).map((c) => c.id);
+  });
+
+  // The distance of every chunk in those spans (lookups by rowid, not a second KNN; L2,
+  // like the KNN's), to pick each span's nearest
+  const candidates = [...new Set(spans.flat())];
+  if (!candidates.length) return [];
+  const rows = db
+    .prepare(`SELECT rowid AS id, vec_distance_l2(embedding, @v) AS d FROM chunks_vec WHERE rowid IN (SELECT value FROM json_each(@ids))`)
+    .all({ v, ids: JSON.stringify(candidates) }) as { id: number; d: number }[];
+  const dist = new Map(rows.map((r) => [r.id, r.d]));
+  const ids: number[] = [];
+  for (const span of spans) {
+    let best: number | undefined;
+    for (const id of span) if (dist.has(id) && (best === undefined || dist.get(id)! < dist.get(best)!)) best = id;
+    if (best !== undefined && !ids.includes(best)) ids.push(best);
+  }
+  return ids;
 }
 
 // Reciprocal rank fusion of keyword and vector results
@@ -131,7 +186,7 @@ export function searchTranscript(db: DB, query: string, embedding: number[] | nu
   if (episodeIds?.length === 0) return { hits: [], cutTerms: [] };
   const keyword = keywordRanking(db, terms, 30, episodeIds);
   const rankings = [keyword.ids];
-  if (embedding) rankings.push(vectorRanking(db, embedding, 30, episodeIds));
+  if (embedding) rankings.push(vectorRanking(db, embedding, 30, episodeIds), summaryRanking(db, embedding, episodeIds));
   const ids = fuse(rankings, limit);
   if (!ids.length) return { hits: [], cutTerms: keyword.cutTerms };
   const rows = db

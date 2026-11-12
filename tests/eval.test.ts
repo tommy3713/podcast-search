@@ -260,7 +260,7 @@ describe('compare', () => {
     expect(compare(before, after).changed).toEqual(['程式 abc1234 → def5678', '資料 EP692–712（21 集） → EP592–712（121 集）', 'ASK_MODEL gpt-5.4-mini → gpt-5.5', '每題 3 次 → 1 次']);
     // the same episodes after one was published again
     const redone = result([q('detail-01', yes)], { db: { ...before.meta.db, stamp: '694.790.619.660' } });
-    expect(compare(before, redone).changed).toEqual(['資料 EP692–712（21 集），集數一樣但內容不同（有集數重新處理過）']);
+    expect(compare(before, redone).changed).toEqual(['資料 EP692–712（21 集），集數一樣但內容不同（有集數重新處理過，或摘要索引不同）']);
     const text = reportDiff(compare(before, after), 'old.json');
     expect(text).toContain('程式和資料都不一樣');
     expect(reportDiff(compare(before, before), 'old.json')).toContain('程式、資料、模型都一樣');
@@ -297,7 +297,7 @@ function addEpisode(db: DB, no: number, chunks: string[], summary: Partial<Summa
     summary: { line: '', keys: [], chapters: [], stocks: [], mentions: [], ...summary },
     chunks: chunks.map((text, i) => ({ idx: i, startSec: i * 600, text })),
     vectors: chunks.map((_, i) => vec((no - 700) * 10 + i)),
-    costUsd: 0,
+    points: [], pointVectors: [], costUsd: 0,
   });
 }
 

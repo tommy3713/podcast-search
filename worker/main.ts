@@ -13,6 +13,7 @@ import { diskWarning, ping, queueHealthy } from './monitor.ts';
 import { getEpisode, getState, setState } from './repo.ts';
 import { fetchFeed, parseFeed } from './rss.ts';
 import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } from './schedule.ts';
+import { indexSummaries } from './summary-index.ts';
 import { askStats, compactDb, digestDue, formatStats, purgeAskLog, rollupAskDaily, unanswered } from './stats.ts';
 
 const USAGE = `usage: worker <command>
@@ -33,6 +34,8 @@ const USAGE = `usage: worker <command>
                       the live episode count and free disk space
   status              list episodes and their state
   check-db <file>     integrity check and live episode count of a database (restore drills)
+  index-summaries     bring live episodes' summary points up to date (run does this by itself
+                      at startup; this is for local snapshots such as the eval's)
   migrate             apply pending database migrations and exit (run by the deploy script)`;
 
 async function ingest(db: DB, episodeNo: number, args: string[]): Promise<void> {
@@ -140,6 +143,15 @@ async function run(db: DB): Promise<void> {
   setInterval(heartbeat, 30 * 60_000);
   // Pick up anything a crash or restart left half-done, then a backfill a deploy interrupted
   await enqueue('處理未完成的集數', () => drain(db));
+  // Summary points of episodes published before summary search, or by the previous release
+  // during a deploy. Not awaited: it waits its turn on the queue like any job, and the
+  // scheduler below must not wait for it.
+  void enqueue('建立摘要索引', () => indexSummaries(db))
+    .then(async (r) => {
+      if (r.episodes) await notify(`🔎 已為 ${r.episodes} 集建立摘要索引（${r.points} 則）US$${r.costUsd.toFixed(4)}`);
+      if (r.failed.length) await notify(`❌ 摘要索引失敗：EP${r.failed.join('、EP')}，下次啟動會再試`.slice(0, 600));
+    })
+    .catch((err) => console.error('summary index failed', err));
   void runBackfill(db);
   for (;;) {
     const at = nextHalfHour(new Date());
@@ -221,6 +233,12 @@ async function main(): Promise<void> {
       return nightly(db);
     case 'status':
       return status(db);
+    case 'index-summaries': {
+      const r = await indexSummaries(db);
+      if (r.failed.length) process.exitCode = 1;
+      else if (!r.episodes) console.log('every live episode is up to date');
+      return;
+    }
     case 'migrate':
       // openDb() above already ran any pending migrations; the deploy script calls this
       // with the new image before the web is updated

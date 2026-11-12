@@ -67,7 +67,7 @@ describe('publishEpisode', () => {
     insertDiscovered(db, rss(709));
     const id = getEpisode(db, 709)!.id;
     saveSegments(db, id, [{ start: 0, end: 5, text: 'x' }], 3135, 0.1);
-    const total = publishEpisode(db, id, { summary, chunks, vectors: [vec(0), vec(1)], costUsd: 0.25 });
+    const total = publishEpisode(db, id, { summary, chunks, vectors: [vec(0), vec(1)], points: [], pointVectors: [], costUsd: 0.25 });
     return { id, total };
   }
 
@@ -96,7 +96,7 @@ describe('publishEpisode', () => {
 
   it('replaces earlier rows when an episode is re-published', () => {
     const { id } = publish();
-    publishEpisode(db, id, { summary, chunks: chunks.slice(0, 1), vectors: [vec(0)], costUsd: 0 });
+    publishEpisode(db, id, { summary, chunks: chunks.slice(0, 1), vectors: [vec(0)], points: [], pointVectors: [], costUsd: 0 });
     const count = (t: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
     expect(count('chunks')).toBe(1);
     expect(count('chunks_vec')).toBe(1);

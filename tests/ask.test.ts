@@ -18,7 +18,7 @@ function addEpisode(db: DB, no: number, publishedAt: string, chunks: string[], s
     summary: { line: '', keys: [], chapters: [], stocks: [], mentions: [], ...summary },
     chunks: chunks.map((text, i) => ({ idx: i, startSec: i * 600, text })),
     vectors: chunks.map((_, i) => vec((no - 700) * 10 + i)),
-    costUsd: 0,
+    points: [], pointVectors: [], costUsd: 0,
   });
 }
 
