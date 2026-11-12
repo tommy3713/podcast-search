@@ -222,6 +222,8 @@ mark.cur { background: var(--warn); color: var(--surface); }
 .ans p { margin: 0 0 10px; }
 .ans ul { margin: 0 0 10px; padding-left: 1.2em; display: grid; gap: 6px; }
 .ans > :last-child { margin-bottom: 0; }
+/* A line's episodes, from the sources it cites (labelBlocks in lib/ask/render.ts) */
+.eplabel { font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 5px; margin-right: 6px; vertical-align: 1px; line-height: 17px; white-space: nowrap; }
 .cite { font-family: var(--font-mono); font-size: 11.5px; border: 0; background: var(--accent); color: var(--surface); border-radius: 4px; padding: 0 5px; margin: 0 2px; vertical-align: 2px; line-height: 17px; }
 .caret { display: inline-block; width: 8px; height: 1em; background: var(--fg); vertical-align: -2px; animation: blink 1s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
