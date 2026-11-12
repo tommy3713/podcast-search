@@ -6,7 +6,17 @@ import type { DB } from '../db.ts';
 import { formatTimestamp, MENTION_CATEGORIES, STOCK_CATEGORY } from '../summary.ts';
 import { escapeSourceText, escapeTags } from '../tags.ts';
 import { taipeiDate } from './quota.ts';
-import { describeMentionSearch, type EpisodeScope, describeTranscriptSearch, episodesInScope, MENTION_LIMIT, TERM_MATCH_LIMIT, searchMentions, searchTranscript } from './search.ts';
+import {
+  describeMentionSearch,
+  type EpisodeScope,
+  describeTranscriptSearch,
+  episodesInScope,
+  hasScope,
+  MENTION_LIMIT,
+  TERM_MATCH_LIMIT,
+  searchMentions,
+  searchTranscript,
+} from './search.ts';
 
 export const ASK_MODEL = process.env.ASK_MODEL ?? 'gpt-5.4-mini';
 export const MAX_QUESTION_CHARS = 300;
@@ -28,8 +38,10 @@ export type AskEvent =
   | { type: 'done' }
   | { type: 'error'; message: string };
 
-// `cut`: keyword terms that matched more chunks than one read takes
-export type ToolCallLog = { name: string; args: unknown; results: number; cut?: string[] };
+// `cut`: keyword terms that matched more chunks than one read takes. `unmatched`: no term
+// of the query is in the episodes searched, so the results only came by meaning, and the
+// model was told so.
+export type ToolCallLog = { name: string; args: unknown; results: number; cut?: string[]; unmatched?: true };
 
 // Filled in while answering, so the caller can log tool calls and token use even when
 // the answer fails halfway
@@ -196,7 +208,7 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
       { signal: deps.signal },
     );
     deps.trace.embeddingTokens += emb.usage?.total_tokens ?? 0;
-    const { hits, cutTerms } = searchTranscript(deps.db, p.data.query, emb.data[0]?.embedding ?? null, p.data);
+    const { hits, terms, cutTerms, unmatched } = searchTranscript(deps.db, p.data.query, emb.data[0]?.embedding ?? null, p.data);
     const lines = hits.map((h) => {
       const s = keep(`t:${h.episodeNo}:${h.startSec}`, { ep: h.episodeNo, t: h.startSec, text: h.text, label: null });
       return `<transcript n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${taipeiDay(h.publishedAt)}">${head(s.n, h.episodeNo, h.publishedAt)}${escapeSourceText(h.text)}</transcript>`;
@@ -204,14 +216,26 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
     if (fresh.length) deps.emit({ type: 'sources', sources: fresh });
     // Unlike a full mention list, a cut keyword read shows nothing in the results themselves.
     // The terms come from the model's query, which the question can steer, so they're escaped.
+    const scoped = hasScope(p.data);
+    const quote = (terms: string[]) => terms.map((t) => `「${escapeSourceText(t)}」`).join('');
     const cut = cutTerms.length
-      ? `\n（${cutTerms.map((t) => `「${escapeSourceText(t)}」`).join('')}符合的段落超過 ${TERM_MATCH_LIMIT} 段，關鍵字搜尋只讀了最新的 ${TERM_MATCH_LIMIT} 段，較舊的集數可能沒搜到；${
-          p.data.episode || p.data.since || p.data.until ? '這個範圍還是太大，' : ''
+      ? `\n（${quote(cutTerms)}符合的段落超過 ${TERM_MATCH_LIMIT} 段，關鍵字搜尋只讀了最新的 ${TERM_MATCH_LIMIT} 段，較舊的集數可能沒搜到；${
+          scoped ? '這個範圍還是太大，' : ''
         }要找特定集數或時間，用 episode、since、until 縮小範圍，或換更具體的詞）`
       : '';
+    // The meaning-based rankings always return their nearest chunks, which look like an
+    // answer: the prompt's "say it isn't there" rule didn't stop the model from presenting
+    // EP706's Tesla Roadster as Rivian. A misheard name (Groq written as Grok) also matches
+    // no keyword, so passages still count when they have the name or something that sounds
+    // like it; told only to check that a passage was about it, the model still took the
+    // Roadster passage, which names no car, for Rivian.
+    const noted = unmatched && hits.length > 0;
+    const none = noted
+      ? `\n（${quote(terms)}${terms.length > 1 ? '都' : ''}沒有出現在${scoped ? '這個範圍的' : ''}任何一段逐字稿、摘要或提及裡：上面的段落是依意思找到的，多半不是在講它。逐字稿是語音辨識，名稱可能寫成發音相近的字（例如 Groq 寫成 Grok），所以段落裡要有問的那個名稱或說法（中英文名稱、別名也算），或是發音相近的寫法，才能當成在講它；段落裡沒有的話，就照找不到的規則回答，不標出處）`
+      : '';
     return {
-      output: (lines.join('\n') || noResults(deps, p.data, '沒有找到相關片段')) + cut,
-      log: { name, args: p.data, results: hits.length, ...(cutTerms.length ? { cut: cutTerms } : {}) },
+      output: (lines.join('\n') || noResults(deps, p.data, '沒有找到相關片段')) + cut + none,
+      log: { name, args: p.data, results: hits.length, ...(cutTerms.length ? { cut: cutTerms } : {}), ...(noted ? { unmatched: true as const } : {}) },
     };
   }
 

@@ -33,7 +33,7 @@ export const likePattern = (term: string) => `%${term.replace(/[\\%_]/g, (c) => 
 // One episode or a range of Taipei days (both ends included), for either search
 export type EpisodeScope = { episode?: number | null; since?: string | null; until?: string | null };
 
-const hasScope = (s: EpisodeScope) => Boolean(s.episode || s.since || s.until);
+export const hasScope = (s: EpisodeScope) => Boolean(s.episode || s.since || s.until);
 
 // SQL on `episodes e` and its named parameters. published_at is an ISO time with ms, so
 // the bounds are compared as toISOString(), not toDbTime().
@@ -69,11 +69,12 @@ function scopeFilter(episodeIds: number[] | null, col = 'rowid', table: 'chunks'
   };
 }
 
-// Chunk ids ranked by how many query terms they contain, and the terms that matched more
-// chunks than one read takes. Each read takes the chunks of the newest episodes (chunk ids
-// follow insertion order, and backfill inserts older episodes last), and ties go the same
-// way: newer episode first, then earlier in the episode.
-function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: number[] | null): { ids: number[]; cutTerms: string[] } {
+// Chunk ids ranked by how many query terms they contain, the terms that matched more
+// chunks than one read takes, and whether any term matched at all. Each read takes the
+// chunks of the newest episodes (chunk ids follow insertion order, and backfill inserts
+// older episodes last), and ties go the same way: newer episode first, then earlier in
+// the episode.
+function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: number[] | null): { ids: number[]; cutTerms: string[]; matched: boolean } {
   const f = scopeFilter(episodeIds, 'c.id');
   // One row past the limit tells a term that was cut from one that just fills it
   const newestFirst = `AND e.status = 'done'${f.sql} ORDER BY e.episode_no DESC, c.id LIMIT ${TERM_MATCH_LIMIT + 1}`;
@@ -100,7 +101,7 @@ function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: numb
     .sort(([ia, a], [ib, b]) => b.n - a.n || b.ep - a.ep || ia - ib)
     .slice(0, limit)
     .map(([id]) => id);
-  return { ids, cutTerms };
+  return { ids, cutTerms, matched: matches.size > 0 };
 }
 
 // sqlite-vec (0.1.9) takes a rowid IN filter inside the KNN query itself
@@ -176,19 +177,46 @@ export function fuse(rankings: number[][], limit: number): number[] {
   return [...score.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([id]) => id);
 }
 
-// `cutTerms`: terms with more matching chunks than keyword search reads, so the model can
-// be told the results may miss episodes
-export type TranscriptResult = { hits: TranscriptHit[]; cutTerms: string[] };
+// Whether any term is in a summary point or a mention of the scope's live episodes. Both
+// are written from the transcript with names corrected, so a name the transcript has
+// misheard (Groq written as Grok) is often there.
+function inSummariesOrMentions(db: DB, terms: string[], episodeIds: number[] | null): boolean {
+  const scoped = episodeIds ? 'AND e.id IN (SELECT value FROM json_each(@episodeIds))' : '';
+  const params = episodeIds ? { episodeIds: JSON.stringify(episodeIds) } : {};
+  const point = db.prepare(
+    `SELECT 1 FROM summary_points p JOIN episodes e ON e.id = p.episode_id
+     WHERE e.status = 'done' ${scoped} AND p.text LIKE @kw ESCAPE '\\' LIMIT 1`,
+  );
+  const mention = db.prepare(
+    `SELECT 1 FROM mentions m JOIN episodes e ON e.id = m.episode_id
+     WHERE e.status = 'done' ${scoped}
+       AND (m.name LIKE @kw ESCAPE '\\' OR m.code LIKE @kw ESCAPE '\\' OR m.detail LIKE @kw ESCAPE '\\' OR m.quote LIKE @kw ESCAPE '\\')
+     LIMIT 1`,
+  );
+  return terms.some((t) => {
+    const p = { kw: likePattern(t), ...params };
+    return point.get(p) !== undefined || mention.get(p) !== undefined;
+  });
+}
+
+// `terms`: the words searched (queryTerms). `cutTerms`: terms with more matching chunks
+// than keyword search reads, so the model can be told the results may miss episodes.
+// `unmatched`: no term is in any transcript, summary point or mention of the scope, so
+// every hit came from the meaning-based rankings, which always return their nearest
+// chunks: asked about Rivian, which no episode names, they brought EP706's Tesla Roadster,
+// and the model answered with it as if it were Rivian.
+export type TranscriptResult = { hits: TranscriptHit[]; terms: string[]; cutTerms: string[]; unmatched: boolean };
 
 export function searchTranscript(db: DB, query: string, embedding: number[] | null, scope: EpisodeScope = {}, limit = 8): TranscriptResult {
   const terms = queryTerms(query);
   const episodeIds = episodesInScope(db, scope);
-  if (episodeIds?.length === 0) return { hits: [], cutTerms: [] };
+  if (episodeIds?.length === 0) return { hits: [], terms, cutTerms: [], unmatched: false };
   const keyword = keywordRanking(db, terms, 30, episodeIds);
   const rankings = [keyword.ids];
   if (embedding) rankings.push(vectorRanking(db, embedding, 30, episodeIds), summaryRanking(db, embedding, episodeIds));
   const ids = fuse(rankings, limit);
-  if (!ids.length) return { hits: [], cutTerms: keyword.cutTerms };
+  const unmatched = terms.length > 0 && !keyword.matched && !inSummariesOrMentions(db, terms, episodeIds);
+  if (!ids.length) return { hits: [], terms, cutTerms: keyword.cutTerms, unmatched };
   const rows = db
     .prepare(
       `SELECT c.id, e.episode_no, e.published_at, c.start_sec, c.text
@@ -201,7 +229,7 @@ export function searchTranscript(db: DB, query: string, embedding: number[] | nu
     .map((id) => byId.get(id))
     .filter((r) => r !== undefined)
     .map((r) => ({ episodeNo: r.episode_no, publishedAt: r.published_at, startSec: r.start_sec, text: r.text }));
-  return { hits, cutTerms: keyword.cutTerms };
+  return { hits, terms, cutTerms: keyword.cutTerms, unmatched };
 }
 
 export type MentionQuery = EpisodeScope & { category: string | null; keyword: string | null };

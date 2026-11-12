@@ -101,6 +101,32 @@ describe('searchTranscript', () => {
     expect(searchTranscript(db, '台股', null, { episode: 708 }).cutTerms).toEqual([]);
   });
 
+  it('tells when no term of the query is in any transcript searched', () => {
+    // vec(90) is EP709's first chunk, so the vector half always brings something
+    const r = searchTranscript(db, 'Rivian', vec(90));
+    expect(r.hits.length).toBeGreaterThan(0);
+    expect(r.unmatched).toBe(true);
+    expect(searchTranscript(db, 'Rivian 比特幣', vec(90)).unmatched).toBe(true);
+    // one term matching is enough: a query worded another way often has a word the episodes don't use
+    expect(searchTranscript(db, 'Rivian 台積電', vec(90)).unmatched).toBe(false);
+    // short terms go through LIKE and count the same way
+    expect(searchTranscript(db, '網球', vec(90)).unmatched).toBe(false);
+    // within a scope only its transcripts count: 網球 is only in EP709
+    expect(searchTranscript(db, '網球', vec(80), { episode: 708 }).unmatched).toBe(true);
+    expect(searchTranscript(db, '', vec(90)).unmatched).toBe(false);
+  });
+
+  it('counts a term found only in a summary point or a mention, where names are corrected', () => {
+    // no chunk says 客家菜館 or Groq: the mention's name and the summary point do
+    expect(searchTranscript(db, '客家菜館', vec(90)).unmatched).toBe(false);
+    const ep709 = (db.prepare('SELECT id FROM episodes WHERE episode_no = 709').get() as { id: number }).id;
+    db.prepare('INSERT INTO summary_points (episode_id, start_sec, end_sec, text) VALUES (?, 0, NULL, ?)').run(ep709, 'NVIDIA 買下 Groq 團隊');
+    expect(searchTranscript(db, 'Groq', vec(90)).unmatched).toBe(false);
+    // only within the scope: both are outside EP708 / EP709
+    expect(searchTranscript(db, '客家菜館', vec(90), { episode: 709 }).unmatched).toBe(true);
+    expect(searchTranscript(db, 'Groq', vec(80), { episode: 708 }).unmatched).toBe(true);
+  });
+
   it('treats FTS and LIKE syntax in the query as plain text', () => {
     expect(() => searchTranscript(db, '"OR" NEAR( * %_ \\', null)).not.toThrow();
     expect(searchTranscript(db, '%', null).hits).toEqual([]);
@@ -507,6 +533,21 @@ describe('answer', () => {
     await run('q', tagged.client);
     const out = tagged.requests[1].input.find((x: any) => x.type === 'function_call_output').output as string;
     expect(out).toContain('「＜x＞」符合的段落');
+  });
+
+  it('tells the model when the results only came by meaning', async () => {
+    const t = (query: string, episode: number | null = null) => ({ name: 'search_transcript', args: { query, episode, since: null, until: null } });
+    const { client, requests } = fakeClient([{ calls: [t('Rivian'), t('台積電'), t('Rivian <b>'), t('網球', 708)] }, { text: 'x' }]);
+    const { toolCalls } = await run('q', client);
+    const outputs = requests[1].input.filter((x: any) => x.type === 'function_call_output').map((x: any) => x.output as string);
+    // the vector half still brought chunks, which the note leaves to be judged
+    expect(outputs[0]).toContain('<transcript');
+    expect(outputs[0]).toContain('「Rivian」沒有出現在任何一段逐字稿、摘要或提及裡：上面的段落是依意思找到的，多半不是在講它');
+    expect(outputs[1]).not.toContain('沒有出現在');
+    // every term, escaped: they come from the model's query
+    expect(outputs[2]).toContain('「Rivian」「＜b＞」都沒有出現在任何一段逐字稿、摘要或提及裡');
+    expect(outputs[3]).toContain('「網球」沒有出現在這個範圍的任何一段逐字稿、摘要或提及裡');
+    expect(toolCalls.map((c) => c.unmatched)).toEqual([true, undefined, true, true]);
   });
 
   it('tells the model when the mention list was cut at the limit', async () => {
