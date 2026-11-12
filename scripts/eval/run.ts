@@ -8,6 +8,7 @@ import type { DB } from '../../src/lib/db.ts';
 import type { GoldenQuestion } from './golden.ts';
 import { judge } from './judge.ts';
 import { type Checks, type PointVerdict, type RunResult, ruleChecks, runPassed, type SourceRef } from './score.ts';
+import { checkSupport, type CitedSource, SupportCheckError, type SupportVerdict } from './support.ts';
 
 const JUDGE_TIMEOUT_MS = 60_000;
 
@@ -19,6 +20,7 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
   const trace = newTrace();
   const recorder = new AnswerRecorder();
   const refs = new Map<number, SourceRef>();
+  const texts = new Map<number, CitedSource>();
   const started = Date.now();
   const signal = AbortSignal.timeout(deps.timeoutMs ?? ASK_TIMEOUT_MS);
   let error: string | undefined;
@@ -31,7 +33,13 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
       signal,
       emit: (e) => {
         recorder.see(e);
-        if (e.type === 'sources') for (const s of e.sources) refs.set(s.n, { n: s.n, ep: s.ep });
+        if (e.type === 'sources') {
+          for (const s of e.sources) {
+            refs.set(s.n, { n: s.n, ep: s.ep });
+            // As the page's source card shows it
+            texts.set(s.n, { n: s.n, ep: s.ep, t: s.t, text: s.label ? `${s.label}：${s.text}` : s.text });
+          }
+        }
       },
     });
   } catch (e) {
@@ -49,8 +57,13 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
     cited: citedNs.length,
   };
 
+  // The passages the answer cites, kept so a result can be read without the database
+  const citedSources = citedNs.map((n) => texts.get(n)!);
   let points: PointVerdict[] = [];
   let judgeCostUsd = 0;
+  let support: SupportVerdict[] | undefined;
+  let supportCostUsd = 0;
+  let supportError: string | undefined;
   if (!error && q.points.length) {
     try {
       const j = await judge(deps.client, q, facts.answer, AbortSignal.timeout(JUDGE_TIMEOUT_MS));
@@ -60,17 +73,32 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
       error = `judge: ${e instanceof Error ? e.message : e}`;
     }
   }
+  // After the judge rather than beside it, so a run has one request open at a time, as
+  // before. Only reported, so a failed check doesn't fail the run.
+  if (!error) {
+    try {
+      const s = await checkSupport(deps.client, q.question, facts.answer, citedSources, AbortSignal.timeout(JUDGE_TIMEOUT_MS));
+      support = s.verdicts;
+      supportCostUsd = s.costUsd;
+    } catch (e) {
+      supportError = e instanceof Error ? e.message : String(e);
+      if (e instanceof SupportCheckError) supportCostUsd = e.costUsd;
+    }
+  }
 
-  const checks: Checks = { ...ruleChecks(q, facts), points };
+  const checks: Checks = { ...ruleChecks(q, facts), points, ...(support ? { support } : {}) };
   return {
     ...facts,
+    citedSources,
     ...(error ? { error } : {}),
+    ...(supportError ? { supportError } : {}),
     pass: runPassed(checks, error),
     checks,
     toolCalls: trace.toolCalls,
     ms,
     costUsd: askCost(ASK_MODEL, trace),
     judgeCostUsd,
+    supportCostUsd,
   };
 }
 

@@ -2,6 +2,7 @@
 // status, and how two eval results compare. No I/O here.
 import { parseAnswer } from '../../src/lib/ask/render.ts';
 import { type GoldenQuestion, needed, type QuestionType } from './golden.ts';
+import type { CitedSource, SupportVerdict } from './support.ts';
 
 export type PointVerdict = { ok: boolean; reason: string };
 
@@ -29,6 +30,9 @@ export type Checks = {
   refuse: boolean | null;
   misCited: MisCite[];
   points: PointVerdict[];
+  // Whether each citation's passage talks about its line (support.ts). Reported, not part
+  // of passing. Missing in results from before it existed and when the check failed.
+  support?: SupportVerdict[];
 };
 
 const countIn = (want: number[], got: number[]) => want.filter((e) => got.includes(e)).length;
@@ -45,17 +49,21 @@ export function ruleChecks(q: GoldenQuestion, f: RunFacts): Omit<Checks, 'points
 }
 
 // EP707, ep 707, EP707–709, EP707~EP709, 第 707 集, 707 集. "EP" must not end a word
-// (Step 3, DEEP 1), and a bare number needs 集 after it.
+// (Step 3, DEEP 1), and a bare number needs 集 after it. A range wider than MAX_RANGE
+// names no episode: it is the archive ("在收錄的 EP652–EP713 裡找不到"), not where
+// something was said.
 const EPISODE = /(?<![A-Za-z])EP\s?(\d{1,4})(?:\s*[-–—~～至到]\s*(?:EP\s?)?(\d{1,4}))?|第\s?(\d{1,4})\s?集|(?<![\d.])(\d{3,4})\s?集/gi;
 const MAX_RANGE = 50;
+const YEAR = 1900;
 
 export function episodesNamed(text: string): number[] {
   const eps = new Set<number>();
   for (const m of text.matchAll(EPISODE)) {
     const from = Number(m[1] ?? m[3] ?? m[4]);
     const to = m[2] ? Number(m[2]) : from;
-    if (to >= from && to - from <= MAX_RANGE) for (let e = from; e <= to; e++) eps.add(e);
-    else eps.add(from);
+    // "EP712 到 2026 年底": a year after the separator, not the end of a range
+    if (to < from || to >= YEAR) eps.add(from);
+    else if (to - from <= MAX_RANGE) for (let e = from; e <= to; e++) eps.add(e);
   }
   return [...eps];
 }
@@ -125,6 +133,9 @@ export type RunResult = RunFacts & {
   ms: number;
   costUsd: number;
   judgeCostUsd: number;
+  citedSources?: CitedSource[];
+  supportCostUsd?: number;
+  supportError?: string;
 };
 
 export type QuestionResult = { id: string; type: QuestionType; hash: string; status: Status; runs: RunResult[] };
@@ -148,6 +159,7 @@ export type EvalMeta = {
   db: DbInfo;
   askModel: string;
   judgeModel: string;
+  supportModel?: string; // missing in results from before the source check
   runs: number;
   partial: boolean; // --only was used
 };
@@ -160,16 +172,20 @@ export type Summary = {
   points: { ok: number; of: number };
   safetyFailed: string[]; // hard threshold: every safety question must pass
   misCited: { runs: number; of: number; ids: string[] }; // runs with a citation pointing at another episode
+  // Citations (one line, one source) whose passage talks about the line, over the runs the
+  // source check ran on; `failed`: runs where the check itself failed
+  support: { ok: number; of: number; ids: string[]; failed: number };
   errors: number; // runs that timed out or hit an API error
   askCostUsd: number;
   judgeCostUsd: number;
+  supportCostUsd: number;
   avgToolCalls: number;
   avgMs: number;
 };
 
 export function summarize(r: EvalResult): Summary {
   const byType = new Map<QuestionType, { type: QuestionType; pass: number; unstable: number; fail: number }>();
-  const s: Summary = { byType: [], hit: { ok: 0, of: 0 }, points: { ok: 0, of: 0 }, safetyFailed: [], misCited: { runs: 0, of: 0, ids: [] }, errors: 0, askCostUsd: 0, judgeCostUsd: 0, avgToolCalls: 0, avgMs: 0 };
+  const s: Summary = { byType: [], hit: { ok: 0, of: 0 }, points: { ok: 0, of: 0 }, safetyFailed: [], misCited: { runs: 0, of: 0, ids: [] }, support: { ok: 0, of: 0, ids: [], failed: 0 }, errors: 0, askCostUsd: 0, judgeCostUsd: 0, supportCostUsd: 0, avgToolCalls: 0, avgMs: 0 };
   let runs = 0;
   for (const q of r.questions) {
     const row = byType.get(q.type) ?? { type: q.type, pass: 0, unstable: 0, fail: 0 };
@@ -180,6 +196,7 @@ export function summarize(r: EvalResult): Summary {
       runs++;
       s.askCostUsd += run.costUsd;
       s.judgeCostUsd += run.judgeCostUsd;
+      s.supportCostUsd += run.supportCostUsd ?? 0;
       s.avgToolCalls += run.toolCalls.length;
       s.avgMs += run.ms;
       // A run that timed out or hit an API error says nothing about the searches or the
@@ -197,6 +214,11 @@ export function summarize(r: EvalResult): Summary {
         s.hit.of++;
         if (run.checks.retrieved) s.hit.ok++;
       }
+      if (run.supportError) s.support.failed++;
+      const support = run.checks.support ?? [];
+      s.support.of += support.length;
+      s.support.ok += support.filter((v) => v.ok).length;
+      if (support.some((v) => !v.ok) && !s.support.ids.includes(q.id)) s.support.ids.push(q.id);
       s.points.of += run.checks.points.length;
       s.points.ok += run.checks.points.filter((p) => p.ok).length;
     }
@@ -226,13 +248,15 @@ export type Diff = {
   added: string[];
   removed: string[];
   hitRate: { before: number; after: number };
+  // Source check rate over the questions both runs share; null when either side has none
+  supportRate: { before: number; after: number } | null;
   changed: string[]; // what differs between the two runs besides the answers
   alarm: boolean;
 };
 
 export function compare(before: EvalResult, after: EvalResult): Diff {
   const old = new Map(before.questions.map((q) => [q.id, q]));
-  const d: Diff = { regressed: [], wobbly: [], fixed: [], rewritten: [], added: [], removed: [], hitRate: { before: 0, after: 0 }, changed: [], alarm: false };
+  const d: Diff = { regressed: [], wobbly: [], fixed: [], rewritten: [], added: [], removed: [], hitRate: { before: 0, after: 0 }, supportRate: null, changed: [], alarm: false };
   const comparable = new Set<string>();
   for (const q of after.questions) {
     const o = old.get(q.id);
@@ -253,9 +277,12 @@ export function compare(before: EvalResult, after: EvalResult): Diff {
   }
 
   // Hit rate over the questions both runs share unchanged, so adding questions doesn't move it
-  const only = (r: EvalResult) => summarize({ ...r, questions: r.questions.filter((q) => comparable.has(q.id)) }).hit;
-  const hitBefore = only(before);
-  const hitAfter = only(after);
+  const shared = (r: EvalResult) => summarize({ ...r, questions: r.questions.filter((q) => comparable.has(q.id)) });
+  const sharedBefore = shared(before);
+  const sharedAfter = shared(after);
+  const hitBefore = sharedBefore.hit;
+  const hitAfter = sharedAfter.hit;
+  if (sharedBefore.support.of && sharedAfter.support.of) d.supportRate = { before: rate(sharedBefore.support), after: rate(sharedAfter.support) };
   d.hitRate = { before: rate(hitBefore), after: rate(hitAfter) };
   // With no run to measure on one side (every run errored), there is no drop to speak of
   const hitDrop = hitBefore.of && hitAfter.of ? d.hitRate.before - d.hitRate.after : 0;
@@ -267,6 +294,7 @@ export function compare(before: EvalResult, after: EvalResult): Diff {
   if (data) d.changed.push(data);
   if (a.askModel !== b.askModel) d.changed.push(`ASK_MODEL ${a.askModel} → ${b.askModel}`);
   if (a.judgeModel !== b.judgeModel) d.changed.push(`JUDGE_MODEL ${a.judgeModel} → ${b.judgeModel}`);
+  if (a.supportModel && b.supportModel && a.supportModel !== b.supportModel) d.changed.push(`SUPPORT_MODEL ${a.supportModel} → ${b.supportModel}`);
   if (a.runs !== b.runs) d.changed.push(`每題 ${a.runs} 次 → ${b.runs} 次`);
 
   d.alarm = d.regressed.length >= REGRESSED_ALARM || hitDrop > HIT_RATE_ALARM;
