@@ -7,6 +7,8 @@ import { episodeIndex, getEpisode, parseEpisodeNo } from '@/lib/episodes';
 import { formatDate, groupParagraphs, minutes } from '@/lib/format';
 import { pageHref, pageOfIndex } from '@/lib/paging';
 import { episodeDescription, episodeJsonLd, episodeTitle, SHARE_IMAGE, SITE_NAME } from '@/lib/seo';
+import { stockIndex } from '@/lib/stock-pages';
+import { stockFor, stockHref } from '@/lib/stocks';
 
 type Props = {
   params: Promise<{ no: string }>;
@@ -49,6 +51,12 @@ export default async function EpisodePage({ params, searchParams }: Props) {
   const t = sp.t !== undefined && /^\d{1,5}$/.test(sp.t) ? Math.min(Number(sp.t), ep.duration ?? Infinity) : null;
   // Back to the list page this episode appears on
   const back = pageHref(pageOfIndex(await episodeIndex(ep.no)));
+  // Each stock's page with every episode that talks about it; null for the few without one
+  const stocks = await stockIndex();
+  const stockHrefs = ep.summary.stocks.map((s) => {
+    const stock = stockFor(stocks, s.name, s.code);
+    return stock ? stockHref(stock) : null;
+  });
 
   return (
     <>
@@ -74,6 +82,7 @@ export default async function EpisodePage({ params, searchParams }: Props) {
         audioUrl={ep.audioUrl}
         duration={ep.duration ?? ep.segments.at(-1)?.end ?? 0}
         summary={ep.summary}
+        stockHrefs={stockHrefs}
         paragraphs={groupParagraphs(ep.segments)}
         initialTab={sp.tab === 'tx' || t !== null ? 'tx' : 'summary'}
         initialT={t}

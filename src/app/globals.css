@@ -250,7 +250,7 @@ a.cite { display: inline-block; text-decoration: none; }
 }
 @media (max-width: 640px) {
   nav.desk { display: none; }
-  nav.bottom { display: grid; grid-template-columns: 1fr 1fr; position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+  nav.bottom { display: grid; grid-template-columns: repeat(3, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
   nav.bottom a { height: var(--nav-h); display: grid; place-items: center; text-decoration: none; color: var(--muted); font-size: 13px; font-weight: 500; min-height: 44px; }
   nav.bottom a[aria-current="page"] { color: var(--fg); }
   main { padding-bottom: calc(var(--nav-h) + 96px + env(safe-area-inset-bottom, 0px)); }
@@ -278,6 +278,31 @@ a.cite { display: inline-block; text-decoration: none; }
   .user .name { display: none; }
   header.top .wrap { gap: 12px; }
   .user .login-long { display: none; }
+}
+
+/* stock pages */
+.stock-head { display: grid; gap: 6px; }
+.stock-head h1 { margin: 0; font-family: var(--font-display); font-size: 30px; line-height: 1.2; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.stock-head h1 .c, .stock-grid .c { font-family: var(--font-mono); color: var(--muted); font-weight: 400; }
+.stock-head h1 .c { font-size: 17px; }
+.stock-ep { padding: 14px 18px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.stock-ep:first-child { border-top: 0; }
+.stock-ep .t { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-weight: 500; }
+.stock-ep .t a { color: inherit; text-decoration: none; }
+.stock-ep .t a:hover { color: var(--accent); text-decoration: underline; }
+.stock-ep .keypts { font-size: 14.5px; }
+.stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.stock-grid a { display: flex; gap: 8px; align-items: baseline; padding: 9px 18px; text-decoration: none; color: inherit; min-width: 0; }
+.stock-grid a:hover { background: var(--bg); }
+.stock-grid .n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stock-grid .c { font-size: 12.5px; }
+.stock-grid .fine { margin-left: auto; white-space: nowrap; }
+.stock .n a { color: inherit; text-decoration: underline; text-decoration-color: var(--muted); text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.stock .n a:hover { color: var(--accent); text-decoration-color: currentColor; }
+/* Here, not in the phone block further up: that one comes before these rules */
+@media (max-width: 640px) {
+  .stock-head h1 { font-size: 24px; }
+  .stock-ep, .stock-grid a { padding-inline: 14px; }
 }
 
 /* loading.tsx placeholders */
