@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Paragraph } from '@/lib/format';
-import { offsetAt, type SeekTable, seekTarget, seeksByToc } from '@/lib/seek';
+import { offsetAt, type SeekModel, type SeekTable, seekModel, seekTarget, usableModel } from '@/lib/seek';
 import { formatTimestamp, type Summary } from '@/lib/summary';
 
 type Tab = 'summary' | 'tx';
@@ -21,10 +21,10 @@ const SPEEDS = [1, 1.25, 1.5, 2];
 
 export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTab, initialT, seek: table }: Props) {
   const audio = useRef<HTMLAudioElement>(null);
-  // Everything here works in audio time: where the listener really is. In Chromium, which
-  // seeks through the MP3's table of contents (src/lib/seek.ts), that's currentTime plus the
-  // offset of the last seek, and a seek to x sets currentTime to whatever lands nearest x.
-  const toc = useRef<SeekTable | null>(null);
+  // Everything here works in audio time: where the listener really is. In Chromium and Safari,
+  // which seek through the MP3's table of contents (src/lib/seek.ts), that's currentTime plus
+  // the offset of the last seek, and a seek to x sets currentTime to whatever lands nearest x.
+  const toc = useRef<{ table: SeekTable; model: SeekModel } | null>(null);
   const offset = useRef(0);
   // The currentTime a reload for a seek is heading to: until it gets there, currentTime reads 0
   // (no seeked event when it's 0 itself)
@@ -39,25 +39,26 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
   const seek = useCallback((to: number, play = true) => {
     const a = audio.current;
     if (!a) return;
-    const table = toc.current;
-    if (!table) {
+    const c = toc.current;
+    if (!c) {
       a.currentTime = to;
       setT(to);
     } else {
-      // Chromium also indexes every packet it has read, stamped with the offset of the seek
-      // that led there, so a second seek near them lands by that old offset instead (measured:
-      // +30 s after a seek at 40:30 played 17 s early). A fresh load knows only the table of
-      // contents, so every seek lands where seekTarget expects.
+      // Where a seek lands also depends on what the element has read: Chromium indexes every
+      // packet it read, stamped with the offset of the seek that led there (+30 s after a seek
+      // at 40:30 played 17 s early), and Safari seeks a played element by average bitrate
+      // instead. A fresh load knows only the table of contents, so every seek lands where
+      // seekTarget expects.
       if (a.readyState > HTMLMediaElement.HAVE_NOTHING) {
         const rate = a.playbackRate;
         a.defaultPlaybackRate = rate;
         a.load();
         a.playbackRate = rate;
       }
-      const at = seekTarget(table, to);
+      const at = seekTarget(c.table, to, c.model);
       if (a.readyState === HTMLMediaElement.HAVE_NOTHING) settling.current = at;
       a.currentTime = at;
-      offset.current = offsetAt(table, at);
+      offset.current = offsetAt(c.table, at, c.model);
       setT(at + offset.current);
     }
     if (play) a.play().catch(() => {});
@@ -66,7 +67,8 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
   // A ?t= link positions the player without autoplay (browsers block it anyway). Decided here
   // rather than on the server, which can't tell the browser.
   useEffect(() => {
-    toc.current = table && seeksByToc() ? table : null;
+    const model = usableModel(table, seekModel());
+    toc.current = table && model ? { table, model } : null;
     if (initialT !== null) seek(initialT, false);
   }, [table, initialT, seek]);
 
@@ -111,7 +113,8 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
         preload="none"
         // seek() has set the offset already; a seek from anywhere else gets the best guess
         onSeeking={(e) => {
-          if (settling.current === null) offset.current = toc.current ? offsetAt(toc.current, e.currentTarget.currentTime) : 0;
+          const c = toc.current;
+          if (settling.current === null) offset.current = c ? offsetAt(c.table, e.currentTarget.currentTime, c.model) : 0;
         }}
         onTimeUpdate={(e) => {
           const ct = e.currentTarget.currentTime;

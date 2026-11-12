@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type DB, openDb } from '@/lib/db.ts';
-import { NO_SEEK_TABLE, offsetAt, parseSeekTable, type SeekTable, seekTarget, seeksByToc } from '@/lib/seek.ts';
+import { NO_SEEK_TABLE, offsetAt, parseSeekTable, type SeekTable, seekModel, seekTarget, usableModel } from '@/lib/seek.ts';
 import { insertDiscovered } from '../worker/repo.ts';
 import { indexSeekTables } from '../worker/seek-index.ts';
 import { SeekTableParser } from '../worker/seek-table.ts';
@@ -66,6 +66,18 @@ describe('SeekTableParser', () => {
     expect(t.offsets[50]).toBeCloseTo(726 * SPF - DURATION / 2, 1);
     // The cheap first half is crossed in a few entries, so early entries land late
     expect(Math.max(...t.offsets)).toBeGreaterThan(5);
+  });
+
+  it("works out where Safari's interpolated seeks land", () => {
+    const t = parse(mp3(FRAMES, linearToc))!;
+    expect(t.landings).toHaveLength(1001);
+    expect(t.landings![0]).toBe(0);
+    // 50% interpolates to entry 50 exactly: the same byte as above
+    expect(t.landings![500]).toBeCloseTo(726 * SPF, 1);
+    // 25%: entry 25, byte 64/256 of 574000 = 143500, 88 big frames past the small ones
+    expect(t.landings![250]).toBeCloseTo(588 * SPF, 1);
+    expect(t.landings![1000]).toBeCloseTo(DURATION, 1);
+    for (let k = 1; k < t.landings!.length; k++) expect(t.landings![k]).toBeGreaterThanOrEqual(t.landings![k - 1]!);
   });
 
   it('gives near-zero offsets for an accurate table, apart from its 1/256 rounding', () => {
@@ -135,17 +147,52 @@ describe('seekTarget / offsetAt', () => {
     }
   });
 
+  it('asks Safari for the time whose interpolated landing is x', () => {
+    const t = parse(mp3(FRAMES, linearToc))!;
+    for (let x = 0.5; x < t.duration - 0.5; x += 0.37) {
+      const at = seekTarget(t, x, 'interp');
+      expect(at + offsetAt(t, at, 'interp')).toBeCloseTo(x, 5);
+    }
+    expect(seekTarget(t, 0, 'interp')).toBe(0);
+    // A seek to 50% lands 726 frames in: the offset there
+    expect(offsetAt(t, t.duration / 2, 'interp')).toBeCloseTo(726 * SPF - DURATION / 2, 1);
+  });
+
   it('reads stored tables', () => {
     expect(parseSeekTable(null)).toBeNull();
     expect(parseSeekTable(JSON.stringify(NO_SEEK_TABLE))).toBeNull();
     expect(parseSeekTable('{oops')).toBeNull();
     expect(parseSeekTable('{"duration":10,"offsets":[0,1]}')).toEqual({ duration: 10, offsets: [0, 1] });
+    expect(parseSeekTable('{"duration":10,"offsets":[0,1],"landings":[0,9.5,10]}')).toEqual({
+      duration: 10,
+      offsets: [0, 1],
+      landings: [0, 9.5, 10],
+    });
   });
 
-  it('only corrects Chromium', () => {
-    expect(seeksByToc({ userAgentData: {} } as unknown as Navigator)).toBe(true);
-    expect(seeksByToc({} as Navigator)).toBe(false);
-    expect(seeksByToc(undefined)).toBe(false);
+  it('picks the model of the browser, and none for one not measured', () => {
+    const nav = (userAgent: string, chromium = false) =>
+      ({ userAgent, ...(chromium && { userAgentData: {} }) }) as unknown as Navigator;
+    const safariMac =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Safari/605.1.15';
+    const safariIos =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 26_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1';
+    const chromeIos =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 26_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0 Mobile/15E148 Safari/604.1';
+    const chrome =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+    const firefox = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:140.0) Gecko/20100101 Firefox/140.0';
+    expect(seekModel(nav(chrome, true))).toBe('entry');
+    expect(seekModel(nav(safariMac))).toBe('interp');
+    expect(seekModel(nav(safariIos))).toBe('interp');
+    expect(seekModel(nav(chromeIos))).toBe('interp');
+    // Chromium without userAgentData (old, or not a secure context): its model isn't known to hold
+    expect(seekModel(nav(chrome))).toBeNull();
+    expect(seekModel(nav(firefox))).toBeNull();
+    expect(seekModel(undefined)).toBeNull();
+    // A table from before landings were kept can't serve Safari
+    expect(usableModel({ duration: 10, offsets: [0] }, 'interp')).toBeNull();
+    expect(usableModel({ duration: 10, offsets: [0] }, 'entry')).toBe('entry');
   });
 });
 
