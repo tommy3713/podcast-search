@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { AskEvent, Source } from '@/lib/ask/agent';
-import { type Block, citedOrder, parseAnswer, splitEvents } from '@/lib/ask/render';
+import { citedOrder, episodeLabel, labelBlocks, type LabeledBlock, parseAnswer, splitEvents } from '@/lib/ask/render';
 import { formatTimestamp } from '@/lib/summary';
 
 type Msg = {
@@ -179,8 +179,9 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
 }
 
 function Message({ m }: { m: Msg }) {
-  const known = new Set(Object.keys(m.sources).map(Number));
-  const blocks = parseAnswer(m.text, known, !m.done);
+  const epOf = new Map(Object.values(m.sources).map((s) => [s.n, s.ep]));
+  const known = new Set(epOf.keys());
+  const blocks = labelBlocks(parseAnswer(m.text, known, !m.done), epOf, !m.done);
   const cited = citedOrder(blocks)
     .map((n) => m.sources[n])
     .filter((s): s is Source => !!s);
@@ -226,17 +227,23 @@ function Message({ m }: { m: Msg }) {
   );
 }
 
-function AnswerBlocks({ blocks, sources }: { blocks: Block[]; sources: Record<number, Source> }) {
+function AnswerBlocks({ blocks, sources }: { blocks: LabeledBlock[]; sources: Record<number, Source> }) {
   // Group consecutive list items into one <ul>
-  const groups: { kind: 'p' | 'ul'; items: Block[] }[] = [];
+  const groups: { kind: 'p' | 'ul'; items: LabeledBlock[] }[] = [];
   for (const b of blocks) {
     const kind = b.kind === 'li' ? 'ul' : 'p';
     const last = groups.at(-1);
     if (kind === 'ul' && last?.kind === 'ul') last.items.push(b);
     else groups.push({ kind, items: [b] });
   }
-  const parts = (b: Block) =>
-    b.parts.map((p, i) => {
+  // Each line that cites something opens with its sources' episodes (labelBlocks)
+  const parts = (b: LabeledBlock) => [
+    b.eps.length > 0 && (
+      <span key="ep" className="eplabel">
+        {episodeLabel(b.eps)}
+      </span>
+    ),
+    ...b.parts.map((p, i) => {
       if (p.kind === 'text') return <Fragment key={i}>{p.text}</Fragment>;
       if (p.kind === 'bold') return <b key={i}>{p.text}</b>;
       const s = sources[p.n]!;
@@ -245,7 +252,8 @@ function AnswerBlocks({ blocks, sources }: { blocks: Block[]; sources: Record<nu
           {p.n}
         </Link>
       );
-    });
+    }),
+  ];
   return groups.map((g, i) =>
     g.kind === 'ul' ? (
       <ul key={i}>

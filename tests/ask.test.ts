@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { answer, type AskEvent, MAX_TOOL_CALLS, newTrace, systemPrompt } from '@/lib/ask/agent';
 import { logAsk, logQuotaRejection, refundQuota, remaining, SITE_DAILY_LIMIT, taipeiDate, takeQuota, USER_DAILY_LIMIT } from '@/lib/ask/quota';
 import { AnswerRecorder } from '@/lib/ask/record';
-import { citedOrder, parseAnswer, splitEvents } from '@/lib/ask/render';
+import { citedOrder, episodeLabel, labelBlocks, labeledAnswer, parseAnswer, shownWithoutLabels, splitEvents } from '@/lib/ask/render';
 import { fuse, MENTION_LIMIT, queryTerms, searchMentions, searchTranscript, TERM_MATCH_LIMIT } from '@/lib/ask/search';
 import { type DB, EMBEDDING_DIM, openDb } from '@/lib/db';
 import type { Summary } from '@/lib/summary';
@@ -217,6 +217,77 @@ describe('parseAnswer', () => {
     expect(parseAnswer('是**網', known, true)).toEqual([{ kind: 'p', parts: [{ kind: 'text', text: '是網' }] }]);
   });
 
+});
+
+describe('episode labels', () => {
+  // [1] and [3] are EP709, [2] EP706, [4] EP701, [5] EP712, [6] EP710
+  const epOf = new Map([
+    [1, 709],
+    [2, 706],
+    [3, 709],
+    [4, 701],
+    [5, 712],
+    [6, 710],
+  ]);
+  const known = new Set(epOf.keys());
+  const shown = (t: string) => labeledAnswer(t, epOf);
+
+  it('labels each citing line with its sources’ episodes, whatever the model wrote', () => {
+    const blocks = labelBlocks(parseAnswer('主委聊過這些車：\n- EP706：粉紅色的 911 [1]\n- Panamera [2][1][3]\n- 只有文字', known), epOf);
+    expect(blocks.map((b) => b.eps)).toEqual([[], [709], [706, 709], []]);
+    // the model's own "EP706：" is gone; the label says EP709, as the citation does
+    expect(blocks[1]!.parts[0]).toEqual({ kind: 'text', text: '粉紅色的 911 ' });
+    expect(blocks[0]!.parts[0]).toEqual({ kind: 'text', text: '主委聊過這些車：' });
+  });
+
+  it('names at most three episodes', () => {
+    expect(episodeLabel([709])).toBe('EP709');
+    expect(episodeLabel([706, 709])).toBe('EP706・EP709');
+    expect(episodeLabel([701, 706, 709, 712])).toBe('EP701・EP706・EP709 等 4 集');
+  });
+
+  it('replaces a label the model wrote, in any of its forms', () => {
+    expect(shown('EP706：他說 [1]')).toBe('EP709｜他說 [1]');
+    expect(shown('EP698、EP699：他說 [1]')).toBe('EP709｜他說 [1]');
+    expect(shown('EP691 2026-08-26：他說 [1]')).toBe('EP709｜他說 [1]');
+    expect(shown('EP706（2026-10-17）｜他說 [1]')).toBe('EP709｜他說 [1]');
+    expect(shown('第 709 集：說了 [1]')).toBe('EP709｜說了 [1]');
+    expect(shown('- EP672 [1]')).toBe('- EP709｜[1]');
+    expect(shown('- EP672、EP673 [1][2]')).toBe('- EP706・EP709｜[1][2]');
+  });
+
+  it('keeps prose that names episodes, dropping only a repeat of the label', () => {
+    expect(shown('EP709 說每天打網球 [1]')).toBe('EP709｜說每天打網球 [1]');
+    expect(shown('EP706、EP709 都有聊 [1][2]')).toBe('EP706・EP709｜都有聊 [1][2]');
+    // another episode: kept, so the reader sees both
+    expect(shown('EP691 有聊到北海道 [1]')).toBe('EP709｜EP691 有聊到北海道 [1]');
+    expect(shown('EP709 跟 EP706 都提到 [1][2]')).toBe('EP706・EP709｜EP709 跟 EP706 都提到 [1][2]');
+    // an episode right before a citation in the middle of a line is prose, not a label
+    expect(shown('EP709 [1] 跟 EP710 [6] 不同')).toBe('EP709・EP710｜EP709 [1] 跟 EP710 [6] 不同');
+    // bold after the episode: the same text on the page and in the log
+    expect(shown('EP691 **台積電**有聊到 [1]')).toBe('EP709｜EP691 **台積電**有聊到 [1]');
+    expect(shown('- EP709 **重點** [1]')).toBe('- EP709｜**重點** [1]');
+    // a date's digits aren't an episode
+    expect(shown('EP709 2026-11-07 說 [1]')).toBe('EP709｜說 [1]');
+  });
+
+  it('writes the page’s text for the log and the judge, and the eval’s without labels', () => {
+    const raw = '主委聊過：\n- EP706：911 [1]\n- **GTS** [2][4]\n找不到別的 [9]';
+    expect(shown(raw)).toBe('主委聊過：\n- EP709｜911 [1]\n- EP701・EP706｜**GTS** [2][4]\n找不到別的');
+    expect(shownWithoutLabels(raw, epOf)).toBe('主委聊過：\n- 911 [1]\n- **GTS** [2][4]\n找不到別的');
+  });
+
+  it('takes off a label the model is still typing, and labels the line once a citation arrives', () => {
+    const typing = (t: string) => labelBlocks(parseAnswer(t, known, true), epOf, true).at(-1)!;
+    expect(typing('- EP706：粉紅色的 9')).toMatchObject({ eps: [], parts: [{ text: '粉紅色的 9' }] });
+    expect(typing('- EP706：粉紅色的 911 [1')).toMatchObject({ eps: [], parts: [{ text: '粉紅色的 911' }] });
+    expect(typing('- EP706：粉紅色的 911 [1]')).toMatchObject({ eps: [709], parts: [{ text: '粉紅色的 911 ' }, { n: 1 }] });
+    // once the answer is done, a line without a citation keeps what the model wrote
+    expect(labelBlocks(parseAnswer('EP706：沒有出處', known), epOf)[0]!.parts).toEqual([{ kind: 'text', text: 'EP706：沒有出處' }]);
+  });
+});
+
+describe('splitEvents', () => {
   it('splits SSE events across chunks', () => {
     expect(splitEvents('data: {"a":1}\n\ndata: {"b"')).toEqual({ events: ['{"a":1}'], rest: 'data: {"b"' });
   });
@@ -494,6 +565,8 @@ describe('AnswerRecorder', () => {
     r.see({ type: 'delta', text: '還有 [2][7]' });
     expect(r.text).toBe('答案 [2]，還有 [2][7]');
     expect(r.cited()).toBe(1);
+    // logged as the page shows it: labelled, the unknown [7] dropped
+    expect(r.labeled()).toBe('EP709｜答案 [2]，還有 [2]');
   });
 
   it('counts zero when the answer cites nothing', () => {

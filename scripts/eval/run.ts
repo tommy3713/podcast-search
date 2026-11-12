@@ -51,6 +51,7 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
   const citedNs = recorder.citedNumbers();
   const facts = {
     answer: recorder.text,
+    shown: recorder.labeled(),
     sources: [...refs.values()],
     retrievedEps: uniqueSorted([...refs.values()].map((s) => s.ep)),
     citedEps: uniqueSorted(citedNs.map((n) => refs.get(n)!.ep)),
@@ -66,7 +67,7 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
   let supportError: string | undefined;
   if (!error && q.points.length) {
     try {
-      const j = await judge(deps.client, q, facts.answer, AbortSignal.timeout(JUDGE_TIMEOUT_MS));
+      const j = await judge(deps.client, q, facts.shown, AbortSignal.timeout(JUDGE_TIMEOUT_MS));
       points = j.points;
       judgeCostUsd = j.costUsd;
     } catch (e) {

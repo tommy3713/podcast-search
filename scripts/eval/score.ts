@@ -1,6 +1,6 @@
 // Scoring: what one run of a question must satisfy, how runs add up to a question's
 // status, and how two eval results compare. No I/O here.
-import { parseAnswer } from '../../src/lib/ask/render.ts';
+import { parseAnswer, shownWithoutLabels } from '../../src/lib/ask/render.ts';
 import { type GoldenQuestion, needed, type QuestionType } from './golden.ts';
 import type { CitedSource, SupportVerdict } from './support.ts';
 
@@ -14,7 +14,10 @@ export type MisCite = { n: number; ep: number; says: number[] };
 
 // What one run produced, before scoring
 export type RunFacts = {
-  answer: string;
+  answer: string; // as the model wrote it
+  // As the page shows it, each citing line opening with its sources' episodes: what the
+  // judge reads. Missing in results from before the labels.
+  shown?: string;
   sources: SourceRef[]; // every source the searches returned, by number
   retrievedEps: number[]; // episodes among the sources the searches returned
   citedEps: number[]; // episodes of the sources the answer cites
@@ -44,7 +47,9 @@ export function ruleChecks(q: GoldenQuestion, f: RunFacts): Omit<Checks, 'points
     cited: expects ? countIn(q.expect_eps, f.citedEps) >= needed(q) : null,
     mustNot: q.must_not.filter((s) => f.answer.includes(s)),
     refuse: q.refuse ? f.cited === 0 : null,
-    misCited: misCitations(f.answer, f.sources),
+    // The page replaces a label the model wrote at the start of a line with one from the
+    // citations, so what's checked is the episodes the answer names in its own text
+    misCited: misCitations(shownWithoutLabels(f.answer, new Map(f.sources.map((s) => [s.n, s.ep]))), f.sources),
   };
 }
 

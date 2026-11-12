@@ -65,7 +65,7 @@ describe('golden set', () => {
     expect(questionHash(question({ note: '在 EP709', queries: ['x'] }))).toBe(h);
     expect(questionHash(question({ points: ['說是 EP709'] }))).not.toBe(h);
     expect(questionHash(question({ refuse: true }))).not.toBe(h);
-    expect(SCORING_VERSION).toBe(2); // bumping it makes every question incomparable with older results, on purpose
+    expect(SCORING_VERSION).toBe(3); // bumping it makes every question incomparable with older results, on purpose
   });
 });
 
@@ -116,6 +116,11 @@ describe('rule checks', () => {
     // a heading line names the episode for the list under it
     expect(misCitations('EP708 提到：\n- 每天打網球 [1]\n- 苗栗那家 [2]', sources)).toEqual([{ n: 1, ep: 709, says: [708] }]);
     expect(misCitations('主委聊過：\n- 每天打網球 [1]', sources)).toEqual([]);
+    // a label the model wrote itself is replaced on the page, so the eval leaves it out too
+    expect(ruleChecks(question(), { ...facts, answer: '- EP708：每天打網球 [1]' }).misCited).toEqual([]);
+    expect(ruleChecks(question(), { ...facts, answer: '- 跟 EP708 一樣每天打網球 [1]' }).misCited).toEqual([{ n: 1, ep: 709, says: [708] }]);
+    // a paragraph naming EP708 above an item labelled EP709 still misleads the reader
+    expect(ruleChecks(question(), { ...facts, answer: 'EP708 提到：\n- EP708：每天打網球 [1]' }).misCited).toEqual([{ n: 1, ep: 709, says: [708] }]);
     // a heading that names the whole archive doesn't name the list's episode
     expect(misCitations('在目前收錄的 EP652–EP713 裡找不到：\n- 有聊到別的車 [1][2]', sources)).toEqual([]);
     // ranges and 第 n 集 count; a word ending in "ep" doesn't
@@ -459,6 +464,16 @@ describe('runQuestion', () => {
     expect(r.error).toBeUndefined();
     expect(r.costUsd).toBeCloseTo((2000 * 0.75 + 200 * 4.5) / 1e6);
     expect(r.judgeCostUsd).toBeGreaterThan(0);
+    // the judge reads the answer as the page shows it, labels included
+    expect(r.shown).toBe('EP709｜說每天打**網球** [1]');
+  });
+
+  it('gives the judge the labelled answer', async () => {
+    const { client, judged } = fakeClient([searchTennis, { text: '- EP708：每天打網球 [1]' }], [true, true]);
+    const r = await runQuestion(question(), { db, client, coverage });
+    expect(r.answer).toBe('- EP708：每天打網球 [1]');
+    expect(judged[0].input[1].content).toContain('<answer>- EP709｜每天打網球 [1]</answer>');
+    expect(r.checks.misCited).toEqual([]);
   });
 
   it('fails an answer that found the episode and did not cite it', async () => {

@@ -55,8 +55,10 @@ export const needed = (q: GoldenQuestion) => q.min_eps ?? q.expect_eps.length;
 
 // Bump when a run is scored by different rules, so results scored the old way aren't
 // compared with new ones as if the answers had changed. 2: a citation pointing at another
-// episode than its line names fails the run.
-export const SCORING_VERSION = 2;
+// episode than its line names fails the run. 3: the judge reads the answer as the page
+// shows it, each citing line labelled with its sources' episodes, and 出處對不上 checks
+// what's left of the model's own text once the page has replaced its labels.
+export const SCORING_VERSION = 3;
 
 // Changes when anything a run is scored on changes, so a rewritten question isn't
 // compared with its old results
