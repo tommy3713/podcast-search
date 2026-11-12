@@ -17,16 +17,22 @@ export function resetSeekFailures(): void {
 // the transcribe step, from the audio it downloads anyway): each is one download of its
 // audio (about 50 MB, read as it arrives, nothing saved), so a backlog takes a while but costs
 // nothing. A failed download leaves the episode for the next run and the rest carry on.
+// `paused`, asked before each episode, stops it there (the episode being read is finished).
 export async function indexSeekTables(
   db: DB,
-  opts: { only?: number; fetch?: Fetch } = {},
-): Promise<{ episodes: number; failed: number[] }> {
+  opts: { only?: number; fetch?: Fetch; paused?: () => boolean } = {},
+): Promise<{ episodes: number; failed: number[]; paused: boolean }> {
   const get = opts.fetch ?? fetchSeekTable;
   const todo = episodesWithoutSeekTable(db).filter((e) => opts.only === undefined || e.episode_no === opts.only);
   let episodes = 0;
   const failed: number[] = [];
+  let paused = false;
   for (const e of todo) {
     if ((failures.get(e.id) ?? 0) >= MAX_FAILURES) continue;
+    if (opts.paused?.()) {
+      paused = true;
+      break;
+    }
     try {
       saveSeekTable(db, e.id, (await get(e.audio_url)) ?? NO_SEEK_TABLE);
       episodes++;
@@ -39,16 +45,18 @@ export async function indexSeekTables(
   if (episodes || failed.length) {
     console.log(`seek table: ${episodes} episodes${failed.length ? `; failed EP${failed.join(', EP')}` : ''}`);
   }
-  return { episodes, failed };
+  return { episodes, failed, paused };
 }
 
 // Off the job queue: it only writes seek_json, so it can't get in a job's way, and a restart
 // mid-download loses nothing. Kept off the queue so a backlog of downloads doesn't hold up
 // polls, or a deploy (which waits for the queue to be idle). Calls while it runs make it go
-// round once more, for an episode published in the meantime.
+// round once more, for an episode published in the meantime. `paused` (main.ts: a job on the
+// queue, or a backfill under way) stops it until the next call, so its downloads don't
+// compete with a job's.
 let running: Promise<void> | null = null;
 let again = false;
-export function startSeekIndex(db: DB, fetch?: Fetch): Promise<void> {
+export function startSeekIndex(db: DB, opts: { fetch?: Fetch; paused?: () => boolean } = {}): Promise<void> {
   if (running) {
     again = true;
     return running;
@@ -57,7 +65,7 @@ export function startSeekIndex(db: DB, fetch?: Fetch): Promise<void> {
     try {
       do {
         again = false;
-        await indexSeekTables(db, { fetch });
+        if ((await indexSeekTables(db, opts)).paused) break;
       } while (again);
     } catch (err) {
       console.error('seek table failed', err);

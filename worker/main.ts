@@ -137,12 +137,17 @@ async function run(db: DB): Promise<void> {
       console.error('[queue file]', err instanceof Error ? err.message : err);
     }
   };
-  // Seek tables of new episodes (and any a restart or failed download left) are worked out
-  // whenever the queue goes idle, so right after a publish, outside the queue (seek-index.ts)
+  // Seek tables of episodes from before them (new ones get theirs when transcribed) are
+  // worked out outside the queue (seek-index.ts), only while it's idle and no backfill is
+  // under way, so those downloads never compete with a job's: it stops when a job comes in,
+  // and the next idle queue (the end of that job, or the backfill's last) starts it again
+  const seekPaused = () => {
+    const q = queueState();
+    return !!q.running || q.waiting > 0 || getBackfill(db) !== null;
+  };
   onQueueChange(() => {
     writeQueue();
-    const q = queueState();
-    if (!q.running && !q.waiting) void startSeekIndex(db);
+    if (!seekPaused()) void startSeekIndex(db, { paused: seekPaused });
   });
   writeQueue();
   void runBot(db);
@@ -162,7 +167,7 @@ async function run(db: DB): Promise<void> {
       if (r.failed.length) await notify(`❌ 摘要索引失敗：EP${r.failed.join('、EP')}，下次啟動會再試`.slice(0, 600));
     })
     .catch((err) => console.error('summary index failed', err));
-  void startSeekIndex(db);
+  void startSeekIndex(db, { paused: seekPaused });
   void runBackfill(db);
   for (;;) {
     const at = nextHalfHour(new Date());

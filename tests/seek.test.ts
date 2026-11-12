@@ -239,7 +239,7 @@ describe('indexSeekTables', () => {
       },
     });
     expect(asked).toEqual(['https://example.com/2.mp3', 'https://example.com/1.mp3']);
-    expect(r).toEqual({ episodes: 1, failed: [1] });
+    expect(r).toEqual({ episodes: 1, failed: [1], paused: false });
     expect(stored()).toEqual([
       { episode_no: 1, seek_json: null },
       { episode_no: 2, seek_json: JSON.stringify(good) },
@@ -248,9 +248,30 @@ describe('indexSeekTables', () => {
 
     // Next time only the one that failed; a file with nothing to correct is remembered too
     const again = await indexSeekTables(db, { fetch: async () => null });
-    expect(again).toEqual({ episodes: 1, failed: [] });
+    expect(again).toEqual({ episodes: 1, failed: [], paused: false });
     expect(stored()[0]!.seek_json).toBe(JSON.stringify(NO_SEEK_TABLE));
-    expect(await indexSeekTables(db, { fetch: async () => good })).toEqual({ episodes: 0, failed: [] });
+    expect(await indexSeekTables(db, { fetch: async () => good })).toEqual({ episodes: 0, failed: [], paused: false });
+  });
+
+  it('stops before the next episode once a job or a backfill comes along, and carries on later', async () => {
+    resetSeekFailures();
+    const asked: string[] = [];
+    let busy = false;
+    const r = await indexSeekTables(db, {
+      fetch: async (url) => {
+        asked.push(url);
+        busy = true; // a job starts while this episode downloads
+        return table(() => 0);
+      },
+      paused: () => busy,
+    });
+    // The episode under way is finished, the next isn't started
+    expect(r).toEqual({ episodes: 1, failed: [], paused: true });
+    expect(asked).toEqual(['https://example.com/2.mp3']);
+    busy = false;
+    const later = await indexSeekTables(db, { fetch: async (url) => (asked.push(url), table(() => 0)), paused: () => busy });
+    expect(later).toEqual({ episodes: 1, failed: [], paused: false });
+    expect(asked).toEqual(['https://example.com/2.mp3', 'https://example.com/1.mp3']);
   });
 
   it('redoes a table in an older format', async () => {
