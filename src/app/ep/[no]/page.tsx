@@ -77,6 +77,7 @@ export default async function EpisodePage({ params, searchParams }: Props) {
         paragraphs={groupParagraphs(ep.segments)}
         initialTab={sp.tab === 'tx' || t !== null ? 'tx' : 'summary'}
         initialT={t}
+        seek={ep.seek}
       />
     </>
   );

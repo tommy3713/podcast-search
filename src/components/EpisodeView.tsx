@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Paragraph } from '@/lib/format';
+import { offsetAt, type SeekModel, type SeekTable, seekModel, seekTarget } from '@/lib/seek';
 import { formatTimestamp, type Summary } from '@/lib/summary';
 
 type Tab = 'summary' | 'tx';
@@ -13,29 +14,87 @@ type Props = {
   paragraphs: Paragraph[];
   initialTab: Tab;
   initialT: number | null;
+  seek: SeekTable | null;
 };
 
 const SPEEDS = [1, 1.25, 1.5, 2];
 
-export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTab, initialT }: Props) {
+export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTab, initialT, seek: table }: Props) {
   const audio = useRef<HTMLAudioElement>(null);
+  // Everything here works in audio time: where the listener really is. In Chromium and Safari,
+  // which seek through the MP3's table of contents (src/lib/seek.ts), that's currentTime plus
+  // the offset of the last seek, and a seek to x sets currentTime to whatever lands nearest x.
+  const toc = useRef<{ table: SeekTable; model: SeekModel } | null>(null);
+  const offset = useRef(0);
+  // The currentTime a reload for a seek is heading to: until it gets there, currentTime reads 0
+  // (no seeked event when it's 0 itself)
+  const settling = useRef<number | null>(null);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [t, setT] = useState(initialT ?? 0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const now = useRef(t);
+  now.current = t;
 
   const seek = useCallback((to: number, play = true) => {
     const a = audio.current;
     if (!a) return;
-    a.currentTime = to;
-    setT(to);
+    const c = toc.current;
+    if (!c) {
+      a.currentTime = to;
+      setT(to);
+    } else {
+      // Where a seek lands also depends on what the element has read: Chromium indexes every
+      // packet it read, stamped with the offset of the seek that led there (+30 s after a seek
+      // at 40:30 played 17 s early), and Safari seeks a played element by average bitrate
+      // instead. A fresh load knows only the table of contents, so every seek lands where
+      // seekTarget expects.
+      if (a.readyState > HTMLMediaElement.HAVE_NOTHING) {
+        const rate = a.playbackRate;
+        a.defaultPlaybackRate = rate;
+        a.load();
+        a.playbackRate = rate;
+      }
+      const at = seekTarget(c.table, to, c.model);
+      if (a.readyState === HTMLMediaElement.HAVE_NOTHING) settling.current = at;
+      a.currentTime = at;
+      offset.current = offsetAt(c.table, at, c.model);
+      setT(at + offset.current);
+    }
     if (play) a.play().catch(() => {});
   }, []);
 
-  // A ?t= link positions the player without autoplay (browsers block it anyway)
+  // A ?t= link positions the player without autoplay (browsers block it anyway). Decided here
+  // rather than on the server, which can't tell the browser.
   useEffect(() => {
-    if (initialT !== null && audio.current) audio.current.currentTime = initialT;
-  }, [initialT]);
+    const model = seekModel();
+    toc.current = table && model ? { table, model } : null;
+    if (initialT !== null) seek(initialT, false);
+  }, [table, initialT, seek]);
+
+  // The OS's media controls (lock screen, notification, media keys) seek through seek() too
+  useEffect(() => {
+    const ms = typeof navigator === 'undefined' ? undefined : navigator.mediaSession;
+    if (!ms || !toc.current) return;
+    const playingNow = () => !!audio.current && !audio.current.paused;
+    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ['seekto', (d) => d.seekTime !== undefined && seek(Math.min(Math.max(0, d.seekTime), duration), playingNow())],
+      ['seekbackward', (d) => seek(Math.max(0, now.current - (d.seekOffset ?? 15)), playingNow())],
+      ['seekforward', (d) => seek(Math.min(duration, now.current + (d.seekOffset ?? 30)), playingNow())],
+    ];
+    for (const [action, fn] of handlers) {
+      try {
+        ms.setActionHandler(action, fn);
+      } catch {}
+    }
+    return () => {
+      for (const [action] of handlers) {
+        try {
+          ms.setActionHandler(action, null);
+        } catch {}
+      }
+    };
+  }, [table, duration, seek]);
 
   function switchTab(next: Tab) {
     setTab(next);
@@ -52,7 +111,38 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
         ref={audio}
         src={audioUrl}
         preload="none"
-        onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
+        // seek() has set the offset already. A seek from anywhere else is on an element that
+        // has read things, so the models only guess: Chromium's still often holds, while
+        // Safari then seeks by average bitrate, a few seconds off at most
+        onSeeking={(e) => {
+          const c = toc.current;
+          if (settling.current !== null) return;
+          offset.current = c?.model === 'entry' ? offsetAt(c.table, e.currentTarget.currentTime, 'entry') : 0;
+        }}
+        onSeeked={() => (settling.current = null)}
+        // A browser that dropped the seek plays from wherever it is: show that, uncorrected,
+        // rather than a time that never moves
+        onPlaying={(e) => {
+          if (settling.current === null) return;
+          if (Math.abs(e.currentTarget.currentTime - settling.current) > 1) offset.current = 0;
+          settling.current = null;
+        }}
+        onTimeUpdate={(e) => {
+          const ct = e.currentTarget.currentTime;
+          if (settling.current !== null) {
+            if (Math.abs(ct - settling.current) > 1) return;
+            settling.current = null;
+          }
+          const at = Math.min(duration, Math.max(0, ct + offset.current));
+          setT(at);
+          // The lock screen shows this rather than currentTime, so its scrubber and seekTime
+          // are in audio time too
+          if (toc.current && 'mediaSession' in navigator) {
+            try {
+              navigator.mediaSession.setPositionState({ duration, playbackRate: e.currentTarget.playbackRate, position: at });
+            } catch {}
+          }
+        }}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onRateChange={(e) => setSpeed(e.currentTarget.playbackRate)}
@@ -129,16 +219,36 @@ function Player(props: {
   onSeek: (t: number) => void;
   onSpeed: () => void;
 }) {
-  const { t, duration, playing, speed } = props;
+  const { duration, playing, speed } = props;
+  // While the slider is dragged it only moves the shown time; the seek happens on release,
+  // since a seek can reload the audio (EpisodeView)
+  const [scrub, setScrub] = useState<number | null>(null);
+  const t = scrub ?? props.t;
+  const range = useRef<HTMLInputElement>(null);
+  const pending = useRef<number | null>(null);
+  const onSeek = useRef(props.onSeek);
+  onSeek.current = props.onSeek;
+  const commit = useCallback(() => {
+    if (pending.current === null) return;
+    onSeek.current(pending.current);
+    pending.current = null;
+    setScrub(null);
+  }, []);
+  useEffect(() => {
+    // The native change event fires once, on release (React's onChange is the input event)
+    const el = range.current;
+    el?.addEventListener('change', commit);
+    return () => el?.removeEventListener('change', commit);
+  }, [commit]);
   return (
     <div className="player" role="region" aria-label="播放器">
-      <button className="pbtn back15" onClick={() => props.onSeek(t - 15)} aria-label="倒退 15 秒">
+      <button className="pbtn back15" onClick={() => props.onSeek(props.t - 15)} aria-label="倒退 15 秒">
         <Icon d={icon.back} />
       </button>
       <button className="pbtn main" onClick={props.onToggle} aria-label={playing ? '暫停' : '播放'}>
         <Icon d={playing ? icon.pause : icon.play} />
       </button>
-      <button className="pbtn" onClick={() => props.onSeek(t + 30)} aria-label="快轉 30 秒">
+      <button className="pbtn" onClick={() => props.onSeek(props.t + 30)} aria-label="快轉 30 秒">
         <Icon d={icon.fwd} />
       </button>
       <span className="ptime mono">
@@ -149,8 +259,15 @@ function Player(props: {
         min={0}
         max={Math.floor(duration)}
         step={1}
+        ref={range}
         value={Math.floor(t)}
-        onChange={(e) => props.onSeek(Number(e.target.value))}
+        onChange={(e) => {
+          pending.current = Number(e.target.value);
+          setScrub(pending.current);
+        }}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
         aria-label="播放進度"
       />
       <button className="pspeed" onClick={props.onSpeed} aria-label="播放速度">
