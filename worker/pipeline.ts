@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { DB } from '@/lib/db.ts';
+import { NO_SEEK_TABLE, type SeekTable } from '@/lib/seek.ts';
 import type { Segment } from '@/lib/segments.ts';
 import type { Summary } from '@/lib/summary.ts';
 import { compress, download } from './audio.ts';
@@ -15,9 +16,11 @@ import {
   recordError,
   saveDraft,
   saveSegments,
+  saveSeekTable,
   setStatus,
   type Step,
 } from './repo.ts';
+import { seekTableOfFile } from './seek-table.ts';
 import { summarize } from './summarize.ts';
 import type { Button } from './telegram.ts';
 import { transcribe } from './transcribe.ts';
@@ -72,8 +75,11 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
     } else {
       progress('transcribing');
       let billedSeconds: number;
-      ({ segments, duration, billedSeconds } = await transcribeFromRss(ep));
+      let seek: SeekTable | null | undefined;
+      ({ segments, duration, billedSeconds, seek } = await transcribeFromRss(ep));
       saveSegments(db, ep.id, segments, duration, whisperCost(billedSeconds));
+      // The table of the file just transcribed; undefined (unreadable) leaves it to seek-index.ts
+      saveSeekTable(db, ep.id, seek === undefined ? null : (seek ?? NO_SEEK_TABLE));
     }
 
     // ② summary
@@ -132,7 +138,9 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
   }
 }
 
-async function transcribeFromRss(ep: EpisodeRow): Promise<{ segments: Segment[]; duration: number; billedSeconds: number }> {
+async function transcribeFromRss(
+  ep: EpisodeRow,
+): Promise<{ segments: Segment[]; duration: number; billedSeconds: number; seek: SeekTable | null | undefined }> {
   const dir = path.join(WORK_DIR, `ep${ep.episode_no}`);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
@@ -140,10 +148,15 @@ async function transcribeFromRss(ep: EpisodeRow): Promise<{ segments: Segment[];
     const original = path.join(dir, 'original.mp3');
     console.log(`EP${ep.episode_no}: downloading`);
     await download(ep.audio_url, original);
+    // Never fails the episode: without a table the player just doesn't correct seeks
+    const seek = await seekTableOfFile(original).catch((err: unknown) => {
+      console.error(`EP${ep.episode_no}: seek table failed`, err);
+      return undefined;
+    });
     const { parts, duration } = await compress(original, dir);
     console.log(`EP${ep.episode_no}: transcribing ${Math.round(duration / 60)} min in ${parts.length} part(s)`);
     const { segments, billedSeconds } = await transcribe(parts);
-    return { segments, duration, billedSeconds };
+    return { segments, duration, billedSeconds, seek };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

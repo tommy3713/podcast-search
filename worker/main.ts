@@ -14,6 +14,7 @@ import { getEpisode, getState, setState } from './repo.ts';
 import { fetchFeed, parseFeed } from './rss.ts';
 import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } from './schedule.ts';
 import { indexSummaries } from './summary-index.ts';
+import { indexSeekTables, startSeekIndex } from './seek-index.ts';
 import { askStats, compactDb, digestDue, formatStats, purgeAskLog, rollupAskDaily, unanswered } from './stats.ts';
 
 const USAGE = `usage: worker <command>
@@ -36,6 +37,8 @@ const USAGE = `usage: worker <command>
   check-db <file>     integrity check and live episode count of a database (restore drills)
   index-summaries     bring live episodes' summary points up to date (run does this by itself
                       at startup; this is for local snapshots such as the eval's)
+  index-seek [ep]     work out where Chromium's seeks land in live episodes lacking it (one
+                      download of each episode's audio; run does this by itself)
   migrate             apply pending database migrations and exit (run by the deploy script)`;
 
 async function ingest(db: DB, episodeNo: number, args: string[]): Promise<void> {
@@ -133,7 +136,13 @@ async function run(db: DB): Promise<void> {
       console.error('[queue file]', err instanceof Error ? err.message : err);
     }
   };
-  onQueueChange(writeQueue);
+  // Seek tables of new episodes (and any a restart or failed download left) are worked out
+  // whenever the queue goes idle, so right after a publish, outside the queue (seek-index.ts)
+  onQueueChange(() => {
+    writeQueue();
+    const q = queueState();
+    if (!q.running && !q.waiting) void startSeekIndex(db);
+  });
   writeQueue();
   void runBot(db);
   const heartbeat = () => {
@@ -152,6 +161,7 @@ async function run(db: DB): Promise<void> {
       if (r.failed.length) await notify(`❌ 摘要索引失敗：EP${r.failed.join('、EP')}，下次啟動會再試`.slice(0, 600));
     })
     .catch((err) => console.error('summary index failed', err));
+  void startSeekIndex(db);
   void runBackfill(db);
   for (;;) {
     const at = nextHalfHour(new Date());
@@ -237,6 +247,14 @@ async function main(): Promise<void> {
       const r = await indexSummaries(db);
       if (r.failed.length) process.exitCode = 1;
       else if (!r.episodes) console.log('every live episode is up to date');
+      return;
+    }
+    case 'index-seek': {
+      const only = args[0] === undefined ? undefined : Number(args[0]);
+      if (only !== undefined && !Number.isInteger(only)) throw new Error(USAGE);
+      const r = await indexSeekTables(db, { only });
+      if (r.failed.length) process.exitCode = 1;
+      else if (!r.episodes) console.log('every live episode has a seek table');
       return;
     }
     case 'migrate':

@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Paragraph } from '@/lib/format';
+import { offsetAt, type SeekTable, seekTarget, seeksByToc } from '@/lib/seek';
 import { formatTimestamp, type Summary } from '@/lib/summary';
 
 type Tab = 'summary' | 'tx';
@@ -13,29 +14,85 @@ type Props = {
   paragraphs: Paragraph[];
   initialTab: Tab;
   initialT: number | null;
+  seek: SeekTable | null;
 };
 
 const SPEEDS = [1, 1.25, 1.5, 2];
 
-export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTab, initialT }: Props) {
+export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTab, initialT, seek: table }: Props) {
   const audio = useRef<HTMLAudioElement>(null);
+  // Everything here works in audio time: where the listener really is. In Chromium, which
+  // seeks through the MP3's table of contents (src/lib/seek.ts), that's currentTime plus the
+  // offset of the last seek, and a seek to x sets currentTime to whatever lands nearest x.
+  const toc = useRef<SeekTable | null>(null);
+  const offset = useRef(0);
+  // The currentTime a reload for a seek is heading to: until it gets there, currentTime reads 0
+  // (no seeked event when it's 0 itself)
+  const settling = useRef<number | null>(null);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [t, setT] = useState(initialT ?? 0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const now = useRef(t);
+  now.current = t;
 
   const seek = useCallback((to: number, play = true) => {
     const a = audio.current;
     if (!a) return;
-    a.currentTime = to;
-    setT(to);
+    const table = toc.current;
+    if (!table) {
+      a.currentTime = to;
+      setT(to);
+    } else {
+      // Chromium also indexes every packet it has read, stamped with the offset of the seek
+      // that led there, so a second seek near them lands by that old offset instead (measured:
+      // +30 s after a seek at 40:30 played 17 s early). A fresh load knows only the table of
+      // contents, so every seek lands where seekTarget expects.
+      if (a.readyState > HTMLMediaElement.HAVE_NOTHING) {
+        const rate = a.playbackRate;
+        a.defaultPlaybackRate = rate;
+        a.load();
+        a.playbackRate = rate;
+      }
+      const at = seekTarget(table, to);
+      if (a.readyState === HTMLMediaElement.HAVE_NOTHING) settling.current = at;
+      a.currentTime = at;
+      offset.current = offsetAt(table, at);
+      setT(at + offset.current);
+    }
     if (play) a.play().catch(() => {});
   }, []);
 
-  // A ?t= link positions the player without autoplay (browsers block it anyway)
+  // A ?t= link positions the player without autoplay (browsers block it anyway). Decided here
+  // rather than on the server, which can't tell the browser.
   useEffect(() => {
-    if (initialT !== null && audio.current) audio.current.currentTime = initialT;
-  }, [initialT]);
+    toc.current = table && seeksByToc() ? table : null;
+    if (initialT !== null) seek(initialT, false);
+  }, [table, initialT, seek]);
+
+  // The OS's media controls (lock screen, notification, media keys) seek through seek() too
+  useEffect(() => {
+    const ms = typeof navigator === 'undefined' ? undefined : navigator.mediaSession;
+    if (!ms || !toc.current) return;
+    const playingNow = () => !!audio.current && !audio.current.paused;
+    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ['seekto', (d) => d.seekTime !== undefined && seek(Math.min(Math.max(0, d.seekTime), duration), playingNow())],
+      ['seekbackward', (d) => seek(Math.max(0, now.current - (d.seekOffset ?? 15)), playingNow())],
+      ['seekforward', (d) => seek(Math.min(duration, now.current + (d.seekOffset ?? 30)), playingNow())],
+    ];
+    for (const [action, fn] of handlers) {
+      try {
+        ms.setActionHandler(action, fn);
+      } catch {}
+    }
+    return () => {
+      for (const [action] of handlers) {
+        try {
+          ms.setActionHandler(action, null);
+        } catch {}
+      }
+    };
+  }, [table, duration, seek]);
 
   function switchTab(next: Tab) {
     setTab(next);
@@ -52,7 +109,18 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
         ref={audio}
         src={audioUrl}
         preload="none"
-        onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
+        // seek() has set the offset already; a seek from anywhere else gets the best guess
+        onSeeking={(e) => {
+          if (settling.current === null) offset.current = toc.current ? offsetAt(toc.current, e.currentTarget.currentTime) : 0;
+        }}
+        onTimeUpdate={(e) => {
+          const ct = e.currentTarget.currentTime;
+          if (settling.current !== null) {
+            if (Math.abs(ct - settling.current) > 1) return;
+            settling.current = null;
+          }
+          setT(Math.min(duration, Math.max(0, ct + offset.current)));
+        }}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onRateChange={(e) => setSpeed(e.currentTarget.playbackRate)}
@@ -129,16 +197,36 @@ function Player(props: {
   onSeek: (t: number) => void;
   onSpeed: () => void;
 }) {
-  const { t, duration, playing, speed } = props;
+  const { duration, playing, speed } = props;
+  // While the slider is dragged it only moves the shown time; the seek happens on release,
+  // since a seek can reload the audio (EpisodeView)
+  const [scrub, setScrub] = useState<number | null>(null);
+  const t = scrub ?? props.t;
+  const range = useRef<HTMLInputElement>(null);
+  const pending = useRef<number | null>(null);
+  const onSeek = useRef(props.onSeek);
+  onSeek.current = props.onSeek;
+  const commit = useCallback(() => {
+    if (pending.current === null) return;
+    onSeek.current(pending.current);
+    pending.current = null;
+    setScrub(null);
+  }, []);
+  useEffect(() => {
+    // The native change event fires once, on release (React's onChange is the input event)
+    const el = range.current;
+    el?.addEventListener('change', commit);
+    return () => el?.removeEventListener('change', commit);
+  }, [commit]);
   return (
     <div className="player" role="region" aria-label="播放器">
-      <button className="pbtn back15" onClick={() => props.onSeek(t - 15)} aria-label="倒退 15 秒">
+      <button className="pbtn back15" onClick={() => props.onSeek(props.t - 15)} aria-label="倒退 15 秒">
         <Icon d={icon.back} />
       </button>
       <button className="pbtn main" onClick={props.onToggle} aria-label={playing ? '暫停' : '播放'}>
         <Icon d={playing ? icon.pause : icon.play} />
       </button>
-      <button className="pbtn" onClick={() => props.onSeek(t + 30)} aria-label="快轉 30 秒">
+      <button className="pbtn" onClick={() => props.onSeek(props.t + 30)} aria-label="快轉 30 秒">
         <Icon d={icon.fwd} />
       </button>
       <span className="ptime mono">
@@ -149,8 +237,15 @@ function Player(props: {
         min={0}
         max={Math.floor(duration)}
         step={1}
+        ref={range}
         value={Math.floor(t)}
-        onChange={(e) => props.onSeek(Number(e.target.value))}
+        onChange={(e) => {
+          pending.current = Number(e.target.value);
+          setScrub(pending.current);
+        }}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
         aria-label="播放進度"
       />
       <button className="pspeed" onClick={props.onSpeed} aria-label="播放速度">

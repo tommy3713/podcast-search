@@ -132,6 +132,11 @@ const MIGRATIONS: string[] = [
   -- rowid = summary_points.id; like chunks_vec, delete rows here when points are deleted
   CREATE VIRTUAL TABLE summary_points_vec USING vec0 (embedding float[${EMBEDDING_DIM}]);
   `,
+  // How far Chromium's seeks into the episode's audio land from where they say (SeekTable in
+  // src/lib/seek.ts, made by worker/seek-table.ts). NULL: not worked out yet
+  `
+  ALTER TABLE episodes ADD COLUMN seek_json TEXT;
+  `,
 ];
 
 export function defaultDbPath(): string {
