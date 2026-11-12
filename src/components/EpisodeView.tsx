@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Paragraph } from '@/lib/format';
-import { offsetAt, type SeekModel, type SeekTable, seekModel, seekTarget, usableModel } from '@/lib/seek';
+import { offsetAt, type SeekModel, type SeekTable, seekModel, seekTarget } from '@/lib/seek';
 import { formatTimestamp, type Summary } from '@/lib/summary';
 
 type Tab = 'summary' | 'tx';
@@ -67,7 +67,7 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
   // A ?t= link positions the player without autoplay (browsers block it anyway). Decided here
   // rather than on the server, which can't tell the browser.
   useEffect(() => {
-    const model = usableModel(table, seekModel());
+    const model = seekModel();
     toc.current = table && model ? { table, model } : null;
     if (initialT !== null) seek(initialT, false);
   }, [table, initialT, seek]);
@@ -111,10 +111,21 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
         ref={audio}
         src={audioUrl}
         preload="none"
-        // seek() has set the offset already; a seek from anywhere else gets the best guess
+        // seek() has set the offset already. A seek from anywhere else is on an element that
+        // has read things, so the models only guess: Chromium's still often holds, while
+        // Safari then seeks by average bitrate, a few seconds off at most
         onSeeking={(e) => {
           const c = toc.current;
-          if (settling.current === null) offset.current = c ? offsetAt(c.table, e.currentTarget.currentTime, c.model) : 0;
+          if (settling.current !== null) return;
+          offset.current = c?.model === 'entry' ? offsetAt(c.table, e.currentTarget.currentTime, 'entry') : 0;
+        }}
+        onSeeked={() => (settling.current = null)}
+        // A browser that dropped the seek plays from wherever it is: show that, uncorrected,
+        // rather than a time that never moves
+        onPlaying={(e) => {
+          if (settling.current === null) return;
+          if (Math.abs(e.currentTarget.currentTime - settling.current) > 1) offset.current = 0;
+          settling.current = null;
         }}
         onTimeUpdate={(e) => {
           const ct = e.currentTarget.currentTime;
@@ -122,7 +133,15 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
             if (Math.abs(ct - settling.current) > 1) return;
             settling.current = null;
           }
-          setT(Math.min(duration, Math.max(0, ct + offset.current)));
+          const at = Math.min(duration, Math.max(0, ct + offset.current));
+          setT(at);
+          // The lock screen shows this rather than currentTime, so its scrubber and seekTime
+          // are in audio time too
+          if (toc.current && 'mediaSession' in navigator) {
+            try {
+              navigator.mediaSession.setPositionState({ duration, playbackRate: e.currentTarget.playbackRate, position: at });
+            } catch {}
+          }
         }}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}

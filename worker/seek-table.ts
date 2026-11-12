@@ -1,16 +1,15 @@
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
-import type { SeekTable } from '@/lib/seek.ts';
+import { GRID, type SeekTable } from '@/lib/seek.ts';
 import { USER_AGENT } from './config.ts';
 
 // Browsers seek a VBR MP3 with the Xing header's table of contents: 100 byte positions, one
 // per 1% of the duration, each rounded to 1/256 of the file (about 12 s of a 50-minute
 // episode), and then count time from the time they meant to reach (src/lib/seek.ts):
-// - Chromium jumps to the entry at or before t: it plays t + offsets[i], where offsets[i] is
-//   the error of entry i (EP699: -16.9 s at 40:30).
-// - Safari interpolates between the entries by bytes: it plays wherever that byte really is,
-//   kept as `landings` at every 0.1% of the duration (EP699: 40:30 plays 40:14.9).
-// This reads the file once and works out where each of those byte positions really falls.
+// - Chromium jumps to the entry at or before t (EP699: 40:30 plays 40:13.1).
+// - Safari interpolates between the entries by bytes (EP699: 40:30 plays 40:14.9).
+// Both are covered by where the interpolated byte position at every 0.1% of the duration
+// really falls (entry i is the point at i%). This reads the file once and works that out.
 
 const BITRATES = {
   v1: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
@@ -66,11 +65,9 @@ export class SeekTableParser {
   private frames = 0; // audio frames seen (the Xing frame not counted)
   private spf = 0; // seconds per frame
   private xing: Xing | null = null;
-  // File offsets to place, sorted, each with the slot its landing goes to: 0–99 the TOC
-  // entries, 100 on the interpolated points (LANDINGS + 1 of them)
-  private targets: { pos: number; slot: number }[] = [];
-  private nextTarget = 0;
-  private landed: number[] = []; // per slot: frames before the first frame at or after it
+  // File offsets of the grid points, in order (the table of contents never goes down)
+  private targets: number[] = [];
+  private landed: number[] = []; // per grid point: frames before the first frame at or after it
   // Nothing more to learn (no table of contents): the rest of the file needn't be read
   done = false;
 
@@ -108,30 +105,27 @@ export class SeekTableParser {
         this.xing = xingIn(this.buf.subarray(i, i + f.size), f);
         this.spf = f.samples / f.sampleRate;
         this.audioStart = this.next + f.size;
-        // Without the byte count the entries can't be placed the way the browser places them
-        if (!this.xing?.toc || !this.xing.bytes) {
+        // Without the byte count the entries can't be placed the way the browser places them,
+        // and a table that goes down is broken
+        const toc = this.xing?.toc;
+        if (!toc || !this.xing!.bytes || toc.some((b, i) => i > 0 && b < toc[i - 1]!)) {
           this.xing = null;
           this.done = true;
           return;
         }
-        const bytes = this.xing.bytes;
-        const toc = this.xing.toc;
-        const at = (fraction: number) => this.audioStart + Math.floor((fraction * bytes) / 256);
-        const entries = toc.map((b, i) => ({ pos: at(b), slot: i }));
-        const points = Array.from({ length: LANDINGS + 1 }, (_, k) => {
-          const pct = (k * 100) / LANDINGS;
+        const bytes = this.xing!.bytes!;
+        this.targets = Array.from({ length: GRID + 1 }, (_, k) => {
+          const pct = (k * 100) / GRID;
           const a = Math.min(99, Math.floor(pct));
           const fa = toc[a]!;
           const fb = a < 99 ? toc[a + 1]! : 256;
-          return { pos: at(fa + (fb - fa) * (pct - a)), slot: 100 + k };
+          return this.audioStart + Math.floor(((fa + (fb - fa) * (pct - a)) * bytes) / 256);
         });
-        this.targets = [...entries, ...points].sort((x, y) => x.pos - y.pos);
-        this.landed = new Array(100 + LANDINGS + 1).fill(-1);
         this.next = this.audioStart;
         continue;
       }
-      while (this.nextTarget < this.targets.length && this.targets[this.nextTarget]!.pos <= this.next) {
-        this.landed[this.targets[this.nextTarget++]!.slot] = this.frames;
+      while (this.landed.length < this.targets.length && this.targets[this.landed.length]! <= this.next) {
+        this.landed.push(this.frames);
       }
       this.frames++;
       this.next += f.size;
@@ -152,17 +146,14 @@ export class SeekTableParser {
     if (this.xing.frames && this.frames < this.xing.frames * 0.99) {
       throw new Error(`audio ends early: ${this.frames} of ${this.xing.frames} frames`);
     }
-    const landed = this.landed.map((n) => (n < 0 ? this.frames : n));
-    const frames = this.xing.frames ?? this.frames;
-    const duration = frames * this.spf;
-    const offsets = landed.slice(0, 100).map((n, i) => round2(n * this.spf - (i * duration) / 100));
-    const landings = landed.slice(100).map((n) => round2(n * this.spf));
-    return { duration: round2(duration), offsets, landings };
+    while (this.landed.length < this.targets.length) this.landed.push(this.frames);
+    const duration = (this.xing.frames ?? this.frames) * this.spf;
+    const offsets = this.landed.map((n, k) => round2(n * this.spf - (k * duration) / GRID));
+    return { duration: round2(duration), offsets };
   }
 }
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
-const LANDINGS = 1000;
 
 async function readSeekTable(chunks: AsyncIterable<Uint8Array>): Promise<SeekTable | null> {
   const parser = new SeekTableParser();

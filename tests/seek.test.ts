@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type DB, openDb } from '@/lib/db.ts';
-import { NO_SEEK_TABLE, offsetAt, parseSeekTable, type SeekTable, seekModel, seekTarget, usableModel } from '@/lib/seek.ts';
+import { GRID, NO_SEEK_TABLE, offsetAt, parseSeekTable, type SeekTable, seekModel, seekTarget } from '@/lib/seek.ts';
 import { insertDiscovered } from '../worker/repo.ts';
-import { indexSeekTables } from '../worker/seek-index.ts';
+import { indexSeekTables, resetSeekFailures } from '../worker/seek-index.ts';
 import { SeekTableParser } from '../worker/seek-table.ts';
 
 // MPEG-1 layer III, 44.1 kHz, mono: frame size = floor(144 * kbps * 1000 / 44100) + padding
@@ -59,31 +59,29 @@ describe('SeekTableParser', () => {
   it('works out where each table-of-contents entry really lands', () => {
     const t = parse(mp3(FRAMES, linearToc))!;
     expect(t.duration).toBeCloseTo(DURATION, 2);
-    expect(t.offsets).toHaveLength(100);
+    expect(t.offsets).toHaveLength(GRID + 1);
     expect(t.offsets[0]).toBe(0);
-    // Entry 50 points at byte 287000 (half of 574000): past the 500 small frames (52000
-    // bytes), 226 big frames in, so frame 726 plays while the entry claims 50% of the time
-    expect(t.offsets[50]).toBeCloseTo(726 * SPF - DURATION / 2, 1);
+    // Entry 50 (grid point 500) points at byte 287000 (half of 574000): past the 500 small
+    // frames (52000 bytes), 226 big frames in, so frame 726 plays while it claims 50% of the time
+    expect(t.offsets[500]).toBeCloseTo(726 * SPF - DURATION / 2, 1);
     // The cheap first half is crossed in a few entries, so early entries land late
     expect(Math.max(...t.offsets)).toBeGreaterThan(5);
+    expect(t.offsets[GRID]).toBeCloseTo(0, 1);
   });
 
-  it("works out where Safari's interpolated seeks land", () => {
+  it('places the points between entries the way Safari interpolates them', () => {
     const t = parse(mp3(FRAMES, linearToc))!;
-    expect(t.landings).toHaveLength(1001);
-    expect(t.landings![0]).toBe(0);
-    // 50% interpolates to entry 50 exactly: the same byte as above
-    expect(t.landings![500]).toBeCloseTo(726 * SPF, 1);
-    // 25%: entry 25, byte 64/256 of 574000 = 143500, 88 big frames past the small ones
-    expect(t.landings![250]).toBeCloseTo(588 * SPF, 1);
-    expect(t.landings![1000]).toBeCloseTo(DURATION, 1);
-    for (let k = 1; k < t.landings!.length; k++) expect(t.landings![k]).toBeGreaterThanOrEqual(t.landings![k - 1]!);
+    // 25.5%: halfway between entries 25 (64/256) and 26 (66/256), byte 65/256 of 574000 =
+    // 145742, 90 big frames past the small ones
+    expect(t.offsets[255]! + 0.255 * DURATION).toBeCloseTo(590 * SPF, 1);
+    const step = DURATION / GRID;
+    for (let k = 1; k <= GRID; k++) expect(step + t.offsets[k]! - t.offsets[k - 1]!).toBeGreaterThan(-0.02);
   });
 
   it('gives near-zero offsets for an accurate table, apart from its 1/256 rounding', () => {
     const t = parse(mp3(FRAMES, exactToc))!;
     // 1/256 of 574000 bytes is 2242, 22 of the small frames
-    for (const e of t.offsets) expect(Math.abs(e)).toBeLessThan(22 * SPF);
+    for (let i = 0; i < 100; i++) expect(Math.abs(t.offsets[i * 10]!)).toBeLessThan(22 * SPF);
   });
 
   it('gives the same table however the file arrives', () => {
@@ -103,46 +101,60 @@ describe('SeekTableParser', () => {
     expect(() => parse(file.subarray(0, file.length / 2))).toThrow(/ends early/);
   });
 
-  it('has nothing to correct without the byte count the browser places entries by', () => {
-    const file = mp3(FRAMES, linearToc);
+  it('has nothing to correct without the byte count, or with a table that goes down', () => {
+    const noBytes = mp3(FRAMES, linearToc);
     // Flags: frames and TOC, no bytes
-    new DataView(file.buffer).setUint32(310 + 25, 5);
-    expect(parse(file)).toBeNull();
+    new DataView(noBytes.buffer).setUint32(310 + 25, 5);
+    expect(parse(noBytes)).toBeNull();
+    const broken = mp3(FRAMES, (b, s) => linearToc().map((v, i) => (i === 40 ? 10 : v)));
+    expect(parse(broken)).toBeNull();
   });
 });
 
-describe('seekTarget / offsetAt', () => {
-  const table = (f: (i: number) => number): SeekTable => ({ duration: 100, offsets: Array.from({ length: 100 }, (_, i) => f(i)) });
+// A table whose 100 entries are off by entry(i) and whose points in between are interpolated
+function table(entry: (i: number) => number, duration = 100): SeekTable {
+  const offsets = Array.from({ length: GRID + 1 }, (_, k) => {
+    const i = Math.min(99, Math.floor(k / 10));
+    const next = i < 99 ? entry(i + 1) : 0;
+    return entry(i) + (next - entry(i)) * (k / 10 - i);
+  });
+  return { duration, offsets };
+}
 
+describe('seekTarget / offsetAt', () => {
   it('leaves a table without offsets alone', () => {
     const t = table(() => 0);
-    expect(seekTarget(t, 42.5)).toBe(42.5);
-    expect(offsetAt(t, 42.5)).toBe(0);
+    for (const m of ['entry', 'interp'] as const) {
+      expect(seekTarget(t, 42.5, m)).toBeCloseTo(42.5, 9);
+      expect(offsetAt(t, 42.5, m)).toBeCloseTo(0, 9);
+    }
+    expect(seekTarget(NO_SEEK_TABLE, 42.5, 'entry')).toBe(42.5);
   });
 
-  it('asks for the time that lands on x', () => {
+  it('asks Chromium for the time that lands on x', () => {
     const t = table(() => -5);
     // 55 is the very start of window 55, so within the margin kept from either edge
-    const at = seekTarget(t, 50);
+    const at = seekTarget(t, 50, 'entry');
     expect(Math.abs(at - 55)).toBeLessThanOrEqual(0.05 + 1e-9);
-    expect(Math.abs(at + offsetAt(t, at) - 50)).toBeLessThanOrEqual(0.05 + 1e-9);
-    expect(seekTarget(t, 50.5) + offsetAt(t, seekTarget(t, 50.5))).toBeCloseTo(50.5, 5);
+    expect(Math.abs(at + offsetAt(t, at, 'entry') - 50)).toBeLessThanOrEqual(0.05 + 1e-9);
+    const at2 = seekTarget(t, 50.5, 'entry');
+    expect(at2 + offsetAt(t, at2, 'entry')).toBeCloseTo(50.5, 5);
   });
 
-  it('lands just before a position no seek reaches', () => {
+  it('lands just before a position no Chromium seek reaches', () => {
     // Window 49 plays 49–50, window 50 plays 55–56 (each less the margins): 52 can't be reached
     const t = table((i) => (i < 50 ? 0 : 5));
-    const at = seekTarget(t, 52);
-    expect(at + offsetAt(t, at)).toBeCloseTo(49.95, 5);
-    expect(seekTarget(t, 55.5) + offsetAt(t, seekTarget(t, 55.5))).toBeCloseTo(55.5, 5);
+    const at = seekTarget(t, 52, 'entry');
+    expect(at + offsetAt(t, at, 'entry')).toBeCloseTo(49.95, 5);
+    const at2 = seekTarget(t, 55.5, 'entry');
+    expect(at2 + offsetAt(t, at2, 'entry')).toBeCloseTo(55.5, 5);
   });
 
   it('lands on every position of a real-looking table, or at most a gap early', () => {
     const t = parse(mp3(FRAMES, linearToc))!;
     for (let x = 0; x < t.duration; x += 0.1) {
-      const at = seekTarget(t, x);
-      const land = at + offsetAt(t, at);
-      expect(land).toBeLessThanOrEqual(x + 0.05 + 1e-6);
+      const at = seekTarget(t, x, 'entry');
+      expect(at + offsetAt(t, at, 'entry')).toBeLessThanOrEqual(x + 0.05 + 1e-6);
       expect(at).toBeGreaterThanOrEqual(0);
     }
   });
@@ -159,20 +171,19 @@ describe('seekTarget / offsetAt', () => {
   });
 
   it('reads stored tables', () => {
+    const t = table((i) => (i % 2 ? 0.5 : -0.5));
+    expect(parseSeekTable(JSON.stringify(t))).toEqual(t);
     expect(parseSeekTable(null)).toBeNull();
     expect(parseSeekTable(JSON.stringify(NO_SEEK_TABLE))).toBeNull();
     expect(parseSeekTable('{oops')).toBeNull();
-    expect(parseSeekTable('{"duration":10,"offsets":[0,1]}')).toEqual({ duration: 10, offsets: [0, 1] });
-    expect(parseSeekTable('{"duration":10,"offsets":[0,1],"landings":[0,9.5,10]}')).toEqual({
-      duration: 10,
-      offsets: [0, 1],
-      landings: [0, 9.5, 10],
-    });
+    // The first release's format: 100 entry offsets only
+    expect(parseSeekTable('{"duration":10,"offsets":[0,1]}')).toBeNull();
+    // Landings that go down
+    expect(parseSeekTable(JSON.stringify({ duration: 100, offsets: t.offsets.map((o, k) => (k === 300 ? o - 5 : o)) }))).toBeNull();
   });
 
-  it('picks the model of the browser, and none for one not measured', () => {
-    const nav = (userAgent: string, chromium = false) =>
-      ({ userAgent, ...(chromium && { userAgentData: {} }) }) as unknown as Navigator;
+  it('picks the model of a browser that was measured, and none for the others', () => {
+    const nav = (userAgent: string, extra: object = {}) => ({ userAgent, maxTouchPoints: 0, ...extra }) as unknown as Navigator;
     const safariMac =
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Safari/605.1.15';
     const safariIos =
@@ -182,17 +193,18 @@ describe('seekTarget / offsetAt', () => {
     const chrome =
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
     const firefox = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:140.0) Gecko/20100101 Firefox/140.0';
-    expect(seekModel(nav(chrome, true))).toBe('entry');
+    const epiphany = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+    expect(seekModel(nav(chrome, { userAgentData: {} }))).toBe('entry');
     expect(seekModel(nav(safariMac))).toBe('interp');
-    expect(seekModel(nav(safariIos))).toBe('interp');
-    expect(seekModel(nav(chromeIos))).toBe('interp');
+    // Not measured: iOS (and iPadOS, which sends the Mac user agent), WebKit on Linux, Firefox
+    expect(seekModel(nav(safariIos))).toBeNull();
+    expect(seekModel(nav(chromeIos))).toBeNull();
+    expect(seekModel(nav(safariMac, { maxTouchPoints: 5 }))).toBeNull();
+    expect(seekModel(nav(epiphany))).toBeNull();
+    expect(seekModel(nav(firefox))).toBeNull();
     // Chromium without userAgentData (old, or not a secure context): its model isn't known to hold
     expect(seekModel(nav(chrome))).toBeNull();
-    expect(seekModel(nav(firefox))).toBeNull();
     expect(seekModel(undefined)).toBeNull();
-    // A table from before landings were kept can't serve Safari
-    expect(usableModel({ duration: 10, offsets: [0] }, 'interp')).toBeNull();
-    expect(usableModel({ duration: 10, offsets: [0] }, 'entry')).toBe('entry');
   });
 });
 
@@ -216,19 +228,21 @@ describe('indexSeekTables', () => {
     db.prepare('SELECT episode_no, seek_json FROM episodes ORDER BY episode_no').all() as { episode_no: number; seek_json: string | null }[];
 
   it('fills live episodes, leaves a failed download for next time', async () => {
+    resetSeekFailures();
+    const good = table(() => 1);
     const asked: string[] = [];
     const r = await indexSeekTables(db, {
       fetch: async (url) => {
         asked.push(url);
         if (url.endsWith('/1.mp3')) throw new Error('403');
-        return { duration: 10, offsets: [1] };
+        return good;
       },
     });
     expect(asked).toEqual(['https://example.com/2.mp3', 'https://example.com/1.mp3']);
     expect(r).toEqual({ episodes: 1, failed: [1] });
     expect(stored()).toEqual([
       { episode_no: 1, seek_json: null },
-      { episode_no: 2, seek_json: '{"duration":10,"offsets":[1]}' },
+      { episode_no: 2, seek_json: JSON.stringify(good) },
       { episode_no: 3, seek_json: null },
     ]);
 
@@ -236,5 +250,29 @@ describe('indexSeekTables', () => {
     const again = await indexSeekTables(db, { fetch: async () => null });
     expect(again).toEqual({ episodes: 1, failed: [] });
     expect(stored()[0]!.seek_json).toBe(JSON.stringify(NO_SEEK_TABLE));
+    expect(await indexSeekTables(db, { fetch: async () => good })).toEqual({ episodes: 0, failed: [] });
+  });
+
+  it('redoes a table in an older format', async () => {
+    resetSeekFailures();
+    db.prepare(`UPDATE episodes SET seek_json = ? WHERE episode_no = 1`).run('{"duration":10,"offsets":[1,2]}');
+    db.prepare(`UPDATE episodes SET seek_json = ? WHERE episode_no = 2`).run(JSON.stringify(NO_SEEK_TABLE));
+    const asked: string[] = [];
+    await indexSeekTables(db, { fetch: async (url) => (asked.push(url), table(() => 0)) });
+    expect(asked).toEqual(['https://example.com/1.mp3']);
+  });
+
+  it('gives up on an episode after 3 failed downloads, until the worker restarts', async () => {
+    resetSeekFailures();
+    let calls = 0;
+    const failing = async () => {
+      calls++;
+      throw new Error('timeout');
+    };
+    for (let i = 0; i < 5; i++) await indexSeekTables(db, { only: 2, fetch: failing });
+    expect(calls).toBe(3);
+    resetSeekFailures();
+    await indexSeekTables(db, { only: 2, fetch: failing });
+    expect(calls).toBe(4);
   });
 });

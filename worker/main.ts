@@ -37,8 +37,9 @@ const USAGE = `usage: worker <command>
   check-db <file>     integrity check and live episode count of a database (restore drills)
   index-summaries     bring live episodes' summary points up to date (run does this by itself
                       at startup; this is for local snapshots such as the eval's)
-  index-seek [ep]     work out where Chromium's seeks land in live episodes lacking it (one
-                      download of each episode's audio; run does this by itself)
+  index-seek [ep]     work out where Chromium's and Safari's seeks land in live episodes lacking
+                      it or with an older table (one download of each episode's audio; run does
+                      this by itself)
   migrate             apply pending database migrations and exit (run by the deploy script)`;
 
 async function ingest(db: DB, episodeNo: number, args: string[]): Promise<void> {

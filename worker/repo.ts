@@ -1,6 +1,6 @@
 import type { DB } from '@/lib/db.ts';
 import { toVecBlob } from '@/lib/db.ts';
-import type { SeekTable } from '@/lib/seek.ts';
+import { GRID, type SeekTable } from '@/lib/seek.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { STOCK_CATEGORY, type Summary } from '@/lib/summary.ts';
 import type { Chunk, SummaryPoint } from './chunk.ts';
@@ -233,10 +233,16 @@ export function publishEpisode(
   })();
 }
 
-// Live episodes whose seek table hasn't been worked out, newest first
+// Live episodes whose seek table hasn't been worked out, or is in an older format (neither
+// GRID + 1 offsets nor NO_SEEK_TABLE's none), newest first
 export function episodesWithoutSeekTable(db: DB): { id: number; episode_no: number; audio_url: string }[] {
   return db
-    .prepare(`SELECT id, episode_no, audio_url FROM episodes WHERE status = 'done' AND seek_json IS NULL ORDER BY episode_no DESC`)
+    .prepare(
+      `SELECT id, episode_no, audio_url FROM episodes
+       WHERE status = 'done'
+         AND (seek_json IS NULL OR json_array_length(seek_json, '$.offsets') NOT IN (0, ${GRID + 1}))
+       ORDER BY episode_no DESC`,
+    )
     .all() as { id: number; episode_no: number; audio_url: string }[];
 }
 
