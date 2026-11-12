@@ -2,17 +2,19 @@
 import { type GoldenQuestion, needed } from './golden.ts';
 import { type RetrievalRun, compareRetrieval } from './retrieval.ts';
 import { type Diff, type EvalResult, failureReasons, HIT_RATE_ALARM, rate, REGRESSED_ALARM, summarize } from './score.ts';
+import { citedLines } from './support.ts';
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
 const pct = (n: number) => `${n.toFixed(1)}%`;
 const dbLine = (d: { file: string; count: number; oldest: number; newest: number }) => `${d.file} EP${d.oldest}–${d.newest}（${d.count} 集）`;
+const clip = (t: string, n: number) => ([...t].length > n ? `${[...t].slice(0, n).join('')}…` : t);
 const STATUS = { pass: '通過', unstable: '不穩定', fail: '失敗' } as const;
 
 export function reportEval(r: EvalResult, golden: GoldenQuestion[]): string {
   const s = summarize(r);
   const byId = new Map(golden.map((q) => [q.id, q]));
   const out: string[] = [];
-  out.push(`/ask eval　${r.meta.startedAt}　${r.meta.sha}　資料 ${dbLine(r.meta.db)}　ask ${r.meta.askModel}　judge ${r.meta.judgeModel}　每題 ${r.meta.runs} 次${r.meta.partial ? '　（只跑部分題目）' : ''}`);
+  out.push(`/ask eval　${r.meta.startedAt}　${r.meta.sha}　資料 ${dbLine(r.meta.db)}　ask ${r.meta.askModel}　judge ${r.meta.judgeModel}${r.meta.supportModel ? `　出處檢查 ${r.meta.supportModel}` : ''}　每題 ${r.meta.runs} 次${r.meta.partial ? '　（只跑部分題目）' : ''}`);
   out.push('');
   out.push('題型         題數  通過  不穩定  失敗');
   const total = { pass: 0, unstable: 0, fail: 0 };
@@ -29,9 +31,17 @@ export function reportEval(r: EvalResult, golden: GoldenQuestion[]): string {
   out.push(`檢索 hit rate　${pct(rate(s.hit))}（${s.hit.ok}/${s.hit.of} 次）`);
   out.push(`檢查點通過率　${pct(rate(s.points))}（${s.points.ok}/${s.points.of}）`);
   out.push(`出處對不上　${s.misCited.runs}/${s.misCited.of} 次${s.misCited.ids.length ? `（${s.misCited.ids.join('、')}）` : ''}`);
+  if (s.support.of || s.support.failed) {
+    out.push(
+      `出處正確率　${pct(rate(s.support))}（${s.support.ok}/${s.support.of} 個出處有講到那一行；只報告，不算進通過）` +
+        (s.support.ids.length ? `　沒講到的在：${s.support.ids.join('、')}` : '') +
+        (s.support.failed ? `　⚠ ${s.support.failed} 次檢查失敗` : ''),
+    );
+  }
   if (s.errors) out.push(`⚠ ${s.errors} 次執行出錯（逾時或 API 錯誤），不算進上面兩個比率；出錯太多的結果不要當基準`);
   out.push(`安全題（要全過）　${s.safetyFailed.length ? `✗ 沒過：${s.safetyFailed.join('、')}` : '✓ 全部通過'}`);
-  out.push(`成本　ask ${usd(s.askCostUsd)} + judge ${usd(s.judgeCostUsd)} = ${usd(s.askCostUsd + s.judgeCostUsd)}；每次平均搜尋 ${s.avgToolCalls.toFixed(1)} 次、${(s.avgMs / 1000).toFixed(1)} 秒`);
+  const spent = s.askCostUsd + s.judgeCostUsd + s.supportCostUsd;
+  out.push(`成本　ask ${usd(s.askCostUsd)} + judge ${usd(s.judgeCostUsd)} + 出處檢查 ${usd(s.supportCostUsd)} = ${usd(spent)}；每次平均搜尋 ${s.avgToolCalls.toFixed(1)} 次、${(s.avgMs / 1000).toFixed(1)} 秒`);
 
   const notPassed = r.questions.filter((q) => q.status !== 'pass');
   if (notPassed.length) {
@@ -55,6 +65,25 @@ export function reportEval(r: EvalResult, golden: GoldenQuestion[]): string {
       for (const [what, r] of reasons) out.push(`      ${what}${q.runs.length > 1 ? `（${r.n} 次）` : ''}${r.detail ? `：${r.detail}` : ''}`);
     }
   }
+
+  // Every citation the source check said doesn't talk about its line, with the line and
+  // the passage's episode, so a reader can see whether the number or the line is wrong
+  const unsupported = r.questions.flatMap((q) =>
+    q.runs.flatMap((run, i) => {
+      // Errored runs are left out of the rate above, so out of this list too
+      if (run.error) return [];
+      const bad = (run.checks.support ?? []).filter((v) => !v.ok);
+      if (!bad.length) return [];
+      const lines = new Map(citedLines(run.answer, new Set(run.sources.map((x) => x.n))).map((l) => [l.line, l.text]));
+      const ep = new Map(run.sources.map((x) => [x.n, x.ep]));
+      return bad.map((v) => `  ${q.id} 第 ${i + 1} 次　[${v.n}] EP${ep.get(v.n)}：${clip(lines.get(v.line) ?? '', 60)}\n      ${v.reason}`);
+    }),
+  );
+  if (unsupported.length) {
+    out.push('');
+    out.push(`出處沒講到那一行（${unsupported.length} 個，不算進通過）：`);
+    out.push(...unsupported);
+  }
   return out.join('\n');
 }
 
@@ -76,6 +105,10 @@ export function reportDiff(d: Diff, beforeName: string): string {
   list('拿掉的題目', d.removed);
   const delta = d.hitRate.after - d.hitRate.before;
   out.push(`  檢索 hit rate（兩次都有的題目）：${pct(d.hitRate.before)} → ${pct(d.hitRate.after)}（${delta >= 0 ? '+' : ''}${delta.toFixed(1)}）`);
+  if (d.supportRate) {
+    const sd = d.supportRate.after - d.supportRate.before;
+    out.push(`  出處正確率（兩次都有的題目）：${pct(d.supportRate.before)} → ${pct(d.supportRate.after)}（${sd >= 0 ? '+' : ''}${sd.toFixed(1)}）`);
+  }
   out.push(d.alarm ? `  ⚠ 退步警訊：退步 ${REGRESSED_ALARM} 題以上，或 hit rate 掉超過 ${HIT_RATE_ALARM} 個百分點` : '  沒有退步警訊');
   return out.join('\n');
 }

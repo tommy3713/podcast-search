@@ -24,6 +24,7 @@ import { type DB, openDb } from '../src/lib/db.ts';
 import { staleSummaryPoints } from '../worker/summary-index.ts';
 import { type GoldenQuestion, parseGolden, questionHash, QUESTION_TYPES } from './eval/golden.ts';
 import { JUDGE_MODEL } from './eval/judge.ts';
+import { SUPPORT_MODEL } from './eval/support.ts';
 import { reportDiff, reportEval, reportRetrieval } from './eval/report.ts';
 import { retrievalCheck, type RetrievalRun } from './eval/retrieval.ts';
 import { pool, runQuestion } from './eval/run.ts';
@@ -93,7 +94,7 @@ if (kind === 'retrieval') {
     console.log(`  ${String(++done).padStart(3)}/${picked.length}  ${q.id.padEnd(11)} ${status}`);
     return { id: q.id, type: q.type, hash: questionHash(q), status, runs: results };
   });
-  result = { meta: { startedAt, sha, db: dbInfo, askModel: ASK_MODEL, judgeModel: JUDGE_MODEL, runs, partial }, questions };
+  result = { meta: { startedAt, sha, db: dbInfo, askModel: ASK_MODEL, judgeModel: JUDGE_MODEL, supportModel: SUPPORT_MODEL, runs, partial }, questions };
   const summary = summarize(result);
   clean = summary.errors === 0;
   console.log(`\n${reportEval(result, golden)}`);
