@@ -3,9 +3,11 @@ import Link from 'next/link';
 import { Fragment } from 'react';
 import { notFound } from 'next/navigation';
 import { EpName } from '@/components/Badge';
+import { ExcerptText, ExcerptToggle } from '@/components/Excerpt';
 import { formatDate, monthKey } from '@/lib/format';
 import { shareMetadata, stockDescription, stockTitle } from '@/lib/seo';
-import { stockData } from '@/lib/stock-pages';
+import { readDb } from '@/lib/server-db';
+import { excerptAt, stockData } from '@/lib/stock-pages';
 import {
   type ChartBar,
   chartBars,
@@ -13,6 +15,7 @@ import {
   monthKeyLabel,
   STOCK_LIST_MIN_EPISODES,
   STOCKS_LABEL,
+  type StockEpisode,
   shownCode,
   stockHref,
   stockMonths,
@@ -87,6 +90,44 @@ function Chart({ bars }: { bars: ChartBar[] }) {
   );
 }
 
+// What he said in one episode: the chapters it came up in, the summary's note, and the
+// summary's other bullets that name the company
+function Said({ e }: { e: StockEpisode }) {
+  const point = (n: { t: number; text: string }, i: number) => (
+    <li key={i}>
+      <Link className="ts" href={`/ep/${e.no}?t=${n.t}`} aria-label={`EP${e.no} 從 ${formatTimestamp(n.t)} 播放`}>
+        {formatTimestamp(n.t)}
+      </Link>
+      <span>{n.text}</span>
+    </li>
+  );
+  return (
+    <>
+      {e.chapters.length > 0 && (
+        <div className="ch">
+          <span className="fine">章節</span>
+          {e.chapters.join('・')}
+        </div>
+      )}
+      <ul className="keypts">{e.notes.map(point)}</ul>
+      {e.points.length > 0 && <ul className="keypts more">{e.points.map(point)}</ul>}
+    </>
+  );
+}
+
+function EpisodeLine({ e }: { e: StockEpisode }) {
+  return (
+    <div className="t">
+      <Link href={`/ep/${e.no}`}>
+        EP{e.no}
+        <EpName title={e.title} />
+      </Link>
+      <span className="fine">{formatDate(e.publishedAt)}</span>
+      {e.deep && <span className="pill info">深入談</span>}
+    </div>
+  );
+}
+
 export default async function StockPage({ params }: Props) {
   const found = await load(params);
   if (!found) notFound();
@@ -94,8 +135,16 @@ export default async function StockPage({ params }: Props) {
   const latest = stock.episodes[0]!;
   const earliest = stock.episodes.at(-1)!;
   const bars = stock.episodes.length >= CHART_MIN_EPISODES ? chartBars(stockMonths(stock, liveMonths)) : [];
-  const perMonth = new Map<string, number>();
-  for (const e of stock.episodes) perMonth.set(monthKey(e.publishedAt), (perMonth.get(monthKey(e.publishedAt)) ?? 0) + 1);
+  // Per month: episodes, and how many of them dwell on it
+  const perMonth = new Map<string, { all: number; deep: number }>();
+  for (const e of stock.episodes) {
+    const key = monthKey(e.publishedAt);
+    const m = perMonth.get(key) ?? { all: 0, deep: 0 };
+    perMonth.set(key, { all: m.all + 1, deep: m.deep + (e.deep ? 1 : 0) });
+  }
+  const deep = stock.episodes.filter((e) => e.deep).length;
+  // The newest episode's words are on the page from the start; the others' come on a click
+  const latestExcerpt = excerptAt(await readDb(), latest.no, latest.notes[0]!.t);
 
   let month = '';
   return (
@@ -123,45 +172,52 @@ export default async function StockPage({ params }: Props) {
           </div>
         </div>
       </div>
+      <section className="card stock-latest">
+        <div className="eyebrow">最近一次提到</div>
+        <EpisodeLine e={latest} />
+        <Said e={latest} />
+        {latestExcerpt && <ExcerptText episodeNo={latest.no} excerpt={latestExcerpt} />}
+      </section>
       {bars.length > 0 && <Chart bars={bars} />}
       <section className="card list" id="stock-eps">
+        <div className="list-head">
+          <h3>
+            每一集說了什麼
+            <span className="fine">共 {stock.episodes.length} 集</span>
+          </h3>
+          {/* Works without JavaScript: the list hides the rest with :has() */}
+          {deep > 0 && deep < stock.episodes.length && (
+            <label className="deep-only">
+              <input type="checkbox" id="deep-only" />
+              只看深入談的（{deep} 集）
+            </label>
+          )}
+        </div>
         {stock.episodes.map((e) => {
           const key = monthKey(e.publishedAt);
+          const count = perMonth.get(key)!;
           const header =
             key !== month ? (
-              <h2 className="month" id={`m-${(month = key)}`}>
+              <h2 className="month" id={`m-${(month = key)}`} data-deep={count.deep}>
                 {monthKeyLabel(key)}
-                <span className="fine">　{perMonth.get(key)} 集</span>
+                <span className="fine n-all">　{count.all} 集</span>
+                <span className="fine n-deep">　{count.deep} 集</span>
               </h2>
             ) : null;
           return (
             <Fragment key={e.no}>
               {header}
-              <div className="stock-ep">
-                <div className="t">
-                  <Link href={`/ep/${e.no}`}>
-                    EP{e.no}
-                    <EpName title={e.title} />
-                  </Link>
-                  <span className="fine">{formatDate(e.publishedAt)}</span>
-                </div>
-                <ul className="keypts">
-                  {e.notes.map((n, i) => (
-                    <li key={i}>
-                      <Link className="ts" href={`/ep/${e.no}?t=${n.t}`} aria-label={`EP${e.no} 從 ${formatTimestamp(n.t)} 播放`}>
-                        {formatTimestamp(n.t)}
-                      </Link>
-                      <span>{n.text}</span>
-                    </li>
-                  ))}
-                </ul>
+              <div className={e.deep ? 'stock-ep deep' : 'stock-ep'}>
+                <EpisodeLine e={e} />
+                <Said e={e} />
+                <ExcerptToggle episodeNo={e.no} t={e.notes[0]!.t} />
               </div>
             </Fragment>
           );
         })}
       </section>
       <p className="fine" style={{ margin: 0 }}>
-        主持人在節目中的個人看法，不是投資建議。內容由 AI 自動整理，可能有遺漏或誤聽，以原節目為準。
+        主持人在節目中的個人看法，不是投資建議。「深入談」只表示那一集談得比較多。內容由 AI 自動整理，可能有遺漏或誤聽，以原節目為準。
       </p>
     </div>
   );

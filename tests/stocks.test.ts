@@ -5,6 +5,7 @@ import {
   buildStockIndex,
   canonicalCode,
   chartBars,
+  type EpisodeOutline,
   findStock,
   listedStocks,
   searchKey,
@@ -18,7 +19,7 @@ import {
 
 const mocks = vi.hoisted(() => ({ db: undefined as unknown }));
 vi.mock('@/lib/server-db.ts', () => ({ readDb: async () => mocks.db }));
-const { liveMonths, stockIndex, stockRows } = await import('@/lib/stock-pages.ts');
+const { episodeOutlines, excerptAt, excerptFrom, liveMonths, stockIndex, stockRows } = await import('@/lib/stock-pages.ts');
 
 const row = (episodeNo: number, name: string, code: string | null, detail = `${name} 的事`, startSec = 60): StockRow => ({
   name,
@@ -199,6 +200,92 @@ describe('listedStocks', () => {
   });
 });
 
+describe('what an episode says about a stock', () => {
+  const outline: EpisodeOutline = {
+    keys: [{ t: 700, text: '輝達財報後的市場反應' }],
+    chapters: [
+      { t: 0, title: '開場業配', ad: true, bullets: [{ t: 10, text: 'Meta 眼鏡的業配' }] },
+      { t: 600, title: '輝達風波', ad: false, bullets: [{ t: 625, text: '輝達受黃仁勳事件影響' }, { t: 700, text: '輝達中國營收' }, { t: 760, text: 'NVIDIA 的 guidance' }] },
+      { t: 1200, title: '市場問答', ad: false, bullets: [{ t: 1210, text: '談台積電法說' }, { t: 1300, text: 'metaverse 沒人提了' }] },
+    ],
+  };
+  const index = buildStockIndex(
+    [
+      row(713, '輝達', 'NVDA', '談事件的影響', 610),
+      row(712, 'NVIDIA', 'NVDA', '順帶一提', 60),
+      row(713, '台積電', '2330', '提到法說', 1210),
+      row(713, 'Meta', 'META', '帶過一句', 1250),
+      row(713, 'Cloudflare', 'NET', '帶過一句', 1260),
+    ],
+    new Map([[713, outline]]),
+  );
+  const ep = (slug: string, no = 713) => findStock(index, slug)!.episodes.find((e) => e.no === no)!;
+
+  it('names the chapters its notes fall in', () => {
+    expect(ep('NVDA').chapters).toEqual(['輝達風波']);
+    expect(ep('2330').chapters).toEqual(['市場問答']);
+  });
+
+  it('adds the summary bullets that name it by any of its names, but not its notes again', () => {
+    // The bullet at 625 is the note's passage (610) again; NVIDIA is a name another episode uses
+    expect(ep('NVDA').points).toEqual([
+      { t: 700, text: '輝達中國營收' },
+      { t: 760, text: 'NVIDIA 的 guidance' },
+    ]);
+    expect(ep('2330').points).toEqual([]);
+  });
+
+  it('marks an episode that dwells on it: a chapter title, a key point, or several bullets', () => {
+    expect(ep('NVDA').deep).toBe(true);
+    expect(ep('2330').deep).toBe(false);
+  });
+
+  it('matches Latin names as words, never codes, and never an ad chapter', () => {
+    // "metaverse" is not Meta, the ad's bullet doesn't count, and NET is not in any text
+    expect(ep('META')).toMatchObject({ points: [], deep: false, chapters: ['市場問答'] });
+    expect(ep('NET')).toMatchObject({ points: [], deep: false });
+  });
+
+  it('gives a note inside an ad chapter no chapter, and skips a row named by its code', () => {
+    const ads: EpisodeOutline = {
+      keys: [{ t: 0, text: 'NET 這個字只是英文單字 net' }],
+      chapters: [
+        { t: 0, title: '市場問答', ad: false, bullets: [] },
+        { t: 100, title: '業配', ad: true, bullets: [] },
+      ],
+    };
+    const i = buildStockIndex([row(1, 'Cloudflare', 'NET', '在業配裡帶到', 150), row(2, 'NET', 'NET', '', 10)], new Map([[1, ads]]));
+    expect(findStock(i, 'NET')!.episodes.find((e) => e.no === 1)).toMatchObject({ chapters: [], deep: false });
+  });
+
+  it('leaves an episode without a summary with just its notes', () => {
+    expect(ep('NVDA', 712)).toMatchObject({ chapters: [], points: [], deep: false });
+  });
+});
+
+describe('excerpts', () => {
+  const seg = (start: number, text: string) => ({ start, end: start + 5, text });
+  const segments = [seg(0, '開場'), seg(90, '前面在講別的'), seg(100.4, '接著說到台積電'), seg(106, '法說會的重點。'), seg(112, '再來是別的')];
+
+  it('starts a little before the timestamp and joins segments like the transcript tab', () => {
+    expect(excerptFrom(segments, 110)).toEqual({ t: 100, text: '接著說到台積電，法說會的重點。再來是別的' });
+    expect(excerptFrom(segments, 0)).toEqual({ t: 0, text: '開場，前面在講別的，接著說到台積電，法說會的重點。再來是別的' });
+  });
+
+  it('stops after about 450 characters, at a segment end', () => {
+    const long = Array.from({ length: 40 }, (_, i) => seg(i * 10, '這是一句二十個字左右的逐字稿內容用來測試。'));
+    const text = excerptFrom(long, 100)!.text;
+    expect(text.length).toBeGreaterThanOrEqual(450);
+    expect(text.length).toBeLessThan(480);
+    expect(text.endsWith('測試。')).toBe(true);
+  });
+
+  it('gives the tail for a timestamp past the end, and nothing without a transcript', () => {
+    expect(excerptFrom(segments, 9999)).toEqual({ t: 112, text: '再來是別的' });
+    expect(excerptFrom([], 10)).toBeNull();
+  });
+});
+
 describe('search on /stocks', () => {
   const index = buildStockIndex([
     row(713, '台積電', '2330'), row(712, 'TSMC／台積電', '2330/TSM'), row(711, '台積電', '2330.TW/TSM'),
@@ -348,6 +435,25 @@ describe('stockRows', () => {
       [712, '台積電', 500],
     ]);
     expect(rows[1]).toMatchObject({ code: '2330', detail: '談法說會', title: '⭐', publishedAt: '2026-11-07T04:00:00Z' });
+  });
+
+  it('reads excerpts and outlines of live episodes only', () => {
+    const db = seed();
+    const summary = { line: '', keys: [{ t: 5, text: '重點' }], chapters: [{ t: 0, title: '章', ad: false, bullets: [{ t: 1, text: '條' }], quote: null }], stocks: [], mentions: [] };
+    const segments = JSON.stringify([{ start: 890, end: 895, text: '談台積電法說會' }]);
+    db.prepare(`UPDATE episodes SET segments_json = ?, summary_json = ?`).run(segments, JSON.stringify(summary));
+    expect(excerptAt(db, 713, 900)).toEqual({ t: 890, text: '談台積電法說會' });
+    // EP714 hasn't gone live; EP1 doesn't exist
+    expect(excerptAt(db, 714, 900)).toBeNull();
+    expect(excerptAt(db, 1, 900)).toBeNull();
+    expect([...episodeOutlines(db).keys()].sort()).toEqual([712, 713]);
+    // A broken summary costs that episode its outline, not every page
+    db.prepare(`UPDATE episodes SET summary_json = '{"line":' WHERE episode_no = 712`).run();
+    expect([...episodeOutlines(db).keys()]).toEqual([713]);
+    db.prepare(`UPDATE episodes SET summary_json = '{}' WHERE episode_no = 712`).run();
+    expect(episodeOutlines(db).get(712)).toEqual({ keys: [], chapters: [] });
+    db.prepare(`UPDATE episodes SET summary_json = ? WHERE episode_no = 712`).run(JSON.stringify(summary));
+    expect(episodeOutlines(db).get(713)).toEqual({ keys: [{ t: 5, text: '重點' }], chapters: [{ t: 0, title: '章', ad: false, bullets: [{ t: 1, text: '條' }] }] });
   });
 
   it('counts live episodes per Taipei month', () => {

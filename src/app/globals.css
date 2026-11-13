@@ -288,9 +288,29 @@ a.cite { display: inline-block; text-decoration: none; }
 .stock-ep { padding: 14px 18px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
 .month + .stock-ep { border-top: 0; }
 #stock-eps .month { scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 64px); }
-#stock-eps { padding-top: 0; }
-#stock-eps .month:first-child { border-top: 0; border-radius: 11px 11px 0 0; }
 .stock-head .meta a { color: inherit; }
+.stock-latest { padding: 18px; display: grid; gap: 10px; }
+.stock-latest .t { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-weight: 600; font-size: 17px; }
+.stock-latest .t a { color: inherit; text-decoration: none; }
+.stock-latest .t a:hover { color: var(--accent); text-decoration: underline; }
+.stock-ep .t .pill, .stock-latest .t .pill { align-self: center; }
+.ch { font-weight: 500; display: flex; gap: 8px; align-items: baseline; }
+.keypts.more { font-size: 14px; color: var(--muted); }
+.stock-ep.deep { box-shadow: inset 3px 0 0 var(--accent); }
+.excerpt { margin: 0; padding: 10px 14px; border-left: 3px solid var(--line); background: var(--bg); border-radius: 0 8px 8px 0; font-size: 14.5px; line-height: 1.75; }
+.excerpt p { margin: 0 0 6px; }
+.excerpt footer { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.excerpt-toggle { display: grid; gap: 6px; justify-items: start; }
+.excerpt-toggle .btn { padding: 2px 8px; font-size: 13px; margin-left: -8px; }
+.excerpt-toggle .excerpt { justify-self: stretch; }
+.deep-only { font-size: 13.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; cursor: pointer; }
+#stock-eps:has(#deep-only:checked) .stock-ep:not(.deep) { display: none; }
+/* Not display: none, so a chart bar's link to the month still has somewhere to scroll to */
+#stock-eps:has(#deep-only:checked) .month[data-deep="0"] { height: 0; padding-block: 0; border: 0; overflow: hidden; }
+/* On its own: a browser without :has() drops a whole rule that has it in its selector list */
+#stock-eps .n-deep { display: none; }
+#stock-eps:has(#deep-only:checked) .n-all { display: none; }
+#stock-eps:has(#deep-only:checked) .n-deep { display: inline; }
 .stock-search { padding: 10px 18px 12px; display: grid; gap: 6px; }
 .stock-search input { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 9px 12px; }
 .stock-search p { margin: 0; }
@@ -319,7 +339,7 @@ a.cite { display: inline-block; text-decoration: none; }
 /* Here, not in the phone block further up: that one comes before these rules */
 @media (max-width: 640px) {
   .stock-head h1 { font-size: 24px; }
-  .stock-ep, .stock-grid a, .stock-search, .stock-chart { padding-inline: 14px; }
+  .stock-ep, .stock-grid a, .stock-search, .stock-chart, .stock-latest { padding-inline: 14px; }
 }
 
 /* loading.tsx placeholders */

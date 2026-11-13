@@ -42,6 +42,11 @@ export function graphemeCount(s: string): number {
 
 export type Paragraph = { start: number; text: string };
 
+// Whisper segments rarely end in punctuation; a comma goes between two that don't
+export function appendSegment(text: string, next: string): string {
+  return text && !/[，。！？、：；,.!?]$/.test(text) ? `${text}，${next}` : text + next;
+}
+
 // Whisper segments are only a few seconds long; merge them into paragraphs of at
 // least `minSeconds` so the transcript reads as prose with a timestamp per paragraph.
 export function groupParagraphs(segments: Segment[], minSeconds = 30): Paragraph[] {
@@ -51,10 +56,8 @@ export function groupParagraphs(segments: Segment[], minSeconds = 30): Paragraph
     if (!current || seg.start - current.start >= minSeconds) {
       current = { start: seg.start, text: '' };
       paragraphs.push(current);
-    } else if (!/[，。！？、：；,.!?]$/.test(current.text)) {
-      current.text += '，';
     }
-    current.text += seg.text;
+    current.text = appendSegment(current.text, seg.text);
   }
   return paragraphs;
 }
