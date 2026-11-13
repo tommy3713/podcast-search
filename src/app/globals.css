@@ -62,13 +62,25 @@ nav.desk, .user, .avatar { flex: none; }
 nav.desk { display: flex; gap: 4px; }
 nav.desk a { text-decoration: none; color: var(--muted); padding: 6px 12px; border-radius: 8px; font-weight: 500; }
 nav.desk a[aria-current="page"] { color: var(--fg); background: var(--bg); }
-.user { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.user { display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
 .btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 14px; font-weight: 500; text-decoration: none; color: var(--fg); display: inline-flex; align-items: center; gap: 8px; }
 .btn.primary { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 22%, transparent); }
 .btn.primary:hover { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn.ghost { border-color: transparent; background: transparent; color: var(--muted); padding-inline: 8px; }
+.actions { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; }
+.btn.theme-toggle { width: 36px; height: 36px; padding: 0; justify-content: center; flex: none; }
+.btn.theme-toggle:hover { color: var(--fg); background: var(--bg); }
+.theme-toggle > span { display: flex; }
+.theme-toggle svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.theme-toggle .to-light { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle .to-light { display: flex; }
+  :root:not([data-theme="light"]) .theme-toggle .to-dark { display: none; }
+}
+:root[data-theme="dark"] .theme-toggle .to-light { display: flex; }
+:root[data-theme="dark"] .theme-toggle .to-dark { display: none; }
 .gmark { width: 18px; height: 18px; border-radius: 50%; background: var(--surface); color: var(--fg); display: grid; place-items: center; font-weight: 700; font-size: 12px; }
 
 nav.bottom { display: none; }
