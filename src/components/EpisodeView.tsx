@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Paragraph } from '@/lib/format';
 import { offsetAt, type SeekModel, type SeekTable, seekModel, seekTarget } from '@/lib/seek';
@@ -11,6 +12,8 @@ type Props = {
   audioUrl: string;
   duration: number;
   summary: Summary;
+  // One per summary.stocks: its /stock/ page, or null
+  stockHrefs: (string | null)[];
   paragraphs: Paragraph[];
   initialTab: Tab;
   initialT: number | null;
@@ -19,7 +22,7 @@ type Props = {
 
 const SPEEDS = [1, 1.25, 1.5, 2];
 
-export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTab, initialT, seek: table }: Props) {
+export function EpisodeView({ audioUrl, duration, summary, stockHrefs, paragraphs, initialTab, initialT, seek: table }: Props) {
   const audio = useRef<HTMLAudioElement>(null);
   // Everything here works in audio time: where the listener really is. In Chromium and Safari,
   // which seek through the MP3's table of contents (src/lib/seek.ts), that's currentTime plus
@@ -171,7 +174,7 @@ export function EpisodeView({ audioUrl, duration, summary, paragraphs, initialTa
           engines; the inactive one is hidden. data-nosnippet keeps it indexed but out of result
           snippets, which use the description and key points instead of raw speech-to-text. */}
       <div role="tabpanel" hidden={tab !== 'summary'}>
-        <SummaryTab summary={summary} onSeek={seek} />
+        <SummaryTab summary={summary} stockHrefs={stockHrefs} onSeek={seek} />
       </div>
       <div role="tabpanel" hidden={tab !== 'tx'} data-nosnippet="">
         {/* While hidden it gets a fixed time, so playback (about 4 updates a second) doesn't
@@ -277,7 +280,7 @@ function Player(props: {
   );
 }
 
-function SummaryTab({ summary, onSeek }: { summary: Summary; onSeek: (t: number) => void }) {
+function SummaryTab({ summary, stockHrefs, onSeek }: { summary: Summary; stockHrefs: (string | null)[]; onSeek: (t: number) => void }) {
   return (
     <div className="sum-grid">
       <div className="card">
@@ -312,7 +315,8 @@ function SummaryTab({ summary, onSeek }: { summary: Summary; onSeek: (t: number)
             {summary.stocks.map((s, i) => (
               <div key={i} className="stock">
                 <div className="n">
-                  {s.name}
+                  {/* No prefetch: an episode has a dozen of these and they are rarely followed */}
+                  {stockHrefs[i] ? <Link href={stockHrefs[i]} prefetch={false}>{s.name}</Link> : s.name}
                   {s.code && <span className="c">{s.code}</span>}
                 </div>
                 <p>

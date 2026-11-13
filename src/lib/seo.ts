@@ -1,4 +1,5 @@
 import type { EpisodeDetail } from './episodes.ts';
+import { type Stock, shownCode } from './stocks.ts';
 
 // Canonical origin for links search engines and share cards see, whatever host served the page
 export const SITE_URL = 'https://gooaye-notes.com';
@@ -26,6 +27,25 @@ export function episodeDescription(summary: { line: string; keys: { text: string
   // Search results show about 120 CJK characters; keep the episode's own words first
   const room = DESCRIPTION_MAX - Array.from(DESCRIPTION_TAIL).length - 1;
   return `${body.length > room ? `${body.slice(0, room - 1).join('')}…` : `${body.join('')}。`}${DESCRIPTION_TAIL}`;
+}
+
+// "台積電（2330）", or just the name when there is no code or the name is the code
+export function stockName(stock: Pick<Stock, 'name' | 'code'>): string {
+  const code = shownCode(stock);
+  return code ? `${stock.name}（${code}）` : stock.name;
+}
+
+// "股癌 台積電" is how people search, so it leads, like "股癌 EP709" on an episode
+export function stockTitle(stock: Stock): string {
+  return `股癌 ${stockName(stock)}｜在 ${stock.episodes.length} 集提到`;
+}
+
+// Says where, never what he thinks of it. Under 150 characters with the longest name and code
+// a summary can hold.
+export function stockDescription(stock: Stock): string {
+  const eps = stock.episodes.slice(0, 3).map((e) => `EP${e.no}`).join('、');
+  const n = stock.episodes.length;
+  return `《股癌》主持人在 ${eps} ${n > 3 ? `等 ${n} 集` : ''}提到${stockName(stock)}：每一集說了什麼、在第幾分鐘。非官方粉絲整理，不是投資建議。`;
 }
 
 function isoDuration(seconds: number): string {
