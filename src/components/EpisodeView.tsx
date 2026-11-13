@@ -14,6 +14,8 @@ type Props = {
   summary: Summary;
   // One per summary.stocks: its /stock/ page, or null
   stockHrefs: (string | null)[];
+  // One per summary.chapters: an ad chapter's /sponsor/ page, or null
+  sponsorHrefs: (string | null)[];
   paragraphs: Paragraph[];
   initialTab: Tab;
   initialT: number | null;
@@ -22,7 +24,7 @@ type Props = {
 
 const SPEEDS = [1, 1.25, 1.5, 2];
 
-export function EpisodeView({ audioUrl, duration, summary, stockHrefs, paragraphs, initialTab, initialT, seek: table }: Props) {
+export function EpisodeView({ audioUrl, duration, summary, stockHrefs, sponsorHrefs, paragraphs, initialTab, initialT, seek: table }: Props) {
   const audio = useRef<HTMLAudioElement>(null);
   // Everything here works in audio time: where the listener really is. In Chromium and Safari,
   // which seek through the MP3's table of contents (src/lib/seek.ts), that's currentTime plus
@@ -174,7 +176,7 @@ export function EpisodeView({ audioUrl, duration, summary, stockHrefs, paragraph
           engines; the inactive one is hidden. data-nosnippet keeps it indexed but out of result
           snippets, which use the description and key points instead of raw speech-to-text. */}
       <div role="tabpanel" hidden={tab !== 'summary'}>
-        <SummaryTab summary={summary} stockHrefs={stockHrefs} onSeek={seek} />
+        <SummaryTab summary={summary} stockHrefs={stockHrefs} sponsorHrefs={sponsorHrefs} onSeek={seek} />
       </div>
       <div role="tabpanel" hidden={tab !== 'tx'} data-nosnippet="">
         {/* While hidden it gets a fixed time, so playback (about 4 updates a second) doesn't
@@ -280,7 +282,17 @@ function Player(props: {
   );
 }
 
-function SummaryTab({ summary, stockHrefs, onSeek }: { summary: Summary; stockHrefs: (string | null)[]; onSeek: (t: number) => void }) {
+function SummaryTab({
+  summary,
+  stockHrefs,
+  sponsorHrefs,
+  onSeek,
+}: {
+  summary: Summary;
+  stockHrefs: (string | null)[];
+  sponsorHrefs: (string | null)[];
+  onSeek: (t: number) => void;
+}) {
   return (
     <div className="sum-grid">
       <div className="card">
@@ -289,7 +301,15 @@ function SummaryTab({ summary, stockHrefs, onSeek }: { summary: Summary; stockHr
             <div className="ch-head">
               <Ts t={c.t} onSeek={onSeek} />
               <h3>{c.title}</h3>
-              {c.ad && <span className="pill flat">業配</span>}
+              {c.ad &&
+                (sponsorHrefs[i] ? (
+                  // Every episode this sponsor paid for
+                  <Link className="pill flat" href={sponsorHrefs[i]} prefetch={false} title="這個贊助商的所有業配">
+                    業配
+                  </Link>
+                ) : (
+                  <span className="pill flat">業配</span>
+                ))}
             </div>
             <ul className="bul">
               {c.bullets.map((b, j) => (

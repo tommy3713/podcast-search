@@ -331,6 +331,15 @@ a.cite { display: inline-block; text-decoration: none; }
 .mini-player a { color: var(--accent); text-decoration: none; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mini-player a:hover { text-decoration: underline; }
 .excerpt footer a { color: var(--accent); }
+.sponsor-row { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr) 4.5em; gap: 14px; align-items: center; padding: 9px 18px; border-top: 1px solid var(--line); text-decoration: none; color: inherit; }
+.sponsor-row:hover { background: var(--bg); }
+.sponsor-row .n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sponsor-row .fine { text-align: right; }
+.sponsor-row.head { border-top: 0; font-size: 12px; color: var(--muted); padding-block: 10px 6px; }
+.sponsor-row.head:hover { background: none; }
+.span-label { display: flex; justify-content: space-between; font-family: var(--font-mono); }
+.dots { position: relative; height: 14px; border-bottom: 1px solid var(--line); }
+.dots i { position: absolute; bottom: 2px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: var(--accent); opacity: .75; }
 .stock-search { padding: 10px 18px 12px; display: grid; gap: 6px; }
 /* 16px: iOS zooms the page into an input with a smaller font */
 .search-input { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 9px 12px; font-size: 16px; }
@@ -361,6 +370,7 @@ a.cite { display: inline-block; text-decoration: none; }
 @media (max-width: 640px) {
   .stock-head h1 { font-size: 24px; }
   .stock-ep, .stock-grid a, .stock-search, .stock-chart, .stock-latest, .stock-next { padding-inline: 14px; }
+  .sponsor-row { grid-template-columns: minmax(0, 7em) minmax(0, 1fr) 3.5em; gap: 10px; padding-inline: 14px; }
   .mini-player { bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom, 0px)); }
 }
 
