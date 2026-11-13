@@ -18,8 +18,7 @@ export type TopicCategory = {
   blurb: string;
 };
 
-// Only categories about what he does and likes. 家庭 stays out: a page gathering every
-// mention of a child is a different thing from what the episode itself says.
+// Every category but 其他. 家庭 is in at the owner's call (2026-11-13), parenting included.
 export const TOPIC_CATEGORIES: TopicCategory[] = [
   { slug: 'sports', category: '運動', label: '運動', blurb: '主委在做、在看的運動和比賽' },
   { slug: 'games', category: '遊戲', label: '電玩', blurb: '主委在玩、在聊的遊戲和遊戲機' },
@@ -27,6 +26,7 @@ export const TOPIC_CATEGORIES: TopicCategory[] = [
   { slug: 'media', category: '書影音', label: '書影音', blurb: '主委在看、在聽的書、劇、電影、動畫和音樂' },
   { slug: 'food', category: '美食', label: '美食', blurb: '主委吃過、喝過的餐廳、食物和酒' },
   { slug: 'tech', category: '科技產品', label: '科技產品', blurb: '主委在用、在聊的 3C、App 和車' },
+  { slug: 'family', category: '家庭', label: '家庭', blurb: '主委的家人、育兒和寵物' },
 ];
 
 type Alias = { name: string; slug: string; patterns: RegExp[] };
@@ -115,6 +115,13 @@ export const TOPIC_ALIASES: Record<string, Alias[]> = {
     { name: '新政', slug: 'aramasa', patterns: [/^新政/] },
     { name: '7-11', slug: '7-11', patterns: [/^7-?11/] },
     { name: 'Churros', slug: 'churros', patterns: [/churros/i] },
+  ],
+  家庭: [
+    { name: '諾亞', slug: 'noah', patterns: [/諾亞|^noah$/i] },
+    // Heard as 秋口 and 秋狗
+    { name: 'Choco', slug: 'choco', patterns: [/^choco$|^秋[口狗]$/i] },
+    { name: 'Lisa', slug: 'lisa', patterns: [/^li[sz]a$/i] },
+    { name: '祁安', slug: 'qian', patterns: [/^[祁祈]安$/] },
   ],
   科技產品: [
     // Before iPhone and Apple

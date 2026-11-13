@@ -32,6 +32,8 @@ describe('topicOf', () => {
     for (const n of ['iPhone', 'iPhone Pro Max', 'iPhone 17 Pro Max']) expect(topicOf('科技產品', n)?.slug).toBe('iphone');
     for (const n of ['Model X Plaid', 'Tesla Model X Plaid', 'Tesla Model X']) expect(topicOf('科技產品', n)?.slug).toBe('tesla-model-x');
     for (const n of ['ChatGPT', 'GPT', 'GPT-4o', 'O3']) expect(topicOf('科技產品', n)?.slug).toBe('chatgpt');
+    for (const n of ['諾亞', 'Noah', '謝諾亞']) expect(topicOf('家庭', n)?.slug).toBe('noah');
+    for (const n of ['Choco', '秋口', '秋狗']) expect(topicOf('家庭', n)?.slug).toBe('choco');
   });
 
   it('keeps a narrower name before a wider one', () => {
@@ -90,8 +92,9 @@ describe('buildTopicIndex', () => {
     row(700, '運動', '慢跑', '早上去慢跑', 50, '2026-09-27T04:00:00Z'),
     row(699, '運動', '跑步', '跑步跑了十公里', 70, '2026-09-24T04:00:00Z'),
     row(713, '遊戲', '尼姬', '新角色', 100, '2026-11-11T04:00:00Z'),
-    // Categories without pages are left out
     row(713, '家庭', '諾亞', '小孩發燒', 500, '2026-11-11T04:00:00Z'),
+    // Categories without pages are left out
+    row(713, '其他', '林口', '搬到林口', 800, '2026-11-11T04:00:00Z'),
   ]);
 
   it('gives each thing its episodes, newest first, with every mention in an episode', () => {
@@ -111,8 +114,9 @@ describe('buildTopicIndex', () => {
   });
 
   it('leaves the categories without pages out', () => {
-    expect([...index.keys()]).toEqual(['sports', 'games', 'travel', 'media', 'food', 'tech']);
-    expect([...index.values()].flatMap((m) => [...m.values()]).some((i) => i.name === '諾亞')).toBe(false);
+    expect([...index.keys()]).toEqual(['sports', 'games', 'travel', 'media', 'food', 'tech', 'family']);
+    expect([...index.values()].flatMap((m) => [...m.values()]).some((i) => i.name === '林口')).toBe(false);
+    expect(findTopic(index, 'family', 'noah')!.name).toBe('諾亞');
   });
 
   it('lists a category by how many episodes, and links items under it', () => {
@@ -120,7 +124,8 @@ describe('buildTopicIndex', () => {
     expect(listedTopics(index, 'nope')).toEqual([]);
     expect(topicHref(findTopic(index, 'sports', '網球')!)).toBe(`/topic/sports/${encodeURIComponent('網球')}`);
     expect(topicCategory('games')?.label).toBe('電玩');
-    expect(topicCategory('family')).toBeNull();
+    expect(topicCategory('family')?.label).toBe('家庭');
+    expect(topicCategory('other')).toBeNull();
     expect(findTopic(index, 'nope', '網球')).toBeNull();
   });
 });
@@ -133,7 +138,7 @@ describe('topicRows', () => {
     const live = ep.run(713, 'g713', '2026-11-11T04:00:00Z', 'done').lastInsertRowid;
     const failed = ep.run(714, 'g714', '2026-11-14T04:00:00Z', 'failed').lastInsertRowid;
     mention.run(live, '運動', '網球', '報名比賽', 1923);
-    mention.run(live, '家庭', '諾亞', '發燒', 10);
+    mention.run(live, '其他', '林口', '搬家', 10);
     mention.run(live, '股票', '台積電', null, 20);
     mention.run(failed, '運動', '網球', '還沒上線', 5);
     expect(topicRows(db)).toEqual([
