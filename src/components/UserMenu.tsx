@@ -11,7 +11,8 @@ export function LoginButton({ callbackUrl, compact = false }: { callbackUrl?: st
     <button
       className="btn primary"
       aria-label={compact ? '用 Google 登入' : undefined}
-      onClick={() => signIn('google', { callbackUrl: callbackUrl ?? pathname })}
+      // With the query string, so /ask?q= still has its question after the login
+      onClick={() => signIn('google', { callbackUrl: callbackUrl ?? pathname + window.location.search })}
     >
       <span className="gmark" aria-hidden="true">G</span>
       {compact ? (

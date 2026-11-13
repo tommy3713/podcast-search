@@ -11,6 +11,7 @@ import { excerptAt, stockData } from '@/lib/stock-pages';
 import {
   type ChartBar,
   chartBars,
+  coMentioned,
   findStock,
   monthKeyLabel,
   STOCK_LIST_MIN_EPISODES,
@@ -19,6 +20,7 @@ import {
   shownCode,
   stockHref,
   stockMonths,
+  stockQuestion,
 } from '@/lib/stocks';
 import { formatTimestamp } from '@/lib/summary';
 
@@ -38,7 +40,7 @@ async function load(params: Props['params']) {
   }
   const { index, liveMonths } = await stockData();
   const stock = findStock(index, segment);
-  return stock && { stock, liveMonths };
+  return stock && { stock, liveMonths, index };
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -131,7 +133,9 @@ function EpisodeLine({ e }: { e: StockEpisode }) {
 export default async function StockPage({ params }: Props) {
   const found = await load(params);
   if (!found) notFound();
-  const { stock, liveMonths } = found;
+  const { stock, liveMonths, index } = found;
+  const others = coMentioned(index, stock);
+  const question = stockQuestion(stock);
   const latest = stock.episodes[0]!;
   const earliest = stock.episodes.at(-1)!;
   const bars = stock.episodes.length >= CHART_MIN_EPISODES ? chartBars(stockMonths(stock, liveMonths)) : [];
@@ -179,6 +183,24 @@ export default async function StockPage({ params }: Props) {
         {latestExcerpt && <ExcerptText episodeNo={latest.no} excerpt={latestExcerpt} />}
       </section>
       {bars.length > 0 && <Chart bars={bars} />}
+      <section className="card stock-next">
+        {others.length > 0 && (
+          <div>
+            <h3>同一集也提到</h3>
+            <div className="chips">
+              {others.map((o) => (
+                <Link key={o.slug} className="chip" href={stockHref(o)} prefetch={false}>
+                  {o.name}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* nofollow: /ask is noindex, and a crawler would ask for one per stock */}
+        <Link className="btn" href={`/ask?q=${encodeURIComponent(question)}`} prefetch={false} rel="nofollow">
+          問 AI：{question}
+        </Link>
+      </section>
       <section className="card list" id="stock-eps">
         <div className="list-head">
           <h3>
