@@ -415,6 +415,23 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
 .qep:hover { color: var(--accent); text-decoration: underline; }
 .qmore { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 14px; }
 .qmore li { display: flex; gap: 8px; align-items: baseline; }
+/* An open transcript takes the whole row: in one column it made the card several screens tall
+   and left the row's other cards floating over a gap. The transcript fills the card's width. */
+.quote-wall > .qcard:has(.excerpt-toggle > [aria-expanded="true"]) { grid-column: 1 / -1; }
+/* Opening and closing it is a view transition (Excerpt.tsx). Each card's before and after are
+   shown at their own size and clipped by the box that moves and grows, so the text slides and
+   the transcript is uncovered instead of being stretched; the before fades out early, so the
+   quote doesn't show twice where it wraps differently. */
+::view-transition-group(.vt-item) { animation-duration: .42s; animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
+::view-transition-image-pair(.vt-item) { overflow: hidden; border-radius: 12px; }
+::view-transition-old(.vt-item), ::view-transition-new(.vt-item) { inline-size: auto; block-size: auto; object-fit: none; object-position: left top; }
+::view-transition-old(.vt-item) { animation-duration: .18s; }
+::view-transition-new(.vt-item) { animation-duration: .3s; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .3s; }
+/* In the plain lists (a stock's or a sponsor's page) the transcript just fades in, once: not
+   again when a filter hides and shows it */
+.stock-ep .excerpt-toggle[data-opening] .excerpt { animation: excerpt-in .28s cubic-bezier(.2, .7, .2, 1); }
+@keyframes excerpt-in { from { opacity: 0; transform: translateY(-6px); } }
 @media (max-width: 900px) { .quote-wall { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .quote-wall { grid-template-columns: minmax(0, 1fr); } .quote-hero > blockquote:not(.excerpt) { font-size: 20px; } }
 .rise { animation: rise .55s .15s cubic-bezier(.2, .7, .2, 1) backwards; }
@@ -438,7 +455,7 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
   .tcard.big { grid-column: auto; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tcard, .spark, .spark.bars rect, .topbar .b, .stat-row > div, .rise, .dotstrip i, .qcard { animation: none; }
+  .tcard, .spark, .spark.bars rect, .topbar .b, .stat-row > div, .rise, .dotstrip i, .qcard, .stock-ep .excerpt-toggle[data-opening] .excerpt { animation: none; }
   .tcard:hover { transform: none; }
   .marquee-track { animation: none; }
   .marquee-view { overflow-x: auto; -webkit-mask-image: none; mask-image: none; }
