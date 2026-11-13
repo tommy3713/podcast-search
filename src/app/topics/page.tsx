@@ -7,7 +7,7 @@ import { listedStocks, STOCK_LIST_MIN_EPISODES, STOCKS_LABEL } from '@/lib/stock
 import { listedTopics, TOPIC_CATEGORIES, TOPIC_INDEX_MIN_EPISODES, topicCategoryHref, topicHref } from '@/lib/topics';
 
 const TITLE = `主題・${SITE_NAME}`;
-const DESCRIPTION = '《股癌》跨集數的主題整理：提過的個股、業配，以及主委的運動、電玩、旅遊和書影音，每一個在哪幾集、第幾分鐘。非官方粉絲整理。';
+const DESCRIPTION = '《股癌》跨集數的主題整理：提過的個股、業配，以及主委的運動、電玩、旅遊、書影音、美食和科技產品，每一個在哪幾集、第幾分鐘。非官方粉絲整理。';
 
 export const metadata: Metadata = {
   title: { absolute: TITLE },

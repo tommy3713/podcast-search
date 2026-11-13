@@ -24,6 +24,16 @@ describe('topicOf', () => {
     for (const n of ['功能性訓練', '功能訓練']) expect(topicOf('運動', n)?.slug).toBe('functional-training');
   });
 
+  it('joins the spellings of a restaurant, a wine and a gadget', () => {
+    for (const n of ['皮諾可可', 'Pinococo', 'Pino Coco', 'Pinocco', 'Pinococo 松露野菇燉飯']) expect(topicOf('美食', n)?.slug).toBe('pinococo');
+    for (const n of ['DRC', '羅曼尼康帝']) expect(topicOf('美食', n)?.slug).toBe('drc');
+    for (const n of ['Petrus', '柏圖斯']) expect(topicOf('美食', n)?.slug).toBe('petrus');
+    for (const n of ['Apple 折疊機', '蘋果摺疊機 Duo', 'Apple Duo', 'iPhone 18 折疊']) expect(topicOf('科技產品', n)?.slug).toBe('apple-foldable');
+    for (const n of ['iPhone', 'iPhone Pro Max', 'iPhone 17 Pro Max']) expect(topicOf('科技產品', n)?.slug).toBe('iphone');
+    for (const n of ['Model X Plaid', 'Tesla Model X Plaid', 'Tesla Model X']) expect(topicOf('科技產品', n)?.slug).toBe('tesla-model-x');
+    for (const n of ['ChatGPT', 'GPT', 'GPT-4o', 'O3']) expect(topicOf('科技產品', n)?.slug).toBe('chatgpt');
+  });
+
   it('keeps a narrower name before a wider one', () => {
     expect(topicOf('遊戲', 'GTA6')?.slug).toBe('gta6');
     expect(topicOf('遊戲', 'GTA 下一代')?.slug).toBe('gta6');
@@ -101,7 +111,7 @@ describe('buildTopicIndex', () => {
   });
 
   it('leaves the categories without pages out', () => {
-    expect([...index.keys()]).toEqual(['sports', 'games', 'travel', 'media']);
+    expect([...index.keys()]).toEqual(['sports', 'games', 'travel', 'media', 'food', 'tech']);
     expect([...index.values()].flatMap((m) => [...m.values()]).some((i) => i.name === '諾亞')).toBe(false);
   });
 
