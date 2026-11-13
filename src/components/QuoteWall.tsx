@@ -31,7 +31,7 @@ export function QuoteWall({ episodes, points }: { episodes: TopicEpisode[]; poin
         const first = key !== month;
         month = key;
         return (
-          <article key={e.no} id={first ? `m-${key}` : undefined} className="card qcard" style={{ ['--i' as string]: i }}>
+          <article key={e.no} id={first ? `m-${key}` : undefined} className="card qcard" data-vt-item style={{ ['--i' as string]: i }}>
             {first && <div className="qmonth">{monthKeyLabel(key)}</div>}
             <blockquote className={lead!.quoted ? undefined : 'bare'}>
               <Said note={lead!} />
