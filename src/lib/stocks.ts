@@ -357,6 +357,13 @@ export function stockQuestion(stock: Pick<Stock, 'name'>): string {
   return `主委談過${stock.name}的什麼？`;
 }
 
+// A name as one URL segment: as searchKey gives it, spaces as dashes. '' when nothing is left
+// that a URL can carry. For sponsor and topic pages.
+export function urlSlug(name: string): string {
+  const slug = searchKey(name).replace(/\s+/g, '-').replace(/[/?#%\\]/g, '');
+  return /^[.-]*$/.test(slug) ? '' : slug;
+}
+
 // How the search box on /stocks compares: no case, no full-width forms
 export function searchKey(s: string): string {
   return s.normalize('NFKC').trim().toLowerCase();

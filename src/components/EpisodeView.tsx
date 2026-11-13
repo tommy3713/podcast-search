@@ -16,6 +16,8 @@ type Props = {
   stockHrefs: (string | null)[];
   // One per summary.chapters: an ad chapter's /sponsor/ page, or null
   sponsorHrefs: (string | null)[];
+  // One per summary.mentions: its /topic/ page, or null
+  mentionHrefs: (string | null)[];
   paragraphs: Paragraph[];
   initialTab: Tab;
   initialT: number | null;
@@ -24,7 +26,7 @@ type Props = {
 
 const SPEEDS = [1, 1.25, 1.5, 2];
 
-export function EpisodeView({ audioUrl, duration, summary, stockHrefs, sponsorHrefs, paragraphs, initialTab, initialT, seek: table }: Props) {
+export function EpisodeView({ audioUrl, duration, summary, stockHrefs, sponsorHrefs, mentionHrefs, paragraphs, initialTab, initialT, seek: table }: Props) {
   const audio = useRef<HTMLAudioElement>(null);
   // Everything here works in audio time: where the listener really is. In Chromium and Safari,
   // which seek through the MP3's table of contents (src/lib/seek.ts), that's currentTime plus
@@ -176,7 +178,7 @@ export function EpisodeView({ audioUrl, duration, summary, stockHrefs, sponsorHr
           engines; the inactive one is hidden. data-nosnippet keeps it indexed but out of result
           snippets, which use the description and key points instead of raw speech-to-text. */}
       <div role="tabpanel" hidden={tab !== 'summary'}>
-        <SummaryTab summary={summary} stockHrefs={stockHrefs} sponsorHrefs={sponsorHrefs} onSeek={seek} />
+        <SummaryTab summary={summary} stockHrefs={stockHrefs} sponsorHrefs={sponsorHrefs} mentionHrefs={mentionHrefs} onSeek={seek} />
       </div>
       <div role="tabpanel" hidden={tab !== 'tx'} data-nosnippet="">
         {/* While hidden it gets a fixed time, so playback (about 4 updates a second) doesn't
@@ -286,11 +288,13 @@ function SummaryTab({
   summary,
   stockHrefs,
   sponsorHrefs,
+  mentionHrefs,
   onSeek,
 }: {
   summary: Summary;
   stockHrefs: (string | null)[];
   sponsorHrefs: (string | null)[];
+  mentionHrefs: (string | null)[];
   onSeek: (t: number) => void;
 }) {
   return (
@@ -357,7 +361,7 @@ function SummaryTab({
               <div key={i} className="mention">
                 <span className="cat">{m.category}</span>
                 <div>
-                  <b>{m.name}</b>　<span className="q">{m.quote}</span> <Ts t={m.t} onSeek={onSeek} />
+                  <b>{mentionHrefs[i] ? <Link href={mentionHrefs[i]} prefetch={false}>{m.name}</Link> : m.name}</b>　<span className="q">{m.quote}</span> <Ts t={m.t} onSeek={onSeek} />
                 </div>
               </div>
             ))}

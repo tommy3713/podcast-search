@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { StockList, type StockListGroup } from '@/components/StockList';
 import { SITE_NAME, shareMetadata } from '@/lib/seo';
 import { stockIndex } from '@/lib/stock-pages';
@@ -41,6 +42,9 @@ export default async function StocksPage() {
 
   return (
     <div className="home">
+      <Link className="back" href="/topics" prefetch={false}>
+        ← 所有主題
+      </Link>
       <div className="stock-head">
         <h1>{STOCKS_LABEL}</h1>
         <p className="muted" style={{ margin: 0 }}>

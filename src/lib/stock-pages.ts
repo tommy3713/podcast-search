@@ -4,6 +4,7 @@ import { parseSeekTable, type PlayPoint, playPoint, type SeekTable } from './see
 import type { Segment } from './segments.ts';
 import { readDb } from './server-db.ts';
 import { type AdChapter, buildSponsorIndex, type SponsorIndex } from './sponsors.ts';
+import { buildTopicIndex, TOPIC_CATEGORIES, type TopicIndex, type TopicRow } from './topics.ts';
 import { buildStockIndex, type EpisodeOutline, type StockIndex, type StockNote, type StockRow } from './stocks.ts';
 import { STOCK_CATEGORY, type Summary } from './summary.ts';
 
@@ -141,10 +142,25 @@ export function adChapters(db: DB): AdChapter[] {
   return chapters;
 }
 
+// Live episodes' mentions in the topic categories
+export function topicRows(db: DB): TopicRow[] {
+  const cats = TOPIC_CATEGORIES.map((c) => c.category);
+  return db
+    .prepare(
+      `SELECT m.category, m.name, m.quote, m.start_sec AS startSec, e.episode_no AS episodeNo, e.title, e.published_at AS publishedAt,
+         e.audio_url AS audioUrl
+       FROM mentions m JOIN episodes e ON e.id = m.episode_id
+       WHERE e.status = 'done' AND m.category IN (${cats.map(() => '?').join(', ')})
+       ORDER BY e.episode_no DESC, m.start_sec, m.id`,
+    )
+    .all(...cats) as TopicRow[];
+}
+
 // Every episode page needs the index for its links, so it is built once and kept until an
 // episode is published, re-run or taken down: each of those moves the count of live episodes
 // or their newest updated_at. Not PRAGMA data_version, which every logged question moves too.
-let cached: { version: string; index: StockIndex; sponsors: SponsorIndex; liveMonths: Map<string, number> } | undefined;
+type Pages = { index: StockIndex; sponsors: SponsorIndex; topics: TopicIndex; liveMonths: Map<string, number> };
+let cached: ({ version: string } & Pages) | undefined;
 
 // Live episodes per month (Taipei), for the chart on a stock's page
 export function liveMonths(db: DB): Map<string, number> {
@@ -156,13 +172,18 @@ export function liveMonths(db: DB): Map<string, number> {
 
 // The index and the months of one moment: read apart, a publish in between could leave a
 // stock with an episode in a month the chart doesn't have
-export async function stockData(): Promise<{ index: StockIndex; sponsors: SponsorIndex; liveMonths: Map<string, number> }> {
+export async function stockData(): Promise<Pages> {
   const d = await readDb();
   const v = d.prepare(`SELECT COUNT(*) AS n, MAX(updated_at) AS at FROM episodes WHERE status = 'done'`).get() as { n: number; at: string | null };
   const version = `${v.n} ${v.at}`;
   if (cached?.version !== version) {
     seekTables.clear();
-    cached = { version, index: buildStockIndex(stockRows(d), episodeOutlines(d)), sponsors: buildSponsorIndex(adChapters(d)), liveMonths: liveMonths(d) };
+    cached = {
+      version,
+      index: buildStockIndex(stockRows(d), episodeOutlines(d)), sponsors: buildSponsorIndex(adChapters(d)),
+      topics: buildTopicIndex(topicRows(d)),
+      liveMonths: liveMonths(d),
+    };
   }
   return cached;
 }

@@ -9,6 +9,7 @@ import { pageHref, pageOfIndex } from '@/lib/paging';
 import { episodeDescription, episodeJsonLd, episodeTitle, SHARE_IMAGE, SITE_NAME } from '@/lib/seo';
 import { stockIndex } from '@/lib/stock-pages';
 import { sponsorHref, sponsorOf } from '@/lib/sponsors';
+import { TOPIC_CATEGORIES, topicHref, topicOf } from '@/lib/topics';
 import { stockFor, stockHref } from '@/lib/stocks';
 
 type Props = {
@@ -58,6 +59,12 @@ export default async function EpisodePage({ params, searchParams }: Props) {
     const stock = stockFor(stocks, s.name, s.code);
     return stock ? stockHref(stock) : null;
   });
+  // Each mention's topic page, for the categories that have them
+  const mentionHrefs = ep.summary.mentions.map((m) => {
+    const cat = TOPIC_CATEGORIES.find((c) => c.category === m.category); // 4 entries
+    const t = cat && topicOf(m.category, m.name);
+    return cat && t ? topicHref({ slug: t.slug, category: cat }) : null;
+  });
   // Each ad chapter's sponsor page, from the chapter itself (the same rule the pages use)
   const sponsorHrefs = ep.summary.chapters.map((c) => {
     const s = c.ad ? sponsorOf(c) : null;
@@ -90,6 +97,7 @@ export default async function EpisodePage({ params, searchParams }: Props) {
         summary={ep.summary}
         stockHrefs={stockHrefs}
         sponsorHrefs={sponsorHrefs}
+        mentionHrefs={mentionHrefs}
         paragraphs={groupParagraphs(ep.segments)}
         initialTab={sp.tab === 'tx' || t !== null ? 'tx' : 'summary'}
         initialT={t}
