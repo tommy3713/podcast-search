@@ -3,10 +3,12 @@ import { IBM_Plex_Mono, Noto_Serif_TC } from 'next/font/google';
 import Link from 'next/link';
 import { BrandMark } from '@/components/BrandMark';
 import { Nav } from '@/components/Nav';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { UserMenu } from '@/components/UserMenu';
 import { currentUser } from '@/lib/auth';
 import { isProduction } from '@/lib/env';
 import { SITE_NAME, SITE_URL } from '@/lib/seo';
+import { THEME_SCRIPT } from '@/lib/theme';
 import './globals.css';
 
 // Body text uses the system CJK font; only headings and timestamps load web fonts.
@@ -34,7 +36,11 @@ export const viewport: Viewport = { viewportFit: 'cover' };
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
   return (
-    <html lang="zh-Hant-TW" className={`${serif.variable} ${mono.variable}`}>
+    // The theme script sets data-theme on <html> before React hydrates
+    <html lang="zh-Hant-TW" className={`${serif.variable} ${mono.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>
         <header className="top">
           <div className="wrap">
@@ -44,7 +50,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </Link>
             {!isProduction() && <span className="pill warn">DEV</span>}
             <Nav variant="desk" />
-            <UserMenu name={user?.name ?? null} />
+            <div className="actions">
+              <ThemeToggle />
+              <UserMenu name={user?.name ?? null} />
+            </div>
           </div>
         </header>
         <main>
