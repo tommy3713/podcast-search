@@ -168,14 +168,19 @@ export type TopicRow = {
   audioUrl: string;
 };
 
+export type TopicNote = { t: number; text: string; quoted: boolean; as?: string };
+
 export type TopicEpisode = {
   no: number;
   title: string;
   publishedAt: string;
   audioUrl: string;
-  // Each mention's quote and time, with the name it was written as when that says more than
-  // the item's (a Radiohead song on Radiohead's page)
-  notes: { t: number; text: string }[];
+  // What the episode was about, in a line: the quotes alone are short
+  line: string;
+  // Each mention: its time and the host's words (`quoted`), or just the name when the summary
+  // kept no words; `as`, the name it was written as when that says more than the item's (a
+  // Radiohead song on Radiohead's page), kept apart from the words
+  notes: TopicNote[];
 };
 
 export type TopicItem = {
@@ -202,7 +207,8 @@ export function topicOf(category: string, name: string): { slug: string; name: s
 
 const CATEGORY_OF = new Map(TOPIC_CATEGORIES.map((c) => [c.category, c]));
 
-export function buildTopicIndex(rows: TopicRow[]): TopicIndex {
+// `lines`: episode number → its one-line summary
+export function buildTopicIndex(rows: TopicRow[], lines: Map<number, string> = new Map()): TopicIndex {
   const index: TopicIndex = new Map(TOPIC_CATEGORIES.map((c) => [c.slug, new Map()]));
   const groups = new Map<TopicItem, Map<string, number>>();
   const episodesOf = new Map<TopicItem, Map<number, TopicEpisode>>();
@@ -221,15 +227,15 @@ export function buildTopicIndex(rows: TopicRow[]): TopicIndex {
     if (!eps) episodesOf.set(item, (eps = new Map()));
     let ep = eps.get(r.episodeNo);
     if (!ep) {
-      eps.set(r.episodeNo, (ep = { no: r.episodeNo, title: r.title, publishedAt: r.publishedAt, audioUrl: r.audioUrl, notes: [] }));
+      eps.set(r.episodeNo, (ep = { no: r.episodeNo, title: r.title, publishedAt: r.publishedAt, audioUrl: r.audioUrl, line: lines.get(r.episodeNo) ?? '', notes: [] }));
       item.episodes.push(ep);
     }
     const quote = (r.quote ?? '').trim();
     const name = r.name.trim();
     // The name as written, when it says more than the item's and the quote doesn't have it
-    const extra = m.name !== null && name !== m.name && !quote.includes(name) ? `（${name}）` : '';
-    const text = quote ? quote + extra : name;
-    if (!ep.notes.some((n) => n.t === r.startSec && n.text === text)) ep.notes.push({ t: r.startSec, text });
+    const as = m.name !== null && name !== m.name && !quote.includes(name) ? name : undefined;
+    const note: TopicNote = quote ? { t: r.startSec, text: quote, quoted: true, ...(as ? { as } : {}) } : { t: r.startSec, text: name, quoted: false };
+    if (!ep.notes.some((n) => n.t === note.t && n.text === note.text)) ep.notes.push(note);
   }
   for (const [item, names] of groups) {
     const isAlias = (TOPIC_ALIASES[item.category.category] ?? []).some((a) => a.slug === item.slug);
@@ -274,4 +280,46 @@ export function topicCategoryHref(c: Pick<TopicCategory, 'slug'>): string {
 
 export function topicHref(i: Pick<TopicItem, 'slug' | 'category'>): string {
   return `/topic/${i.category.slug}/${encodeURIComponent(i.slug)}`;
+}
+
+// 同一集也提到: the items (of any category, with a page) that come up in the same episodes as
+// this one, the ones sharing most first. A ranking is fine: none of them is an investment.
+export const CO_TOPICS_MAX = 10;
+
+// Kept per index: it only changes when the index is rebuilt, and crawlers ask for every page
+const coTopicsOf = new WeakMap<TopicIndex, Map<TopicItem, TopicItem[]>>();
+
+export function coTopics(index: TopicIndex, item: TopicItem): TopicItem[] {
+  let known = coTopicsOf.get(index);
+  if (!known) coTopicsOf.set(index, (known = new Map()));
+  let found = known.get(item);
+  if (!found) known.set(item, (found = findCoTopics(index, item)));
+  return found;
+}
+
+function findCoTopics(index: TopicIndex, item: TopicItem): TopicItem[] {
+  const mine = new Set(item.episodes.map((e) => e.no));
+  // A thing in many episodes shares one with nearly everything: ask for two then
+  const least = item.episodes.length >= 4 ? 2 : 1;
+  const found: { other: TopicItem; shared: number }[] = [];
+  for (const items of index.values()) {
+    for (const other of items.values()) {
+      if (other === item || other.episodes.length < TOPIC_INDEX_MIN_EPISODES) continue;
+      const shared = other.episodes.filter((e) => mine.has(e.no)).length;
+      if (shared >= least) found.push({ other, shared });
+    }
+  }
+  return found
+    .sort((a, b) => {
+      // Items of two categories can share a slug: the href tells them apart
+      const [ha, hb] = [topicHref(a.other), topicHref(b.other)];
+      return b.shared - a.shared || b.other.episodes.length - a.other.episodes.length || (ha < hb ? -1 : ha > hb ? 1 : 0);
+    })
+    .slice(0, CO_TOPICS_MAX)
+    .map((x) => x.other);
+}
+
+// The question the 問 AI link on an item's page fills in on /ask
+export function topicQuestion(item: Pick<TopicItem, 'name'>): string {
+  return `主委怎麼談${item.name}？`;
 }

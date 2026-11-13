@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type AdChapter, buildSponsorIndex } from '@/lib/sponsors.ts';
-import { bigCards, monthlySeries, recentItems } from '@/lib/topics-overview.ts';
+import { bigCards, monthlySeries, monthsBetween, recentItems, spanFrom } from '@/lib/topics-overview.ts';
 import { buildTopicIndex, type TopicRow } from '@/lib/topics.ts';
 
 const at = (no: number) => `2026-${String(1 + (no % 12)).padStart(2, '0')}-10T04:00:00Z`;
@@ -61,5 +61,19 @@ describe('monthlySeries', () => {
     const live = new Map([['2026-01', 4], ['2026-02', 4], ['2026-04', 4]]);
     // March has no episode on the site; February has some and none of them brought it up
     expect(monthlySeries(['2026-01-10T04:00:00Z', '2026-01-20T04:00:00Z', '2026-04-01T04:00:00Z'], live)).toEqual([2, 0, null, 1]);
+  });
+});
+
+describe('an item’s own span', () => {
+  it('starts the chart at the month it first came up', () => {
+    const live = new Map([['2025-11', 3], ['2026-01', 4], ['2026-03', 4], ['2026-04', 2]]);
+    // 2026-02-28 20:00Z is March in Taipei
+    expect([...spanFrom(live, '2026-02-28T20:00:00Z').keys()]).toEqual(['2026-03', '2026-04']);
+  });
+
+  it('counts the months from the first to the last, both included', () => {
+    expect(monthsBetween('2026-03-25T04:00:00Z', '2026-11-11T04:00:00Z')).toBe(9);
+    expect(monthsBetween('2025-12-01T04:00:00Z', '2026-01-01T04:00:00Z')).toBe(2);
+    expect(monthsBetween('2026-11-01T04:00:00Z', '2026-11-11T04:00:00Z')).toBe(1);
   });
 });

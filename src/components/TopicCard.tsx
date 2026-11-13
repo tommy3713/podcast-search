@@ -86,14 +86,24 @@ export function Marquee({ items, label = '最近提到', min = 8 }: { items: { h
 }
 
 // A row of numbers for the top of a page, counting up
-export function StatRow({ stats }: { stats: { label: string; value: number; unit?: string }[] }) {
+export function StatRow({ stats }: { stats: { label: string; value: number; unit?: string; prefix?: string; href?: string }[] }) {
   return (
     <dl className="stat-row">
       {stats.map((s) => (
         <div key={s.label}>
           <dt>{s.label}</dt>
           <dd>
-            <CountUp value={s.value} />
+            {s.prefix && <span className="pre">{s.prefix}</span>}
+            {/* A number with a prefix names something (EP713): it doesn't count up */}
+            {s.href ? (
+              <Link href={s.href} prefetch={false}>
+                {s.prefix ? s.value : <CountUp value={s.value} />}
+              </Link>
+            ) : s.prefix ? (
+              s.value
+            ) : (
+              <CountUp value={s.value} />
+            )}
             {s.unit && <span className="fine">{s.unit}</span>}
           </dd>
         </div>

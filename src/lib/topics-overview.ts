@@ -1,7 +1,8 @@
 // What /topics shows besides the lists: the strip of what the newest episodes brought up, and
 // each card's monthly series. Pure functions over the indexes.
 import { type SponsorIndex, listedSponsors, sponsorHref } from './sponsors.ts';
-import { stockMonths } from './stocks.ts';
+import { monthKey } from './format.ts';
+import { monthIndex, stockMonths } from './stocks.ts';
 import { listedTopics, TOPIC_CATEGORIES, TOPIC_INDEX_MIN_EPISODES, type TopicIndex, topicHref } from './topics.ts';
 
 export type RecentItem = { href: string; label: string; kind: string; episodeNo: number };
@@ -45,4 +46,16 @@ export function bigCards(cards: number): number {
 // for a month the site has no episode for (not backfilled yet), which is not the same as zero
 export function monthlySeries(dates: string[], liveMonths: Map<string, number>): (number | null)[] {
   return stockMonths({ episodes: dates.map((publishedAt) => ({ publishedAt })) }, liveMonths).map((m) => (m.episodes > 0 ? m.mentioned : null));
+}
+
+// The months of `liveMonths` from the one `from` falls in on: an item's chart starts where it
+// first came up instead of drawing the site's earlier years empty
+export function spanFrom(liveMonths: Map<string, number>, from: string): Map<string, number> {
+  const first = monthKey(from);
+  return new Map([...liveMonths].filter(([k]) => k >= first));
+}
+
+// Months from the first to the last date, both counted: "持續 8 個月"
+export function monthsBetween(from: string, to: string): number {
+  return monthIndex(monthKey(to)) - monthIndex(monthKey(from)) + 1;
 }

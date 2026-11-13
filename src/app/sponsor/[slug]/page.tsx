@@ -4,12 +4,14 @@ import { notFound } from 'next/navigation';
 import { EpisodeTimeline } from '@/components/EpisodeTimeline';
 import { MonthChart } from '@/components/MonthChart';
 import { StockPlayer } from '@/components/StockPlayer';
+import { StatRow } from '@/components/TopicCard';
 import { formatDate } from '@/lib/format';
 import { shareMetadata } from '@/lib/seo';
 import { readDb } from '@/lib/server-db';
 import { averageGapDays, findSponsor, SPONSOR_INDEX_MIN_EPISODES, type Sponsor, sponsorHref } from '@/lib/sponsors';
 import { stockData, stockPlayPoints } from '@/lib/stock-pages';
 import { chartBars, stockMonths } from '@/lib/stocks';
+import { spanFrom } from '@/lib/topics-overview';
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -57,33 +59,32 @@ export default async function SponsorPage({ params }: Props) {
   const { sponsor, liveMonths } = found;
   const [latest, first] = [sponsor.episodes[0]!, sponsor.episodes.at(-1)!];
   const gap = averageGapDays(sponsor);
-  const bars = sponsor.episodes.length >= CHART_MIN_EPISODES ? chartBars(stockMonths(sponsor, liveMonths)) : [];
+  // Its own span: from its first ad to the site's newest month
+  const bars = sponsor.episodes.length >= CHART_MIN_EPISODES ? chartBars(stockMonths(sponsor, spanFrom(liveMonths, first.publishedAt))) : [];
   const points = stockPlayPoints(await readDb(), sponsor);
   const audio = Object.fromEntries(sponsor.episodes.map((e) => [e.no, e.audioUrl]));
 
   return (
     <StockPlayer audio={audio}>
-      <div className="home">
-        <div>
-          <Link className="back" href="/sponsors">
-            ← 所有業配
-          </Link>
-          <div className="stock-head">
-            <h1>{sponsor.name}</h1>
-            <div className="meta">
-              <span>業配 {sponsor.episodes.length} 集</span>
-              {first.no !== latest.no && (
-                <span>
-                  第一次 <Link href={`/ep/${first.no}`}>EP{first.no}</Link>・{formatDate(first.publishedAt)}
-                </span>
-              )}
-              <span>
-                最近 <Link href={`/ep/${latest.no}`}>EP{latest.no}</Link>・{formatDate(latest.publishedAt)}
-              </span>
-              {gap !== null && <span>平均每 {gap} 天一次</span>}
-            </div>
-          </div>
+      <div className="home topics-page">
+        <Link className="back" href="/sponsors" prefetch={false}>
+          ← 所有業配
+        </Link>
+        <div className="stock-head">
+          <h1>{sponsor.name}</h1>
+          {first.no !== latest.no && (
+            <p className="muted" style={{ margin: 0 }}>
+              第一次在 <Link href={`/ep/${first.no}`}>EP{first.no}</Link>（{formatDate(first.publishedAt)}）
+            </p>
+          )}
         </div>
+        <StatRow
+          stats={[
+            { label: '業配', value: sponsor.episodes.length, unit: '集' },
+            ...(gap !== null ? [{ label: '平均每', value: gap, unit: '天一次' }] : []),
+            { label: `${first.no === latest.no ? '只在' : '最近一集'}・${formatDate(latest.publishedAt).slice(0, 10)}`, value: latest.no, prefix: 'EP', href: `/ep/${latest.no}` },
+          ]}
+        />
         {bars.length > 0 && <MonthChart bars={bars} what="業配" />}
         <EpisodeTimeline heading="每一次主打什麼" episodes={sponsor.episodes} points={points} />
         <p className="fine" style={{ margin: 0 }}>

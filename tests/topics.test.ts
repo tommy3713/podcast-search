@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '@/lib/db.ts';
 import { topicRows } from '@/lib/stock-pages.ts';
-import { buildTopicIndex, findTopic, listedTopics, type TopicRow, topicCategory, topicHref, topicOf } from '@/lib/topics.ts';
+import { buildTopicIndex, coTopics, findTopic, listedTopics, type TopicRow, topicCategory, topicHref, topicOf, topicQuestion } from '@/lib/topics.ts';
 
 const row = (episodeNo: number, category: string, name: string, quote = `${name} 的事`, startSec = 60, publishedAt = `2026-01-${String(episodeNo % 28 || 28).padStart(2, '0')}T12:00:00Z`): TopicRow => ({
   category,
@@ -70,10 +70,13 @@ describe('topicOf', () => {
     ]);
     const r = findTopic(index, 'media', 'radiohead')!;
     expect(r.episodes[0]!.notes).toEqual([
-      { t: 116, text: '第一次認識' },
-      { t: 2289, text: '抽到了演唱會門票（Radiohead 東京場）' },
+      { t: 116, text: '第一次認識', quoted: true },
+      { t: 2289, text: '抽到了演唱會門票', quoted: true, as: 'Radiohead 東京場' },
     ]);
-    expect(r.episodes[1]!.notes).toEqual([{ t: 50, text: '電台司令的新歌' }]);
+    expect(r.episodes[1]!.notes).toEqual([{ t: 50, text: '電台司令的新歌', quoted: true }]);
+    // No words kept: the bare name, not passed off as a quote
+    const bare = buildTopicIndex([{ ...row(1, '運動', '網球'), quote: '' }]);
+    expect(findTopic(bare, 'sports', '網球')!.episodes[0]!.notes).toEqual([{ t: 60, text: '網球', quoted: false }]);
   });
 
   it('pages anything else by its name, and gives no page to a name a URL can’t carry', () => {
@@ -102,8 +105,8 @@ describe('buildTopicIndex', () => {
     const tennis = findTopic(index, 'sports', '網球')!;
     expect(tennis.episodes.map((e) => e.no)).toEqual([713, 712]);
     expect(tennis.episodes[1]!.notes).toEqual([
-      { t: 300, text: '打了一場網球' },
-      { t: 900, text: '網球拍斷了' },
+      { t: 300, text: '打了一場網球', quoted: true },
+      { t: 900, text: '網球拍斷了', quoted: true },
     ]);
     expect(findTopic(index, 'sports', 'running')!.episodes.map((e) => e.no)).toEqual([700, 699]);
   });
@@ -145,5 +148,45 @@ describe('topicRows', () => {
     expect(topicRows(db)).toEqual([
       { category: '運動', name: '網球', quote: '報名比賽', startSec: 1923, episodeNo: 713, title: '⭐', publishedAt: '2026-11-11T04:00:00Z', audioUrl: 'https://x' },
     ]);
+  });
+});
+
+describe('an item page', () => {
+  const index = buildTopicIndex([
+    ...[1, 2, 3, 4, 5].map((n) => row(n, '運動', '網球')),
+    ...[1, 2, 3].map((n) => row(n, '運動', '泰拳')),
+    ...[2, 3].map((n) => row(n, '遊戲', '妮姬')),
+    // Shares one episode with 網球: too few for a thing in five episodes
+    ...[5, 9].map((n) => row(n, '旅遊', '日本')),
+    // Has no page of its own
+    row(1, '美食', '拉麵'),
+  ]);
+
+  it('lists what comes up in the same episodes, of any category, most shared first', () => {
+    const tennis = findTopic(index, 'sports', '網球')!;
+    expect(coTopics(index, tennis).map((i) => i.name)).toEqual(['泰拳', '勝利女神：妮姬']);
+    // A thing in fewer episodes takes one shared episode
+    expect(coTopics(index, findTopic(index, 'travel', '日本')!).map((i) => i.name)).toEqual(['網球']);
+  });
+
+  it('gives the same order every time, even for two items with one slug in two categories', () => {
+    const twins = buildTopicIndex([
+      ...[1, 2, 3, 4].map((n) => row(n, '運動', '網球')),
+      ...[1, 2].map((n) => row(n, '遊戲', 'Switch')),
+      ...[1, 2].map((n) => row(n, '科技產品', 'Switch')),
+    ]);
+    const tennis = findTopic(twins, 'sports', '網球')!;
+    expect(coTopics(twins, tennis).map((i) => topicHref(i))).toEqual(['/topic/games/nintendo-switch', '/topic/tech/nintendo-switch']);
+    // Kept with the index
+    expect(coTopics(twins, tennis)).toBe(coTopics(twins, tennis));
+  });
+
+  it('asks about what he said', () => {
+    expect(topicQuestion({ name: '網球' })).toBe('主委怎麼談網球？');
+  });
+
+  it('carries what each episode was about', () => {
+    const withLine = buildTopicIndex([row(713, '運動', '網球'), row(712, '運動', '網球')], new Map([[713, '聊台灣遊戲投資']]));
+    expect(findTopic(withLine, 'sports', '網球')!.episodes.map((e) => e.line)).toEqual(['聊台灣遊戲投資', '']);
   });
 });

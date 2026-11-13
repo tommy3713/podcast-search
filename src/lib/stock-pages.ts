@@ -36,6 +36,7 @@ export function episodeOutlines(db: DB): Map<number, EpisodeOutline> {
       outlines.set(r.episode_no, {
         chapters: chapters.map((c) => ({ t: c.t, title: c.title ?? '', ad: !!c.ad, bullets: Array.isArray(c.bullets) ? c.bullets : [] })),
         keys: Array.isArray(s.keys) ? s.keys : [],
+        line: typeof s.line === 'string' ? s.line : '',
       });
     } catch {
       // Left out: its stock notes show without chapters
@@ -184,10 +185,11 @@ export async function stockData(): Promise<Pages> {
   const version = `${v.n} ${v.at}`;
   if (cached?.version !== version) {
     seekTables.clear();
+    const outlines = episodeOutlines(d);
     cached = {
       version,
-      index: buildStockIndex(stockRows(d), episodeOutlines(d)), sponsors: buildSponsorIndex(adChapters(d)),
-      topics: buildTopicIndex(topicRows(d)),
+      index: buildStockIndex(stockRows(d), outlines), sponsors: buildSponsorIndex(adChapters(d)),
+      topics: buildTopicIndex(topicRows(d), new Map([...outlines].map(([no, o]) => [no, o.line ?? '']))),
       liveMonths: liveMonths(d),
       newest: newestEpisodes(d, 2),
     };

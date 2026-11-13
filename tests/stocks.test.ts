@@ -492,9 +492,9 @@ describe('stockRows', () => {
     db.prepare(`UPDATE episodes SET summary_json = '{"line":' WHERE episode_no = 712`).run();
     expect([...episodeOutlines(db).keys()]).toEqual([713]);
     db.prepare(`UPDATE episodes SET summary_json = '{}' WHERE episode_no = 712`).run();
-    expect(episodeOutlines(db).get(712)).toEqual({ keys: [], chapters: [] });
+    expect(episodeOutlines(db).get(712)).toEqual({ keys: [], chapters: [], line: '' });
     db.prepare(`UPDATE episodes SET summary_json = ? WHERE episode_no = 712`).run(JSON.stringify(summary));
-    expect(episodeOutlines(db).get(713)).toEqual({ keys: [{ t: 5, text: '重點' }], chapters: [{ t: 0, title: '章', ad: false, bullets: [{ t: 1, text: '條' }] }] });
+    expect(episodeOutlines(db).get(713)).toEqual({ keys: [{ t: 5, text: '重點' }], chapters: [{ t: 0, title: '章', ad: false, bullets: [{ t: 1, text: '條' }] }], line: '' });
   });
 
   it('gives each timestamp on a page where to start the audio, from the episode’s seek table', () => {
