@@ -20,6 +20,7 @@ import { parseArgs } from 'node:util';
 import OpenAI from 'openai';
 import { ASK_MODEL, readCoverage } from '../src/lib/ask/agent.ts';
 import { taipeiDate } from '../src/lib/ask/quota.ts';
+import { chunksMissingPinyin } from '../src/lib/ask/search.ts';
 import { type DB, openDb } from '../src/lib/db.ts';
 import { staleSummaryPoints } from '../worker/summary-index.ts';
 import { type GoldenQuestion, parseGolden, questionHash, QUESTION_TYPES } from './eval/golden.ts';
@@ -71,6 +72,14 @@ if (kind === 'full') {
   }
   const { stale, broken } = staleSummaryPoints(db);
   if (stale.length || broken.length) console.warn(`⚠️ ${stale.length + broken.length} 集的摘要索引不是最新的，搜尋會跟網站不一樣：${fill}`);
+}
+// Keyword search also finds misheard names by sound (chunks_pinyin), which a snapshot taken
+// before it existed, or before the live worker filled it at startup, lacks in part or whole
+{
+  const fill = `DB_PATH=${path.relative(ROOT, dbPath)} npm run worker -- index-pinyin`;
+  const missing = chunksMissingPinyin(db);
+  if (missing === null) console.warn(`⚠️ 快照沒有拼音索引，靠發音的搜尋不會作用，跟網站不一樣：${fill}`);
+  else if (missing) console.warn(`⚠️ ${missing} 段逐字稿還沒有拼音，靠發音的搜尋會跟網站不一樣：${fill}`);
 }
 
 // Taipei time, like the rest of the project's dates: 2026-11-10T15:49

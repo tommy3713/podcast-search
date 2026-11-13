@@ -1,4 +1,5 @@
 import type { DB } from '../db.ts';
+import { soundSearchable, toPinyin } from '../pinyin.ts';
 import { taipeiDayStart } from './quota.ts';
 import { toVecBlob } from '../db.ts';
 
@@ -20,6 +21,8 @@ const MAX_TERMS = 5;
 // returns. Exported so the eval can report the questions whose terms go over them.
 export const TERM_MATCH_LIMIT = 200;
 export const MENTION_LIMIT = 30;
+// A term found by sound in more chunks than this is a common sound, not a misheard name
+export const SOUND_MATCH_LIMIT = 50;
 
 // Words in the model's query. Trigram FTS needs 3+ characters, so shorter terms such as
 // 苗栗 fall back to LIKE; with a few thousand chunks a scan takes milliseconds.
@@ -69,12 +72,46 @@ function scopeFilter(episodeIds: number[] | null, col = 'rowid', table: 'chunks'
   };
 }
 
+// chunks_pinyin came with a migration; a snapshot from before it searches without sound.
+// Only a yes is kept: a long-lived connection (npm run dev) sees the table once a local
+// migrate or index-pinyin adds it.
+const pinyinTable = new WeakSet<DB>();
+export function hasPinyin(db: DB): boolean {
+  if (pinyinTable.has(db)) return true;
+  const has = db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'chunks_pinyin'`).get() !== undefined;
+  if (has) pinyinTable.add(db);
+  return has;
+}
+
+// Live chunks the pinyin index lacks (published before it, or by the previous release
+// during a deploy): the worker fills them at startup. Null without the table.
+export function chunksMissingPinyin(db: DB): number | null {
+  if (!hasPinyin(db)) return null;
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM chunks c JOIN episodes e ON e.id = c.episode_id
+         WHERE e.status = 'done' AND NOT EXISTS (SELECT 1 FROM chunks_pinyin p WHERE p.rowid = c.id)`,
+      )
+      .get() as { n: number }
+  ).n;
+}
+
 // Chunk ids ranked by how many query terms they contain, the terms that matched more
-// chunks than one read takes, and whether any term matched at all. Each read takes the
-// chunks of the newest episodes (chunk ids follow insertion order, and backfill inserts
-// older episodes last), and ties go the same way: newer episode first, then earlier in
-// the episode.
-function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: number[] | null): { ids: number[]; cutTerms: string[]; matched: boolean } {
+// chunks than one read takes, the terms found only by their sound, and whether any term
+// matched as written. Each read takes the chunks of the newest episodes (chunk ids follow
+// insertion order, and backfill inserts older episodes last), and ties go the same way:
+// newer episode first, then earlier in the episode.
+// A term of 3+ Chinese characters that no chunk of the scope has is looked for by its
+// pinyin: the speech-to-text often writes a name with other characters that sound the
+// same (椒鹽肥腸 as 交言肥腸), which neither the keyword nor the vector rankings find.
+// Only then: a term written right somewhere skips it, even if other episodes misheard it.
+function keywordRanking(
+  db: DB,
+  terms: string[],
+  limit: number,
+  episodeIds: number[] | null,
+): { ids: number[]; cutTerms: string[]; sound: { term: string; ids: number[] }[]; matched: boolean } {
   const f = scopeFilter(episodeIds, 'c.id');
   // One row past the limit tells a term that was cut from one that just fills it
   const newestFirst = `AND e.status = 'done'${f.sql} ORDER BY e.episode_no DESC, c.id LIMIT ${TERM_MATCH_LIMIT + 1}`;
@@ -86,8 +123,19 @@ function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: numb
     `SELECT c.id, e.episode_no AS ep FROM chunks c JOIN episodes e ON e.id = c.episode_id
      WHERE c.text LIKE @q ESCAPE '\\' ${newestFirst}`,
   );
+  // The phrase matches whole syllables in order, and unicode61 drops the punctuation
+  const sound = hasPinyin(db)
+    ? db.prepare(
+        `SELECT c.id, e.episode_no AS ep FROM chunks_pinyin JOIN chunks c ON c.id = chunks_pinyin.rowid JOIN episodes e ON e.id = c.episode_id
+         WHERE chunks_pinyin MATCH @q AND e.status = 'done'${f.sql} ORDER BY e.episode_no DESC, c.id LIMIT ${SOUND_MATCH_LIMIT + 1}`,
+      )
+    : null;
   const matches = new Map<number, { n: number; ep: number }>();
   const cutTerms: string[] = [];
+  const soundFound: { term: string; ids: number[] }[] = [];
+  // Whether a term was found as written. Sound matches don't count: the passages they bring
+  // may not make it into the hits, and then the model must still be told it's nowhere.
+  let written = false;
   for (const term of terms) {
     const short = [...term].length < 3;
     let rows = (short ? like : fts).all({ q: short ? likePattern(term) : ftsPhrase(term), ...f.params }) as { id: number; ep: number }[];
@@ -95,13 +143,21 @@ function keywordRanking(db: DB, terms: string[], limit: number, episodeIds: numb
       cutTerms.push(term);
       rows = rows.slice(0, TERM_MATCH_LIMIT);
     }
+    if (rows.length) written = true;
+    else if (sound && soundSearchable(term)) {
+      const heard = sound.all({ q: ftsPhrase(toPinyin(term)), ...f.params }) as { id: number; ep: number }[];
+      if (heard.length && heard.length <= SOUND_MATCH_LIMIT) {
+        soundFound.push({ term, ids: heard.map((r) => r.id) });
+        rows = heard;
+      }
+    }
     for (const r of rows) matches.set(r.id, { n: (matches.get(r.id)?.n ?? 0) + 1, ep: r.ep });
   }
   const ids = [...matches.entries()]
     .sort(([ia, a], [ib, b]) => b.n - a.n || b.ep - a.ep || ia - ib)
     .slice(0, limit)
     .map(([id]) => id);
-  return { ids, cutTerms, matched: matches.size > 0 };
+  return { ids, cutTerms, sound: soundFound, matched: written };
 }
 
 // sqlite-vec (0.1.9) takes a rowid IN filter inside the KNN query itself
@@ -205,18 +261,20 @@ function inSummariesOrMentions(db: DB, terms: string[], episodeIds: number[] | n
 // every hit came from the meaning-based rankings, which always return their nearest
 // chunks: asked about Rivian, which no episode names, they brought EP706's Tesla Roadster,
 // and the model answered with it as if it were Rivian.
-export type TranscriptResult = { hits: TranscriptHit[]; terms: string[]; cutTerms: string[]; unmatched: boolean };
+// `soundTerms`: terms no chunk has, found by their pinyin instead (keywordRanking), and
+// only those with a chunk among the hits, so the model isn't told of passages it can't see.
+export type TranscriptResult = { hits: TranscriptHit[]; terms: string[]; cutTerms: string[]; soundTerms: string[]; unmatched: boolean };
 
 export function searchTranscript(db: DB, query: string, embedding: number[] | null, scope: EpisodeScope = {}, limit = 8): TranscriptResult {
   const terms = queryTerms(query);
   const episodeIds = episodesInScope(db, scope);
-  if (episodeIds?.length === 0) return { hits: [], terms, cutTerms: [], unmatched: false };
+  if (episodeIds?.length === 0) return { hits: [], terms, cutTerms: [], soundTerms: [], unmatched: false };
   const keyword = keywordRanking(db, terms, 30, episodeIds);
   const rankings = [keyword.ids];
   if (embedding) rankings.push(vectorRanking(db, embedding, 30, episodeIds), summaryRanking(db, embedding, episodeIds));
   const ids = fuse(rankings, limit);
-  const unmatched = terms.length > 0 && !keyword.matched && !inSummariesOrMentions(db, terms, episodeIds);
-  if (!ids.length) return { hits: [], terms, cutTerms: keyword.cutTerms, unmatched };
+  const notWritten = terms.length > 0 && !keyword.matched && !inSummariesOrMentions(db, terms, episodeIds);
+  if (!ids.length) return { hits: [], terms, cutTerms: keyword.cutTerms, soundTerms: [], unmatched: notWritten };
   const rows = db
     .prepare(
       `SELECT c.id, e.episode_no, e.published_at, c.start_sec, c.text
@@ -229,7 +287,10 @@ export function searchTranscript(db: DB, query: string, embedding: number[] | nu
     .map((id) => byId.get(id))
     .filter((r) => r !== undefined)
     .map((r) => ({ episodeNo: r.episode_no, publishedAt: r.published_at, startSec: r.start_sec, text: r.text }));
-  return { hits, terms, cutTerms: keyword.cutTerms, unmatched };
+  const shown = new Set(ids.filter((id) => byId.has(id)));
+  const soundTerms = keyword.sound.filter((s) => s.ids.some((id) => shown.has(id))).map((s) => s.term);
+  // A passage found by sound among the hits gets its own note instead
+  return { hits, terms, cutTerms: keyword.cutTerms, soundTerms, unmatched: notWritten && !soundTerms.length };
 }
 
 export type MentionQuery = EpisodeScope & { category: string | null; keyword: string | null };
