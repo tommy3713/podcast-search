@@ -1,15 +1,17 @@
 import type { DB } from './db.ts';
 import { appendSegment, monthKey } from './format.ts';
+import { parseSeekTable, type PlayPoint, playPoint, type SeekTable } from './seek.ts';
 import type { Segment } from './segments.ts';
 import { readDb } from './server-db.ts';
-import { buildStockIndex, type EpisodeOutline, type StockIndex, type StockRow } from './stocks.ts';
+import { buildStockIndex, type EpisodeOutline, type Stock, type StockIndex, type StockRow } from './stocks.ts';
 import { STOCK_CATEGORY, type Summary } from './summary.ts';
 
 // Live episodes' stock rows, newest episode first
 export function stockRows(db: DB): StockRow[] {
   return db
     .prepare(
-      `SELECT m.name, m.code, m.detail, m.start_sec AS startSec, e.episode_no AS episodeNo, e.title, e.published_at AS publishedAt
+      `SELECT m.name, m.code, m.detail, m.start_sec AS startSec, e.episode_no AS episodeNo, e.title, e.published_at AS publishedAt,
+         e.audio_url AS audioUrl
        FROM mentions m JOIN episodes e ON e.id = m.episode_id
        WHERE m.category = ? AND e.status = 'done'
        ORDER BY e.episode_no DESC, m.start_sec, m.id`,
@@ -58,11 +60,58 @@ export function excerptFrom(segments: Segment[], t: number): { t: number; text: 
   return text ? { t: Math.floor(segments[first]!.start), text } : null;
 }
 
-export function excerptAt(db: DB, episodeNo: number, t: number): { t: number; text: string } | null {
+export type Excerpt = { t: number; text: string; point: PlayPoint | null };
+
+// With where to start the audio for it, so 從這裡開始聽 plays on the page
+export function excerptAt(db: DB, episodeNo: number, t: number): Excerpt | null {
   const row = db.prepare(`SELECT segments_json FROM episodes WHERE episode_no = ? AND status = 'done'`).get(episodeNo) as
     | { segments_json: string | null }
     | undefined;
-  return row?.segments_json ? excerptFrom(JSON.parse(row.segments_json) as Segment[], t) : null;
+  const excerpt = row?.segments_json ? excerptFrom(JSON.parse(row.segments_json) as Segment[], t) : null;
+  return excerpt && { ...excerpt, point: playPoint(seekTablesOf(db, [episodeNo]).get(episodeNo) ?? null, excerpt.t) };
+}
+
+// Parsed seek tables (about 5.5 KB of JSON each), kept until the index is rebuilt: a stock's
+// page needs one per episode on it. Only tables are kept: an episode without one is asked
+// about again, since the worker fills seek_json in later without touching updated_at.
+const seekTables = new Map<number, SeekTable>();
+
+// The web never migrates, so a snapshot from before seek_json still has to open
+const seekColumn = new WeakMap<DB, boolean>();
+function hasSeekColumn(db: DB): boolean {
+  let has = seekColumn.get(db);
+  if (has === undefined) {
+    has = (db.prepare('PRAGMA table_info(episodes)').all() as { name: string }[]).some((c) => c.name === 'seek_json');
+    seekColumn.set(db, has);
+  }
+  return has;
+}
+
+// null: nothing to correct, or not worked out yet
+function seekTablesOf(db: DB, episodeNos: number[]): Map<number, SeekTable | null> {
+  const tables = new Map<number, SeekTable | null>();
+  const read = hasSeekColumn(db) ? db.prepare(`SELECT seek_json FROM episodes WHERE episode_no = ? AND status = 'done'`) : null;
+  for (const no of episodeNos) {
+    let table = seekTables.get(no) ?? null;
+    if (!table && read) {
+      table = parseSeekTable((read.get(no) as { seek_json: string | null } | undefined)?.seek_json ?? null);
+      if (table) seekTables.set(no, table);
+    }
+    tables.set(no, table);
+  }
+  return tables;
+}
+
+// Where to start the audio for every timestamp on a stock's page: "<episode>:<seconds>" →
+// PlayPoint, or null to play from the time as it is
+export function stockPlayPoints(db: DB, stock: Stock): Map<string, PlayPoint | null> {
+  const points = new Map<string, PlayPoint | null>();
+  const tables = seekTablesOf(db, stock.episodes.map((e) => e.no));
+  for (const e of stock.episodes) {
+    const table = tables.get(e.no) ?? null;
+    for (const n of [...e.notes, ...e.points]) points.set(`${e.no}:${n.t}`, playPoint(table, n.t));
+  }
+  return points;
 }
 
 // Every episode page needs the index for its links, so it is built once and kept until an
@@ -84,7 +133,10 @@ export async function stockData(): Promise<{ index: StockIndex; liveMonths: Map<
   const d = await readDb();
   const v = d.prepare(`SELECT COUNT(*) AS n, MAX(updated_at) AS at FROM episodes WHERE status = 'done'`).get() as { n: number; at: string | null };
   const version = `${v.n} ${v.at}`;
-  if (cached?.version !== version) cached = { version, index: buildStockIndex(stockRows(d), episodeOutlines(d)), liveMonths: liveMonths(d) };
+  if (cached?.version !== version) {
+    seekTables.clear();
+    cached = { version, index: buildStockIndex(stockRows(d), episodeOutlines(d)), liveMonths: liveMonths(d) };
+  }
   return cached;
 }
 

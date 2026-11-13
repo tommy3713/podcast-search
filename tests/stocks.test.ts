@@ -21,7 +21,7 @@ import {
 
 const mocks = vi.hoisted(() => ({ db: undefined as unknown }));
 vi.mock('@/lib/server-db.ts', () => ({ readDb: async () => mocks.db }));
-const { episodeOutlines, excerptAt, excerptFrom, liveMonths, stockIndex, stockRows } = await import('@/lib/stock-pages.ts');
+const { episodeOutlines, excerptAt, excerptFrom, liveMonths, stockIndex, stockPlayPoints, stockRows } = await import('@/lib/stock-pages.ts');
 
 const row = (episodeNo: number, name: string, code: string | null, detail = `${name} 的事`, startSec = 60): StockRow => ({
   name,
@@ -30,6 +30,7 @@ const row = (episodeNo: number, name: string, code: string | null, detail = `${n
   startSec,
   episodeNo,
   title: '⭐',
+  audioUrl: `https://audio.example/${episodeNo}.mp3`,
   publishedAt: `2026-01-${String(episodeNo % 28 || 28).padStart(2, '0')}T12:00:00Z`,
 });
 
@@ -481,7 +482,8 @@ describe('stockRows', () => {
     const summary = { line: '', keys: [{ t: 5, text: '重點' }], chapters: [{ t: 0, title: '章', ad: false, bullets: [{ t: 1, text: '條' }], quote: null }], stocks: [], mentions: [] };
     const segments = JSON.stringify([{ start: 890, end: 895, text: '談台積電法說會' }]);
     db.prepare(`UPDATE episodes SET segments_json = ?, summary_json = ?`).run(segments, JSON.stringify(summary));
-    expect(excerptAt(db, 713, 900)).toEqual({ t: 890, text: '談台積電法說會' });
+    // No seek table yet: the audio plays from the time as it is
+    expect(excerptAt(db, 713, 900)).toEqual({ t: 890, text: '談台積電法說會', point: null });
     // EP714 hasn't gone live; EP1 doesn't exist
     expect(excerptAt(db, 714, 900)).toBeNull();
     expect(excerptAt(db, 1, 900)).toBeNull();
@@ -493,6 +495,22 @@ describe('stockRows', () => {
     expect(episodeOutlines(db).get(712)).toEqual({ keys: [], chapters: [] });
     db.prepare(`UPDATE episodes SET summary_json = ? WHERE episode_no = 712`).run(JSON.stringify(summary));
     expect(episodeOutlines(db).get(713)).toEqual({ keys: [{ t: 5, text: '重點' }], chapters: [{ t: 0, title: '章', ad: false, bullets: [{ t: 1, text: '條' }] }] });
+  });
+
+  it('gives each timestamp on a page where to start the audio, from the episode’s seek table', () => {
+    const db = seed();
+    // Every seek in EP712 lands 2 s late; EP713 has no table
+    const table = { duration: 3000, offsets: Array<number>(1001).fill(2) };
+    db.prepare(`UPDATE episodes SET seek_json = ? WHERE episode_no = 712`).run(JSON.stringify(table));
+    const stock = findStock(buildStockIndex(stockRows(db)), '2330')!;
+    const points = stockPlayPoints(db, stock);
+    expect(points.get('712:500')).toEqual({ entry: [498, 2], interp: [498, 2] });
+    expect(points.get('713:900')).toBeNull();
+    expect(stock.episodes[0]!.audioUrl).toBe('https://x');
+    // EP713's table arrives later (the worker doesn't touch updated_at for it): picked up
+    db.prepare(`UPDATE episodes SET seek_json = ? WHERE episode_no = 713`).run(JSON.stringify(table));
+    expect(stockPlayPoints(db, stock).get('713:900')).toEqual({ entry: [898, 2], interp: [898, 2] });
+    expect(excerptAt(db, 713, 900)).toBeNull();
   });
 
   it('counts live episodes per Taipei month', () => {

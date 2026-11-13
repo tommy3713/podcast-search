@@ -4,10 +4,12 @@ import { notFound } from 'next/navigation';
 import { EpName } from '@/components/Badge';
 import { EpisodeFilter } from '@/components/EpisodeFilter';
 import { ExcerptText, ExcerptToggle } from '@/components/Excerpt';
+import { PlayTs, StockPlayer } from '@/components/StockPlayer';
 import { formatDate, monthKey } from '@/lib/format';
 import { shareMetadata, stockDescription, stockTitle } from '@/lib/seo';
+import type { PlayPoint } from '@/lib/seek';
 import { readDb } from '@/lib/server-db';
-import { excerptAt, stockData } from '@/lib/stock-pages';
+import { excerptAt, stockData, stockPlayPoints } from '@/lib/stock-pages';
 import {
   type ChartBar,
   chartBars,
@@ -22,7 +24,6 @@ import {
   stockMonths,
   stockQuestion,
 } from '@/lib/stocks';
-import { formatTimestamp } from '@/lib/summary';
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -96,12 +97,11 @@ function Chart({ bars }: { bars: ChartBar[] }) {
 
 // What he said in one episode: the chapters it came up in, the summary's note, and the
 // summary's other bullets that name the company
-function Said({ e }: { e: StockEpisode }) {
+function Said({ e, points }: { e: StockEpisode; points: Map<string, PlayPoint | null> }) {
   const point = (n: { t: number; text: string }, i: number) => (
     <li key={i}>
-      <Link className="ts" href={`/ep/${e.no}?t=${n.t}`} aria-label={`EP${e.no} 從 ${formatTimestamp(n.t)} 播放`}>
-        {formatTimestamp(n.t)}
-      </Link>
+      {/* Plays here, in the bar at the bottom */}
+      <PlayTs episodeNo={e.no} t={n.t} point={points.get(`${e.no}:${n.t}`) ?? null} />
       <span>{n.text}</span>
     </li>
   );
@@ -153,9 +153,13 @@ export default async function StockPage({ params }: Props) {
   }
   const deep = stock.episodes.filter((e) => e.deep).length;
   // The newest episode's words are on the page from the start; the others' come on a click
-  const latestExcerpt = excerptAt(await readDb(), latest.no, latest.notes[0]!.t);
+  const db = await readDb();
+  const latestExcerpt = excerptAt(db, latest.no, latest.notes[0]!.t);
+  const points = stockPlayPoints(db, stock);
+  const audio = Object.fromEntries(stock.episodes.map((e) => [e.no, e.audioUrl]));
 
   return (
+    <StockPlayer audio={audio}>
     <div className="home">
       <div>
         <Link className="back" href="/stocks">
@@ -183,7 +187,7 @@ export default async function StockPage({ params }: Props) {
       <section className="card stock-latest">
         <div className="eyebrow">最近一次提到</div>
         <EpisodeLine e={latest} />
-        <Said e={latest} />
+        <Said e={latest} points={points} />
         {latestExcerpt && <ExcerptText episodeNo={latest.no} excerpt={latestExcerpt} />}
       </section>
       {bars.length > 0 && <Chart bars={bars} />}
@@ -233,7 +237,7 @@ export default async function StockPage({ params }: Props) {
               {g.episodes.map((e) => (
                 <div key={e.no} className={e.deep ? 'stock-ep deep' : 'stock-ep'}>
                   <EpisodeLine e={e} />
-                  <Said e={e} />
+                  <Said e={e} points={points} />
                   <ExcerptToggle episodeNo={e.no} t={e.notes[0]!.t} />
                 </div>
               ))}
@@ -245,5 +249,6 @@ export default async function StockPage({ params }: Props) {
         主持人在節目中的個人看法，不是投資建議。「深入談」只表示那一集談得比較多。內容由 AI 自動整理，可能有遺漏或誤聽，以原節目為準。
       </p>
     </div>
+    </StockPlayer>
   );
 }

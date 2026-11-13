@@ -120,3 +120,18 @@ function interpTarget(table: SeekTable, x: number): number {
   const span = land(hi) - land(lo);
   return (lo + (span > 0 ? (x - land(lo)) / span : 0)) * step;
 }
+
+// For a page that plays one spot of many episodes (a stock's page): the currentTime to set
+// on a freshly loaded element and how far the audio then is from it, for each model, so the
+// page needn't carry the tables. [currentTime, offset], to 0.01 s.
+export type PlayPoint = { entry: [number, number]; interp: [number, number] };
+
+export function playPoint(table: SeekTable | null, t: number): PlayPoint | null {
+  if (!table) return null;
+  const round = (x: number) => Math.round(x * 100) / 100;
+  const at = (model: SeekModel): [number, number] => {
+    const target = seekTarget(table, t, model);
+    return [round(target), round(offsetAt(table, target, model))];
+  };
+  return { entry: at('entry'), interp: at('interp') };
+}

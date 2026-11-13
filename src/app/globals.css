@@ -323,6 +323,14 @@ a.cite { display: inline-block; text-decoration: none; }
 .stock-next a.chip { text-decoration: none; color: inherit; }
 .stock-next a.chip:hover { border-color: var(--accent); color: var(--accent); }
 .stock-next .btn { font-size: 14px; }
+.mini-player { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 30; display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 6px 24px rgb(0 0 0 / .25); font-size: 14px; white-space: nowrap; max-width: calc(100vw - 24px); }
+.mini-player .pbtn { width: 36px; height: 36px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--fg); color: var(--surface); flex: none; }
+.mini-player .pbtn svg { width: 18px; height: 18px; fill: currentColor; }
+.mini-player .pbtn.ghost { background: transparent; color: var(--muted); width: 30px; height: 30px; }
+.mini-player .now { display: flex; gap: 8px; align-items: baseline; }
+.mini-player a { color: var(--accent); text-decoration: none; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mini-player a:hover { text-decoration: underline; }
+.excerpt footer a { color: var(--accent); }
 .stock-search { padding: 10px 18px 12px; display: grid; gap: 6px; }
 /* 16px: iOS zooms the page into an input with a smaller font */
 .search-input { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 9px 12px; font-size: 16px; }
@@ -353,6 +361,7 @@ a.cite { display: inline-block; text-decoration: none; }
 @media (max-width: 640px) {
   .stock-head h1 { font-size: 24px; }
   .stock-ep, .stock-grid a, .stock-search, .stock-chart, .stock-latest, .stock-next { padding-inline: 14px; }
+  .mini-player { bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* loading.tsx placeholders */
