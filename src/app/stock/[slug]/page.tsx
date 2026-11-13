@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Fragment } from 'react';
 import { notFound } from 'next/navigation';
 import { EpName } from '@/components/Badge';
+import { EpisodeFilter } from '@/components/EpisodeFilter';
 import { ExcerptText, ExcerptToggle } from '@/components/Excerpt';
 import { formatDate, monthKey } from '@/lib/format';
 import { shareMetadata, stockDescription, stockTitle } from '@/lib/seo';
@@ -28,6 +28,8 @@ type Props = { params: Promise<{ slug: string }> };
 
 // Below this a chart says nothing the list doesn't
 const CHART_MIN_EPISODES = 3;
+// And a filter is more to read than the list it filters
+const FILTER_MIN_EPISODES = 6;
 
 // No loading.tsx here: a skeleton would fix the status at 200 before the slug is looked up
 async function load(params: Props['params']) {
@@ -141,16 +143,18 @@ export default async function StockPage({ params }: Props) {
   const bars = stock.episodes.length >= CHART_MIN_EPISODES ? chartBars(stockMonths(stock, liveMonths)) : [];
   // Per month: episodes, and how many of them dwell on it
   const perMonth = new Map<string, { all: number; deep: number }>();
+  const groups: { key: string; episodes: StockEpisode[] }[] = [];
   for (const e of stock.episodes) {
     const key = monthKey(e.publishedAt);
     const m = perMonth.get(key) ?? { all: 0, deep: 0 };
     perMonth.set(key, { all: m.all + 1, deep: m.deep + (e.deep ? 1 : 0) });
+    if (groups.at(-1)?.key !== key) groups.push({ key, episodes: [] });
+    groups.at(-1)!.episodes.push(e);
   }
   const deep = stock.episodes.filter((e) => e.deep).length;
   // The newest episode's words are on the page from the start; the others' come on a click
   const latestExcerpt = excerptAt(await readDb(), latest.no, latest.notes[0]!.t);
 
-  let month = '';
   return (
     <div className="home">
       <div>
@@ -207,6 +211,7 @@ export default async function StockPage({ params }: Props) {
             每一集說了什麼
             <span className="fine">共 {stock.episodes.length} 集</span>
           </h3>
+          {stock.episodes.length >= FILTER_MIN_EPISODES && <EpisodeFilter />}
           {/* Works without JavaScript: the list hides the rest with :has() */}
           {deep > 0 && deep < stock.episodes.length && (
             <label className="deep-only">
@@ -215,26 +220,24 @@ export default async function StockPage({ params }: Props) {
             </label>
           )}
         </div>
-        {stock.episodes.map((e) => {
-          const key = monthKey(e.publishedAt);
-          const count = perMonth.get(key)!;
-          const header =
-            key !== month ? (
-              <h2 className="month" id={`m-${(month = key)}`} data-deep={count.deep}>
-                {monthKeyLabel(key)}
+        {groups.map((g) => {
+          const count = perMonth.get(g.key)!;
+          return (
+            // A group per month, so the filters can hide a month left without episodes
+            <div key={g.key} className="month-group">
+              <h2 className="month" id={`m-${g.key}`} data-deep={count.deep}>
+                {monthKeyLabel(g.key)}
                 <span className="fine n-all">　{count.all} 集</span>
                 <span className="fine n-deep">　{count.deep} 集</span>
               </h2>
-            ) : null;
-          return (
-            <Fragment key={e.no}>
-              {header}
-              <div className={e.deep ? 'stock-ep deep' : 'stock-ep'}>
-                <EpisodeLine e={e} />
-                <Said e={e} />
-                <ExcerptToggle episodeNo={e.no} t={e.notes[0]!.t} />
-              </div>
-            </Fragment>
+              {g.episodes.map((e) => (
+                <div key={e.no} className={e.deep ? 'stock-ep deep' : 'stock-ep'}>
+                  <EpisodeLine e={e} />
+                  <Said e={e} />
+                  <ExcerptToggle episodeNo={e.no} t={e.notes[0]!.t} />
+                </div>
+              ))}
+            </div>
           );
         })}
       </section>

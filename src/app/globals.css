@@ -303,6 +303,13 @@ a.cite { display: inline-block; text-decoration: none; }
 .excerpt-toggle { display: grid; gap: 6px; justify-items: start; }
 .excerpt-toggle .btn { padding: 2px 8px; font-size: 13px; margin-left: -8px; }
 .excerpt-toggle .excerpt { justify-self: stretch; }
+.ep-filter { display: flex; align-items: center; gap: 8px; flex: 1 1 200px; max-width: 320px; }
+.ep-filter .search-input { flex: 1; min-width: 0; padding-block: 5px; }
+.stock-ep[hidden] { display: none; }
+.month-group.empty { height: 0; overflow: hidden; }
+/* !important: the 深入談 rule that shows .n-deep has two ids in its selector */
+#stock-eps.filtering .month .fine { display: none !important; }
+.ep-filter .fine { white-space: nowrap; }
 .deep-only { font-size: 13.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; cursor: pointer; }
 #stock-eps:has(#deep-only:checked) .stock-ep:not(.deep) { display: none; }
 /* Not display: none, so a chart bar's link to the month still has somewhere to scroll to */
@@ -317,7 +324,8 @@ a.cite { display: inline-block; text-decoration: none; }
 .stock-next a.chip:hover { border-color: var(--accent); color: var(--accent); }
 .stock-next .btn { font-size: 14px; }
 .stock-search { padding: 10px 18px 12px; display: grid; gap: 6px; }
-.stock-search input { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 9px 12px; }
+/* 16px: iOS zooms the page into an input with a smaller font */
+.search-input { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 9px 12px; font-size: 16px; }
 .stock-search p { margin: 0; }
 .stock-chart { padding: 14px 18px 10px; display: grid; gap: 10px; }
 .bars, .bar-years { display: flex; gap: 2px; }
