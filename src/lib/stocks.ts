@@ -307,10 +307,52 @@ export function listedStocks(index: StockIndex, min = STOCK_LIST_MIN_EPISODES): 
   const listed = [...index.byKey.values()].filter((s) => s.episodes.length >= min);
   return MARKET_ORDER.map((market) => ({
     market,
-    stocks: listed
-      .filter((s) => s.market === market)
-      .sort((a, b) => (a.code && b.code ? (a.code < b.code ? -1 : 1) : a.name.localeCompare(b.name, 'zh-Hant'))),
+    stocks: listed.filter((s) => s.market === market).sort(byCodeOrName),
   })).filter((g) => g.stocks.length > 0);
+}
+
+function byCodeOrName(a: Stock, b: Stock): number {
+  return a.code && b.code ? (a.code < b.code ? -1 : 1) : a.name.localeCompare(b.name, 'zh-Hant');
+}
+
+export const CO_MENTIONED_MAX = 12;
+const CO_MENTIONED_MIN_SHARED = 3;
+
+// 同一集也提到: the listed pages that most often come up in the same episodes as this one.
+// Chosen by overlap relative to both pages' sizes (shared / either), since by plain count
+// 輝達 and 台積電 would be on every page; shown in the list's order, without the numbers,
+// so it doesn't read as a ranking.
+// Kept per index: it only changes when the index is rebuilt, and crawlers ask for every page.
+const coMentionedOf = new WeakMap<StockIndex, Map<Stock, Stock[]>>();
+
+export function coMentioned(index: StockIndex, stock: Stock): Stock[] {
+  let known = coMentionedOf.get(index);
+  if (!known) coMentionedOf.set(index, (known = new Map()));
+  let found = known.get(stock);
+  if (!found) known.set(stock, (found = findCoMentioned(index, stock)));
+  return found;
+}
+
+function findCoMentioned(index: StockIndex, stock: Stock): Stock[] {
+  const mine = new Set(stock.episodes.map((e) => e.no));
+  const scored: { other: Stock; score: number }[] = [];
+  for (const other of index.byKey.values()) {
+    if (other === stock || other.episodes.length < STOCK_LIST_MIN_EPISODES) continue;
+    const shared = other.episodes.filter((e) => mine.has(e.no)).length;
+    if (shared >= CO_MENTIONED_MIN_SHARED) scored.push({ other, score: shared / (mine.size + other.episodes.length - shared) });
+  }
+  return scored
+    .sort((a, b) => b.score - a.score || (a.other.slug < b.other.slug ? -1 : 1))
+    .slice(0, CO_MENTIONED_MAX)
+    .map((x) => x.other)
+    .sort((a, b) => MARKET_ORDER.indexOf(a.market) - MARKET_ORDER.indexOf(b.market) || byCodeOrName(a, b));
+}
+
+// The question the 問 AI link on a stock's page fills in on /ask. About what he said, not
+// whether to buy (the answer's rules are the Q&A prompt's), and without 最近: for a stock
+// whose episodes are old, a search scoped to recent days would find nothing.
+export function stockQuestion(stock: Pick<Stock, 'name'>): string {
+  return `主委談過${stock.name}的什麼？`;
 }
 
 // How the search box on /stocks compares: no case, no full-width forms

@@ -5,6 +5,7 @@ import {
   buildStockIndex,
   canonicalCode,
   chartBars,
+  coMentioned,
   type EpisodeOutline,
   findStock,
   listedStocks,
@@ -14,6 +15,7 @@ import {
   stockHref,
   stockMatches,
   stockMonths,
+  stockQuestion,
   stockSearchText,
 } from '@/lib/stocks.ts';
 
@@ -260,6 +262,43 @@ describe('what an episode says about a stock', () => {
 
   it('leaves an episode without a summary with just its notes', () => {
     expect(ep('NVDA', 712)).toMatchObject({ chapters: [], points: [], deep: false });
+  });
+});
+
+describe('coMentioned', () => {
+  // 輝達 is in every episode; Credo and Astera come up together; Lumentum shares too few
+  const eps = (name: string, code: string, nos: number[]) => nos.map((no) => row(no, name, code));
+  const index = buildStockIndex([
+    ...eps('輝達', 'NVDA', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]),
+    ...eps('Credo', 'CRDO', [1, 2, 3, 4]),
+    ...eps('Astera Labs', 'ALAB', [1, 2, 3, 5]),
+    ...eps('Marvell', 'MRVL', [1, 2, 3, 4, 6, 7, 8, 9]),
+    ...eps('Lumentum', 'LITE', [1, 2, 10]),
+    ...eps('台光電', '2383', [2, 3, 4]),
+    ...eps('Waymo', 'WAYMO', [1]),
+  ]);
+  const names = (slug: string) => coMentioned(index, findStock(index, slug)!).map((s) => s.name);
+
+  it('lists pages sharing three episodes or more, in the list’s order, not by count', () => {
+    // Taiwan first, then US by code; Lumentum shares two, Waymo is not a listed page
+    expect(names('CRDO')).toEqual(['台光電', 'Astera Labs', 'Marvell', '輝達']);
+    expect(names('LITE')).toEqual(['輝達']);
+    expect(names('WAYMO')).toEqual([]);
+  });
+
+  it('asks what he said, without a time', () => {
+    expect(stockQuestion({ name: '台積電' })).toBe('主委談過台積電的什麼？');
+  });
+
+  it('keeps the closest pages when there are too many, rather than the biggest', () => {
+    const many = buildStockIndex([
+      ...eps('Credo', 'CRDO', [1, 2, 3, 4]),
+      ...eps('輝達', 'NVDA', Array.from({ length: 150 }, (_, i) => i + 1)),
+      ...Array.from({ length: 12 }, (_, i) => eps(`近鄰${i}`, `NB${String.fromCharCode(65 + i)}`, [1, 2, 3, 4])).flat(),
+    ]);
+    const picked = coMentioned(many, findStock(many, 'CRDO')!).map((s) => s.name);
+    expect(picked).toHaveLength(12);
+    expect(picked).not.toContain('輝達');
   });
 });
 

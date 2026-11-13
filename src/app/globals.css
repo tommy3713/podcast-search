@@ -311,6 +311,11 @@ a.cite { display: inline-block; text-decoration: none; }
 #stock-eps .n-deep { display: none; }
 #stock-eps:has(#deep-only:checked) .n-all { display: none; }
 #stock-eps:has(#deep-only:checked) .n-deep { display: inline; }
+.stock-next { padding: 14px 18px; display: grid; gap: 12px; justify-items: start; }
+.stock-next h3 { margin: 0 0 8px; font-size: 13.5px; font-weight: 500; color: var(--muted); }
+.stock-next a.chip { text-decoration: none; color: inherit; }
+.stock-next a.chip:hover { border-color: var(--accent); color: var(--accent); }
+.stock-next .btn { font-size: 14px; }
 .stock-search { padding: 10px 18px 12px; display: grid; gap: 6px; }
 .stock-search input { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 9px 12px; }
 .stock-search p { margin: 0; }
@@ -339,7 +344,7 @@ a.cite { display: inline-block; text-decoration: none; }
 /* Here, not in the phone block further up: that one comes before these rules */
 @media (max-width: 640px) {
   .stock-head h1 { font-size: 24px; }
-  .stock-ep, .stock-grid a, .stock-search, .stock-chart, .stock-latest { padding-inline: 14px; }
+  .stock-ep, .stock-grid a, .stock-search, .stock-chart, .stock-latest, .stock-next { padding-inline: 14px; }
 }
 
 /* loading.tsx placeholders */

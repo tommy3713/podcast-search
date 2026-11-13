@@ -16,7 +16,7 @@ type Msg = {
   error: string | null;
 };
 
-type Props = { episodeCount: number; initialQuota: number; dailyLimit: number; logDays: number; examples: string[] };
+type Props = { episodeCount: number; initialQuota: number; dailyLimit: number; logDays: number; examples: string[]; initialQuestion: string };
 
 // Keeps answers when you open a cited episode and come back; per tab, never sent anywhere
 const STORAGE_KEY = 'gooaye.ask.v1';
@@ -39,11 +39,11 @@ function save(msgs: Msg[]): void {
   }
 }
 
-export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examples }: Props) {
+export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examples, initialQuestion }: Props) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [quota, setQuota] = useState(initialQuota);
   const [busy, setBusy] = useState(false);
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(initialQuestion);
   const loaded = useRef(false);
 
   useEffect(() => {
@@ -62,6 +62,8 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
     const id = `${Date.now()}`;
     setMsgs((all) => [...all, { id, q: text, status: null, sources: {}, text: '', done: false, error: null }]);
     setQ('');
+    // A question that came in ?q= is asked now: left in the URL, a reload would fill it in again
+    if (window.location.search) window.history.replaceState(null, '', window.location.pathname);
     setBusy(true);
     requestAnimationFrame(() => document.getElementById(`msg-${id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
     try {
