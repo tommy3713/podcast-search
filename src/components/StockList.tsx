@@ -33,6 +33,7 @@ export function StockList({ groups }: { groups: StockListGroup[] }) {
     <section className="card list" id="stock-list">
       <div className="stock-search" role="search">
         <input
+          className="search-input"
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
