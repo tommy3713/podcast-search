@@ -332,15 +332,73 @@ a.cite { display: inline-block; text-decoration: none; }
 .mini-player a { color: var(--accent); text-decoration: none; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mini-player a:hover { text-decoration: underline; }
 .excerpt footer a { color: var(--accent); }
-.topic-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
-.topic-card { padding: 16px 18px; display: grid; gap: 8px; align-content: start; }
-.topic-card h2 { margin: 0; font-size: 18px; display: flex; gap: 10px; align-items: baseline; }
-.topic-card h2 a { color: inherit; text-decoration: none; }
-.topic-card h2 a::after { content: ' →'; color: var(--accent); }
-.topic-card h2 a:hover { color: var(--accent); }
-.topic-card p { margin: 0; font-size: 14px; }
-.topic-card .chip, .topic-once .chip { text-decoration: none; color: inherit; }
-.topic-card .chip:hover, .topic-once .chip:hover { border-color: var(--accent); color: var(--accent); }
+.topic-once .chip { text-decoration: none; color: inherit; }
+.topic-once .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* /topics: after Hannah's Motion Library (kittenjam-motion-library.vercel.app), in the site's colours */
+.home.topics-page { max-width: 1040px; }
+/* 無限捲動: what the newest episodes brought up */
+.marquee { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.marquee-label { flex: none; font-size: 12.5px; color: var(--muted); font-weight: 600; letter-spacing: .04em; }
+.marquee-view { overflow: hidden; flex: 1; min-width: 0; -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent); mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent); }
+.marquee-track { display: flex; width: max-content; animation: marquee calc(var(--n) * 3.2s) linear infinite; }
+.marquee-set { display: flex; gap: 8px; padding-right: 8px; }
+.marquee:hover .marquee-track, .marquee:focus-within .marquee-track { animation-play-state: paused; }
+.marquee .chip { text-decoration: none; color: inherit; display: inline-flex; gap: 6px; align-items: baseline; white-space: nowrap; }
+.marquee .chip:hover { border-color: var(--accent); color: var(--accent); }
+@keyframes marquee { to { transform: translateX(-50%); } }
+.marquee.still .marquee-track { animation: none; }
+.marquee.still .marquee-view { -webkit-mask-image: none; mask-image: none; overflow-x: auto; }
+/* Bento: 個股 and 運動 big, the rest small */
+.bento { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; --spot: 0; }
+.tcard { position: relative; display: flex; flex-direction: column; overflow: hidden; transition: transform .2s ease, box-shadow .2s ease; animation: rise .55s cubic-bezier(.2, .7, .2, 1) backwards; animation-delay: calc(var(--i) * 70ms); }
+.tcard:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgb(0 0 0 / .08); }
+.tcard.big { grid-column: span 2; }
+.tpreview { height: 84px; background: var(--bg); border-bottom: 1px solid var(--line); padding: 12px 14px 0; display: flex; align-items: flex-end; }
+.tcard.big .tpreview { height: 120px; }
+.tbody { padding: 14px 16px 16px; display: grid; gap: 8px; align-content: start; }
+.tbody h2 { margin: 0; font-size: 18px; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.tbody h2 a { color: inherit; text-decoration: none; }
+.tbody h2 a::after { content: ' →'; color: var(--accent); }
+/* The whole card goes to the list; the chips above it to their own pages */
+.tbody h2 a::before { content: ''; position: absolute; inset: 0; }
+.tbody .chips { position: relative; }
+.tbody .chip { text-decoration: none; color: inherit; }
+.tbody .chip:hover { border-color: var(--accent); color: var(--accent); }
+.tcard:hover h2 a { color: var(--accent); }
+.tcount { font-family: var(--font-mono); font-size: 22px; font-weight: 500; display: flex; align-items: baseline; gap: 4px; font-variant-numeric: tabular-nums; }
+.tbody p { margin: 0; font-size: 14px; }
+/* 邊框聚光: the border lights up around the pointer (TopicsMotion.tsx sets --mx/--my/--spot) */
+.tcard::after { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; background: radial-gradient(240px circle at var(--mx, -999px) var(--my, -999px), var(--accent), transparent 70%); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; opacity: var(--spot); transition: opacity .3s; }
+/* Previews: the line draws in, the bars grow, the dots pop */
+.spark { width: 100%; height: 100%; display: block; overflow: visible; animation: wipe 1s .25s ease-out backwards; }
+.spark.line polygon { fill: var(--accent-soft); }
+.spark.line polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.spark.bars { animation: none; }
+.spark.bars rect { fill: var(--accent); opacity: .8; transform-box: fill-box; transform-origin: bottom; animation: grow .6s calc(var(--i) * 25ms + .2s) cubic-bezier(.2, .7, .2, 1) backwards; }
+.topbars { width: 100%; display: grid; gap: 5px; padding-bottom: 12px; align-self: center; }
+.topbar { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) 2em; gap: 8px; align-items: center; font-size: 12.5px; }
+.topbar .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.topbar .b { height: 8px; border-radius: 4px; background: var(--accent); opacity: .8; transform-origin: left; animation: grow-x .7s calc(var(--i) * 90ms + .2s) cubic-bezier(.2, .7, .2, 1) backwards; }
+.topbar .v { font-family: var(--font-mono); text-align: right; }
+@keyframes grow-x { from { transform: scaleX(0); } }
+.tfacts { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13.5px; font-family: var(--font-mono); color: var(--muted); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes wipe { from { clip-path: inset(0 100% 0 0); } }
+@keyframes grow { from { transform: scaleY(0); } }
+@media (max-width: 900px) { .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* After the rule above, which would otherwise win on phones */
+@media (max-width: 640px) {
+  .bento { grid-template-columns: minmax(0, 1fr); }
+  .tcard.big { grid-column: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tcard, .spark, .spark.bars rect, .topbar .b { animation: none; }
+  .tcard:hover { transform: none; }
+  .marquee-track { animation: none; }
+  .marquee-view { overflow-x: auto; -webkit-mask-image: none; mask-image: none; }
+  .marquee-set[aria-hidden] { display: none; }
+}
 .topic-once { padding-bottom: 14px; }
 .topic-once .chips { padding: 12px 18px 0; }
 .sponsor-row { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr) 4.5em; gap: 14px; align-items: center; padding: 9px 18px; border-top: 1px solid var(--line); text-decoration: none; color: inherit; }
@@ -385,6 +443,7 @@ a.cite { display: inline-block; text-decoration: none; }
   .stock-head h1 { font-size: 24px; }
   .stock-ep, .stock-grid a, .stock-search, .stock-chart, .stock-latest, .stock-next { padding-inline: 14px; }
   .topic-once .chips { padding-inline: 14px; }
+  .marquee-label { display: none; }
   .sponsor-row { grid-template-columns: minmax(0, 7em) minmax(0, 1fr) 3.5em; gap: 10px; padding-inline: 14px; }
   .mini-player { bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom, 0px)); }
 }
