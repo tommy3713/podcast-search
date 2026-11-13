@@ -404,9 +404,8 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
 .qmore { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 14px; }
 .qmore li { display: flex; gap: 8px; align-items: baseline; }
 /* An open transcript takes the whole row: in one column it made the card several screens tall
-   and left the row's other cards floating over a gap. Lines kept to a readable length. */
+   and left the row's other cards floating over a gap. The transcript fills the card's width. */
 .quote-wall > .qcard:has(.excerpt-toggle > [aria-expanded="true"]) { grid-column: 1 / -1; }
-.qcard .excerpt { max-width: 46em; }
 /* Opening and closing it is a view transition (Excerpt.tsx). Each card's before and after are
    shown at their own size and clipped by the box that moves and grows, so the text slides and
    the transcript is uncovered instead of being stretched; the before fades out early, so the
