@@ -137,6 +137,18 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE episodes ADD COLUMN seek_json TEXT;
   `,
+  // Each chunk's text as toneless pinyin (src/lib/pinyin.ts), rowid = chunks.id, so search
+  // can find a name the speech-to-text wrote with other characters that sound the same.
+  // Contentless: only the index is kept (about 7 MB for 212 episodes). The worker writes the
+  // rows (pinyin needs JS); the trigger deletes them, so a release that doesn't know this
+  // table (the previous one, during a deploy or a rollback) can't leave a row behind for a
+  // chunk id it reuses. A chunk without a row isn't worked out yet (indexPinyin).
+  `
+  CREATE VIRTUAL TABLE chunks_pinyin USING fts5 (pinyin, content = '', contentless_delete = 1, tokenize = 'unicode61');
+  CREATE TRIGGER chunks_pinyin_ad AFTER DELETE ON chunks BEGIN
+    DELETE FROM chunks_pinyin WHERE rowid = old.id;
+  END;
+  `,
 ];
 
 export function defaultDbPath(): string {

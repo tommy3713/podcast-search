@@ -26,6 +26,7 @@
     "next-auth": "4.24.15",
     "openai": "7.34.0",
     "opencc-js": "1.4.2",
+    "pinyin-pro": "3.26.0",
     "react": "19.2.9",
     "react-dom": "19.2.9",
     "sqlite-vec": "0.1.9",

@@ -40,8 +40,8 @@ export type AskEvent =
 
 // `cut`: keyword terms that matched more chunks than one read takes. `unmatched`: no term
 // of the query is in the episodes searched, so the results only came by meaning, and the
-// model was told so.
-export type ToolCallLog = { name: string; args: unknown; results: number; cut?: string[]; unmatched?: true };
+// model was told so. `sound`: terms no transcript has, found by their pinyin instead.
+export type ToolCallLog = { name: string; args: unknown; results: number; cut?: string[]; unmatched?: true; sound?: string[] };
 
 // Filled in while answering, so the caller can log tool calls and token use even when
 // the answer fails halfway
@@ -208,7 +208,7 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
       { signal: deps.signal },
     );
     deps.trace.embeddingTokens += emb.usage?.total_tokens ?? 0;
-    const { hits, terms, cutTerms, unmatched } = searchTranscript(deps.db, p.data.query, emb.data[0]?.embedding ?? null, p.data);
+    const { hits, terms, cutTerms, soundTerms, unmatched } = searchTranscript(deps.db, p.data.query, emb.data[0]?.embedding ?? null, p.data);
     const lines = hits.map((h) => {
       const s = keep(`t:${h.episodeNo}:${h.startSec}`, { ep: h.episodeNo, t: h.startSec, text: h.text, label: null });
       return `<transcript n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${taipeiDay(h.publishedAt)}">${head(s.n, h.episodeNo, h.publishedAt)}${escapeSourceText(h.text)}</transcript>`;
@@ -233,9 +233,21 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
     const none = noted
       ? `\n（${quote(terms)}${terms.length > 1 ? '都' : ''}沒有出現在${scoped ? '這個範圍的' : ''}任何一段逐字稿、摘要或提及裡：上面的段落是依意思找到的，多半不是在講它。逐字稿是語音辨識，名稱可能寫成發音相近的字（例如 Groq 寫成 Grok），所以段落裡要有問的那個名稱或說法（中英文名稱、別名也算），或是發音相近的寫法，才能當成在講它；段落裡沒有的話，就照找不到的規則回答，不標出處）`
       : '';
+    // Passages found by sound hold other characters than the term, which would otherwise
+    // look like a wrong result. The example isn't a golden-set question.
+    const bySound = soundTerms.length
+      ? `\n（${quote(soundTerms)}沒有逐字出現在${scoped ? '這個範圍的' : ''}逐字稿裡，上面有些段落是依發音找到的：語音辨識常把名稱寫成發音相同的別字（例如「蘋果」寫成「平果」）。段落裡有發音相同的寫法、講的又是問的那件事，就可以當成在講它）`
+      : '';
     return {
-      output: (lines.join('\n') || noResults(deps, p.data, '沒有找到相關片段')) + cut + none,
-      log: { name, args: p.data, results: hits.length, ...(cutTerms.length ? { cut: cutTerms } : {}), ...(noted ? { unmatched: true as const } : {}) },
+      output: (lines.join('\n') || noResults(deps, p.data, '沒有找到相關片段')) + cut + none + bySound,
+      log: {
+        name,
+        args: p.data,
+        results: hits.length,
+        ...(cutTerms.length ? { cut: cutTerms } : {}),
+        ...(noted ? { unmatched: true as const } : {}),
+        ...(soundTerms.length ? { sound: soundTerms } : {}),
+      },
     };
   }
 

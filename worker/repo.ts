@@ -1,5 +1,6 @@
 import type { DB } from '@/lib/db.ts';
 import { toVecBlob } from '@/lib/db.ts';
+import { toPinyin } from '@/lib/pinyin.ts';
 import { GRID, type SeekTable } from '@/lib/seek.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { STOCK_CATEGORY, type Summary } from '@/lib/summary.ts';
@@ -185,6 +186,45 @@ export function indexSummaryPoints(db: DB, id: number, points: SummaryPoint[], v
   })();
 }
 
+// Chunks of live episodes with no pinyin yet (published before it existed, or by the
+// previous release during a deploy), in id order from `after`, at most `limit` of them
+export function chunksWithoutPinyin(db: DB, after: number, limit: number): { id: number; episode_no: number; text: string }[] {
+  return db
+    .prepare(
+      `SELECT c.id, e.episode_no, c.text FROM chunks c JOIN episodes e ON e.id = c.episode_id
+       WHERE c.id > ? AND e.status = 'done' AND NOT EXISTS (SELECT 1 FROM chunks_pinyin p WHERE p.rowid = c.id)
+       ORDER BY c.id LIMIT ?`,
+    )
+    .all(after, limit) as { id: number; episode_no: number; text: string }[];
+}
+
+// A contentless FTS5 table takes a second row for the same rowid without complaint, and the
+// first then can't be deleted, so a chunk's row is always deleted before it's written
+function pinyinWriter(db: DB): (id: number | bigint, pinyin: string) => void {
+  const del = db.prepare('DELETE FROM chunks_pinyin WHERE rowid = ?');
+  const ins = db.prepare('INSERT INTO chunks_pinyin (rowid, pinyin) VALUES (?, ?)');
+  return (id, pinyin) => {
+    del.run(BigInt(id));
+    ins.run(BigInt(id), pinyin);
+  };
+}
+
+// Skips a chunk whose text changed since it was read (republished under the same id), so
+// stale pinyin is never written over the new chunk's
+export function savePinyin(db: DB, rows: { id: number; text: string; pinyin: string }[]): number {
+  const write = pinyinWriter(db);
+  const current = db.prepare('SELECT text FROM chunks WHERE id = ?');
+  return db.transaction(() => {
+    let saved = 0;
+    for (const r of rows) {
+      if ((current.get(r.id) as { text: string } | undefined)?.text !== r.text) continue;
+      write(r.id, r.pinyin);
+      saved++;
+    }
+    return saved;
+  })();
+}
+
 // Replaces any earlier chunks, summary points and mentions, so re-running an episode is
 // safe. Returns the episode's total cost so far.
 export function publishEpisode(
@@ -200,6 +240,8 @@ export function publishEpisode(
   },
 ): number {
   if (data.chunks.length !== data.vectors.length) throw new Error(`${data.chunks.length} chunks but ${data.vectors.length} vectors`);
+  // Before the transaction, which this CPU work would otherwise hold open
+  const pinyins = data.chunks.map((c) => toPinyin(c.text));
   return db.transaction(() => {
     const old = db.prepare('SELECT id FROM chunks WHERE episode_id = ?').all(id) as { id: number }[];
     const delVec = db.prepare('DELETE FROM chunks_vec WHERE rowid = ?');
@@ -208,11 +250,14 @@ export function publishEpisode(
     db.prepare('DELETE FROM mentions WHERE episode_id = ?').run(id);
 
     const insChunk = db.prepare('INSERT INTO chunks (episode_id, idx, start_sec, text) VALUES (?, ?, ?, ?)');
+    // The old chunks' rows went with them (trigger chunks_pinyin_ad)
+    const writePinyin = pinyinWriter(db);
     // sqlite-vec rejects rowids bound as JS numbers (better-sqlite3 sends REAL); use BigInt
     const insVec = db.prepare('INSERT INTO chunks_vec (rowid, embedding) VALUES (?, ?)');
     data.chunks.forEach((c, i) => {
       const { lastInsertRowid } = insChunk.run(id, c.idx, c.startSec, c.text);
       insVec.run(BigInt(lastInsertRowid), toVecBlob(data.vectors[i]!));
+      writePinyin(lastInsertRowid, pinyins[i]!);
     });
 
     const insMention = db.prepare(

@@ -13,6 +13,7 @@ import { diskWarning, ping, queueHealthy } from './monitor.ts';
 import { getEpisode, getState, setState } from './repo.ts';
 import { fetchFeed, parseFeed } from './rss.ts';
 import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } from './schedule.ts';
+import { indexPinyin } from './pinyin-index.ts';
 import { indexSummaries } from './summary-index.ts';
 import { indexSeekTables, startSeekIndex } from './seek-index.ts';
 import { askStats, compactDb, digestDue, formatStats, purgeAskLog, rollupAskDaily, unanswered } from './stats.ts';
@@ -37,6 +38,9 @@ const USAGE = `usage: worker <command>
   check-db <file>     integrity check and live episode count of a database (restore drills)
   index-summaries     bring live episodes' summary points up to date (run does this by itself
                       at startup; this is for local snapshots such as the eval's)
+  index-pinyin        work out the pinyin of live episodes' chunks lacking it, for finding
+                      misheard names by sound (run does this by itself at startup; this is
+                      for local snapshots such as the eval's)
   index-seek [ep]     work out where Chromium's and Safari's seeks land in live episodes lacking
                       it or with an older table (one download of each episode's audio; run does
                       this by itself)
@@ -167,6 +171,12 @@ async function run(db: DB): Promise<void> {
       if (r.failed.length) await notify(`❌ 摘要索引失敗：EP${r.failed.join('、EP')}，下次啟動會再試`.slice(0, 600));
     })
     .catch((err) => console.error('summary index failed', err));
+  // Pinyin of chunks published before it existed, or by the previous release during a
+  // deploy. On the queue, so a publish never writes chunks while it reads them
+  void enqueue('建立拼音索引', () => indexPinyin(db)).catch(async (err) => {
+    console.error('pinyin index failed', err);
+    await notify(`❌ 拼音索引失敗，靠發音的搜尋會漏掉還沒建好的集數，下次啟動會再試：${err instanceof Error ? err.message : String(err)}`.slice(0, 600));
+  });
   void startSeekIndex(db, { paused: seekPaused });
   void runBackfill(db);
   for (;;) {
@@ -253,6 +263,11 @@ async function main(): Promise<void> {
       const r = await indexSummaries(db);
       if (r.failed.length) process.exitCode = 1;
       else if (!r.episodes) console.log('every live episode is up to date');
+      return;
+    }
+    case 'index-pinyin': {
+      const r = await indexPinyin(db);
+      if (!r.chunks) console.log('every live chunk has its pinyin');
       return;
     }
     case 'index-seek': {
