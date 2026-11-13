@@ -148,6 +148,7 @@ h1, h2, h3 { text-wrap: balance; }
 .ep-head > div { min-width: 0; display: grid; gap: 6px; }
 .ep-head h1 { margin: 0; font-family: var(--font-display); font-size: 30px; line-height: 1.2; }
 .ep-head .sum { margin: 0; max-width: 70ch; }
+.home > .back { margin-bottom: -10px; justify-self: start; }
 .back { display: inline-block; font-size: 14px; color: var(--muted); text-decoration: none; margin-bottom: 14px; }
 .player { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 56px); z-index: 15; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; display: grid; grid-template-columns: auto auto auto auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-bottom: 16px; }
 .pbtn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); display: grid; place-items: center; padding: 0; }
@@ -331,6 +332,17 @@ a.cite { display: inline-block; text-decoration: none; }
 .mini-player a { color: var(--accent); text-decoration: none; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mini-player a:hover { text-decoration: underline; }
 .excerpt footer a { color: var(--accent); }
+.topic-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.topic-card { padding: 16px 18px; display: grid; gap: 8px; align-content: start; }
+.topic-card h2 { margin: 0; font-size: 18px; display: flex; gap: 10px; align-items: baseline; }
+.topic-card h2 a { color: inherit; text-decoration: none; }
+.topic-card h2 a::after { content: ' →'; color: var(--accent); }
+.topic-card h2 a:hover { color: var(--accent); }
+.topic-card p { margin: 0; font-size: 14px; }
+.topic-card .chip, .topic-once .chip { text-decoration: none; color: inherit; }
+.topic-card .chip:hover, .topic-once .chip:hover { border-color: var(--accent); color: var(--accent); }
+.topic-once { padding-bottom: 14px; }
+.topic-once .chips { padding: 12px 18px 0; }
 .sponsor-row { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr) 4.5em; gap: 14px; align-items: center; padding: 9px 18px; border-top: 1px solid var(--line); text-decoration: none; color: inherit; }
 .sponsor-row:hover { background: var(--bg); }
 .sponsor-row .n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -364,12 +376,15 @@ a.cite { display: inline-block; text-decoration: none; }
 .stock-grid .n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stock-grid .c { font-size: 12.5px; }
 .stock-grid .fine { margin-left: auto; white-space: nowrap; }
+.mention b a { color: inherit; text-decoration: underline; text-decoration-color: var(--muted); text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.mention b a:hover { color: var(--accent); text-decoration-color: currentColor; }
 .stock .n a { color: inherit; text-decoration: underline; text-decoration-color: var(--muted); text-decoration-thickness: 1px; text-underline-offset: 4px; }
 .stock .n a:hover { color: var(--accent); text-decoration-color: currentColor; }
 /* Here, not in the phone block further up: that one comes before these rules */
 @media (max-width: 640px) {
   .stock-head h1 { font-size: 24px; }
   .stock-ep, .stock-grid a, .stock-search, .stock-chart, .stock-latest, .stock-next { padding-inline: 14px; }
+  .topic-once .chips { padding-inline: 14px; }
   .sponsor-row { grid-template-columns: minmax(0, 7em) minmax(0, 1fr) 3.5em; gap: 10px; padding-inline: 14px; }
   .mini-player { bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom, 0px)); }
 }

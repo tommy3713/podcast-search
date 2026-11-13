@@ -9,7 +9,7 @@
 // then its bullets in order), then the 本集由 X 贊助 phrase, then its title; a chapter with
 // none of them is counted on /sponsors as 沒寫出品牌.
 // Nothing heavy is imported here: no database, no zod.
-import { searchKey } from './stocks.ts';
+import { searchKey, urlSlug as slugOf } from './stocks.ts';
 
 // `title` is the chapter's; `episodeTitle` the episode's (an emoji, mostly)
 export type AdChapter = {
@@ -58,13 +58,6 @@ const AD_WORDS = /(開場|本集|片頭|片尾|中段|本期)?\s*(業配|廣告|
 export const SPONSOR_INDEX_MIN_EPISODES = 2;
 
 export type SponsorMatch = { name: string; slug: string; known: boolean };
-
-// The slug of a name no alias covers: as searchKey gives it, spaces as dashes. '' when
-// nothing is left that a URL can carry.
-function slugOf(name: string): string {
-  const slug = searchKey(name).replace(/\s+/g, '-').replace(/[/?#%\\]/g, '');
-  return /^[.-]*$/.test(slug) ? '' : slug;
-}
 
 // The brand a text names first, if any
 function aliasIn(text: string): (typeof SPONSOR_ALIASES)[number] | null {

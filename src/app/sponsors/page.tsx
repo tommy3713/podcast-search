@@ -36,6 +36,9 @@ export default async function SponsorsPage() {
 
   return (
     <div className="home">
+      <Link className="back" href="/topics" prefetch={false}>
+        ← 所有主題
+      </Link>
       <div className="stock-head">
         <h1>業配</h1>
         <p className="muted" style={{ margin: 0 }}>

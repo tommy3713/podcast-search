@@ -1,16 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { EpName } from '@/components/Badge';
-import { ExcerptToggle } from '@/components/Excerpt';
+import { EpisodeTimeline } from '@/components/EpisodeTimeline';
 import { MonthChart } from '@/components/MonthChart';
-import { PlayTs, StockPlayer } from '@/components/StockPlayer';
-import { formatDate, monthKey } from '@/lib/format';
+import { StockPlayer } from '@/components/StockPlayer';
+import { formatDate } from '@/lib/format';
 import { shareMetadata } from '@/lib/seo';
 import { readDb } from '@/lib/server-db';
-import { averageGapDays, findSponsor, SPONSOR_INDEX_MIN_EPISODES, type Sponsor, type SponsorEpisode, sponsorHref } from '@/lib/sponsors';
+import { averageGapDays, findSponsor, SPONSOR_INDEX_MIN_EPISODES, type Sponsor, sponsorHref } from '@/lib/sponsors';
 import { stockData, stockPlayPoints } from '@/lib/stock-pages';
-import { chartBars, monthKeyLabel, stockMonths } from '@/lib/stocks';
+import { chartBars, stockMonths } from '@/lib/stocks';
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -61,12 +60,6 @@ export default async function SponsorPage({ params }: Props) {
   const bars = sponsor.episodes.length >= CHART_MIN_EPISODES ? chartBars(stockMonths(sponsor, liveMonths)) : [];
   const points = stockPlayPoints(await readDb(), sponsor);
   const audio = Object.fromEntries(sponsor.episodes.map((e) => [e.no, e.audioUrl]));
-  const groups: { key: string; episodes: SponsorEpisode[] }[] = [];
-  for (const e of sponsor.episodes) {
-    const key = monthKey(e.publishedAt);
-    if (groups.at(-1)?.key !== key) groups.push({ key, episodes: [] });
-    groups.at(-1)!.episodes.push(e);
-  }
 
   return (
     <StockPlayer audio={audio}>
@@ -92,46 +85,7 @@ export default async function SponsorPage({ params }: Props) {
           </div>
         </div>
         {bars.length > 0 && <MonthChart bars={bars} what="業配" />}
-        <section className="card list" id="stock-eps">
-          <div className="list-head">
-            <h3>
-              每一次主打什麼
-              <span className="fine">共 {sponsor.episodes.length} 集</span>
-            </h3>
-          </div>
-          {groups.map((g) => (
-            <div key={g.key} className="month-group">
-              <h2 className="month" id={`m-${g.key}`}>
-                {monthKeyLabel(g.key)}
-                <span className="fine">　{g.episodes.length} 集</span>
-              </h2>
-              {g.episodes.map((e) => (
-                <div key={e.no} className="stock-ep">
-                  <div className="t">
-                    <Link href={`/ep/${e.no}`}>
-                      EP{e.no}
-                      <EpName title={e.title} />
-                    </Link>
-                    <span className="fine">{formatDate(e.publishedAt)}</span>
-                  </div>
-                  <div className="ch">
-                    <span className="fine">章節</span>
-                    {e.chapterTitle}
-                  </div>
-                  <ul className="keypts">
-                    {e.notes.map((n, i) => (
-                      <li key={i}>
-                        <PlayTs episodeNo={e.no} t={n.t} point={points.get(`${e.no}:${n.t}`) ?? null} />
-                        <span>{n.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <ExcerptToggle episodeNo={e.no} t={e.notes[0]!.t} />
-                </div>
-              ))}
-            </div>
-          ))}
-        </section>
+        <EpisodeTimeline heading="每一次主打什麼" episodes={sponsor.episodes} points={points} />
         <p className="fine" style={{ margin: 0 }}>
           只算節目摘要裡標成業配的段落，品牌名稱由 AI 從摘要整理，可能有誤聽。內容以原節目為準。
         </p>
