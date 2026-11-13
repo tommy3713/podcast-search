@@ -20,6 +20,12 @@ export function monthLabel(iso: string): string {
   return `${d.getUTCFullYear()} 年 ${d.getUTCMonth() + 1} 月`;
 }
 
+// "2026-08" in Taipei time: sorts as text, and is what the stock pages group by
+export function monthKey(iso: string): string {
+  const d = taipei(iso);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 export function minutes(duration: number | null): number | null {
   return duration ? Math.round(duration / 60) : null;
 }

@@ -4,16 +4,21 @@ import { stockDescription, stockName, stockTitle } from '@/lib/seo.ts';
 import {
   buildStockIndex,
   canonicalCode,
+  chartBars,
   findStock,
   listedStocks,
+  searchKey,
   type StockRow,
   stockFor,
   stockHref,
+  stockMatches,
+  stockMonths,
+  stockSearchText,
 } from '@/lib/stocks.ts';
 
 const mocks = vi.hoisted(() => ({ db: undefined as unknown }));
 vi.mock('@/lib/server-db.ts', () => ({ readDb: async () => mocks.db }));
-const { stockIndex, stockRows } = await import('@/lib/stock-pages.ts');
+const { liveMonths, stockIndex, stockRows } = await import('@/lib/stock-pages.ts');
 
 const row = (episodeNo: number, name: string, code: string | null, detail = `${name} 的事`, startSec = 60): StockRow => ({
   name,
@@ -186,6 +191,110 @@ describe('listedStocks', () => {
   });
 });
 
+describe('search on /stocks', () => {
+  const index = buildStockIndex([
+    row(713, '台積電', '2330'), row(712, 'TSMC／台積電', '2330/TSM'), row(711, '台積電', '2330.TW/TSM'),
+    row(713, '富邦台50', '006208'), row(712, '富邦台灣50', '006208'),
+    row(713, '台達電', '2308'),
+    row(713, 'OpenAI', null),
+  ]);
+  const found = (q: string) =>
+    listedStocks(index, 1)
+      .flatMap((g) => g.stocks)
+      .filter((s) => stockMatches(stockSearchText(s), searchKey(q)))
+      .map((s) => s.name);
+
+  it('finds a page by part of its name, by another name it came with, or by a code', () => {
+    // In the list's order: by code
+    expect(found('台')).toEqual(['富邦台50', '台達電', '台積電']);
+    expect(found('TSMC')).toEqual(['台積電']);
+    expect(found('tsm')).toEqual(['台積電']);
+    expect(found('006208')).toEqual(['富邦台50']);
+    expect(found('2330.tw')).toEqual(['台積電']);
+    expect(found('富邦台灣')).toEqual(['富邦台50']);
+  });
+
+  it('ignores case, width and spaces around the query, and reaches one-episode pages', () => {
+    expect(found(' OPENAI ')).toEqual(['OpenAI']);
+    expect(found('ｏｐｅｎ')).toEqual(['OpenAI']);
+    expect(found('２３０８')).toEqual(['台達電']);
+  });
+
+  it('finds nothing for an empty query or a name no episode has', () => {
+    expect(found('')).toEqual([]);
+    expect(found('   ')).toEqual([]);
+    expect(found('Rivian')).toEqual([]);
+  });
+
+  it('finds a page by the name an alias gives it, and not by junk in the code field', () => {
+    const odd = buildStockIndex([row(713, '安世半導體', null), row(712, 'Cerebras', '未上市'), row(711, 'Groq', 'N/A')]);
+    const names = (q: string) => [...odd.byKey.values()].filter((s) => stockMatches(stockSearchText(s), searchKey(q))).map((s) => s.name);
+    expect(names('nexperia')).toEqual(['安世半導體']);
+    expect(names('未上市')).toEqual([]);
+    expect(findStock(odd, 'cerebras')!.aliases).toEqual([]);
+  });
+
+  it('keeps the other names and codes of a page', () => {
+    expect(findStock(index, '2330')!.aliases.sort()).toEqual(['2330.TW', 'TSM', 'TSMC／台積電']);
+    expect(findStock(index, 'openai')!.aliases).toEqual([]);
+  });
+});
+
+describe('stockMonths', () => {
+  const at = (episodeNo: number, publishedAt: string): StockRow => ({ ...row(episodeNo, '台積電', '2330'), publishedAt });
+  const stock = findStock(
+    buildStockIndex([at(713, '2026-11-11T04:00:00Z'), at(712, '2026-11-07T04:00:00Z'), at(690, '2026-08-01T04:00:00Z'), at(660, '2025-12-31T17:00:00Z')]),
+    '2330',
+  )!;
+
+  it('counts episodes per Taipei month across the months the site has, oldest first', () => {
+    // 2025-12-31 17:00Z is already January in Taipei
+    const live = new Map([['2025-12', 4], ['2026-01', 9], ['2026-02', 8], ['2026-08', 9], ['2026-11', 3]]);
+    const months = stockMonths(stock, live);
+    expect(months.map((m) => m.key)).toEqual(['2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']);
+    expect(months.filter((m) => m.mentioned > 0)).toEqual([
+      { key: '2026-01', mentioned: 1, episodes: 9 },
+      { key: '2026-08', mentioned: 1, episodes: 9 },
+      { key: '2026-11', mentioned: 2, episodes: 3 },
+    ]);
+    // A month with episodes but no mention is not a month the site lacks
+    expect(months[0]).toEqual({ key: '2025-12', mentioned: 0, episodes: 4 });
+    expect(months[3]).toEqual({ key: '2026-03', mentioned: 0, episodes: 0 });
+  });
+
+  it('has nothing to chart without episodes, and skips a month from a date that did not parse', () => {
+    expect(stockMonths(stock, new Map())).toEqual([]);
+    expect(stockMonths(stock, new Map([['NaN-NaN', 1], ['2026-11', 3]])).map((m) => m.key)).toEqual(['2026-11']);
+  });
+
+  it('lists episodes by date, whatever their numbers', () => {
+    // EP648 was re-uploaded after EP650
+    const s = findStock(buildStockIndex([at(650, '2026-03-01T04:00:00Z'), at(649, '2026-02-27T04:00:00Z'), at(648, '2026-03-02T04:00:00Z')]), '2330')!;
+    expect(s.episodes.map((e) => e.no)).toEqual([648, 650, 649]);
+  });
+
+  it('draws a bar per month while they fit, then per quarter, then per year', () => {
+    const live = (from: string) => new Map([[from, 5], ['2026-11', 3]]);
+    // 12 months: one bar each, linking to its own month
+    const monthly = chartBars(stockMonths(stock, live('2025-12')));
+    expect(monthly).toHaveLength(12);
+    expect(monthly.at(-1)).toEqual({ label: '2026 年 11 月', year: '2026', mentioned: 2, episodes: 3, target: '2026-11' });
+    expect(monthly[0]).toMatchObject({ label: '2025 年 12 月', mentioned: 0, episodes: 5, target: null });
+
+    // 59 months: calendar quarters, a bar linking to its newest month with a mention
+    const quarterly = chartBars(stockMonths(stock, live('2022-01')));
+    expect(quarterly).toHaveLength(20);
+    expect(quarterly.at(-1)).toMatchObject({ label: '2026 年 10–12 月', mentioned: 2, target: '2026-11' });
+    expect(quarterly.at(-2)).toMatchObject({ label: '2026 年 7–9 月', mentioned: 1, target: '2026-08' });
+    expect(quarterly.reduce((n, b) => n + b.mentioned, 0)).toBe(4);
+
+    // 131 months: years
+    const yearly = chartBars(stockMonths(stock, live('2016-01')));
+    expect(yearly.map((b) => b.label)).toEqual(['2016 年', '2017 年', '2018 年', '2019 年', '2020 年', '2021 年', '2022 年', '2023 年', '2024 年', '2025 年', '2026 年']);
+    expect(yearly.at(-1)).toMatchObject({ mentioned: 4, target: '2026-11' });
+  });
+});
+
 describe('stock page titles', () => {
   const index = buildStockIndex([
     row(713, '台積電', '2330'), row(712, '台積電', '2330'), row(710, '台積電', '2330'), row(705, '台積電', '2330'),
@@ -231,6 +340,10 @@ describe('stockRows', () => {
       [712, '台積電', 500],
     ]);
     expect(rows[1]).toMatchObject({ code: '2330', detail: '談法說會', title: '⭐', publishedAt: '2026-11-07T04:00:00Z' });
+  });
+
+  it('counts live episodes per Taipei month', () => {
+    expect([...liveMonths(seed())]).toEqual([['2026-11', 2]]);
   });
 
   it('builds the index the pages read, again only after an episode changes', async () => {
