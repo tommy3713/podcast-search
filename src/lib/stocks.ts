@@ -107,6 +107,7 @@ export type StockRow = {
   episodeNo: number;
   title: string;
   publishedAt: string;
+  audioUrl: string;
 };
 
 export type StockNote = { t: number; text: string };
@@ -114,6 +115,7 @@ export type StockEpisode = {
   no: number;
   title: string;
   publishedAt: string;
+  audioUrl: string;
   notes: StockNote[];
   // Titles of the chapters the notes fall in, in order: what he was talking about
   chapters: string[];
@@ -256,7 +258,7 @@ export function buildStockIndex(rows: StockRow[], outlines: Map<number, EpisodeO
     bump(g.names, r.name.trim());
     for (const c of (r.code ?? '').normalize('NFKC').toUpperCase().split(/[/,、\s]+/)) if (CODE_SHAPE.test(c)) g.rawCodes.add(c);
     let ep = g.episodes.get(r.episodeNo);
-    if (!ep) g.episodes.set(r.episodeNo, (ep = { no: r.episodeNo, title: r.title, publishedAt: r.publishedAt, notes: [], chapters: [], points: [], deep: false }));
+    if (!ep) g.episodes.set(r.episodeNo, (ep = { no: r.episodeNo, title: r.title, publishedAt: r.publishedAt, audioUrl: r.audioUrl, notes: [], chapters: [], points: [], deep: false }));
     const text = (r.detail ?? '').trim();
     // Two spellings of one company in an episode often carry the same note
     if (!ep.notes.some((n) => n.text === text)) ep.notes.push({ t: r.startSec, text });

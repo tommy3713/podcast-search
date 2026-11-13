@@ -1,10 +1,11 @@
 'use client';
 
-import Link from 'next/link';
 import { useState } from 'react';
+import { PlayTs } from '@/components/StockPlayer';
+import type { PlayPoint } from '@/lib/seek';
 import { formatTimestamp } from '@/lib/summary';
 
-type Excerpt = { t: number; text: string };
+type Excerpt = { t: number; text: string; point: PlayPoint | null };
 
 // The transcript around a timestamp. data-nosnippet: it is raw speech-to-text, which search
 // results shouldn't quote (same as the transcript on an episode's page).
@@ -14,7 +15,9 @@ export function ExcerptText({ episodeNo, excerpt }: { episodeNo: number; excerpt
       <p>{excerpt.text}</p>
       <footer className="fine">
         逐字稿由 AI 轉錄，可能有錯字。
-        <Link href={`/ep/${episodeNo}?t=${excerpt.t}`}>從 {formatTimestamp(excerpt.t)} 開始聽 →</Link>
+        <PlayTs className="" episodeNo={episodeNo} t={excerpt.t} point={excerpt.point}>
+          從 {formatTimestamp(excerpt.t)} 開始聽 →
+        </PlayTs>
       </footer>
     </blockquote>
   );

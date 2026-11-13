@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type DB, openDb } from '@/lib/db.ts';
-import { GRID, NO_SEEK_TABLE, offsetAt, parseSeekTable, type SeekTable, seekModel, seekTarget } from '@/lib/seek.ts';
+import { GRID, NO_SEEK_TABLE, offsetAt, parseSeekTable, playPoint, type SeekTable, seekModel, seekTarget } from '@/lib/seek.ts';
 import { insertDiscovered } from '../worker/repo.ts';
 import { indexSeekTables, resetSeekFailures } from '../worker/seek-index.ts';
 import { SeekTableParser } from '../worker/seek-table.ts';
@@ -205,6 +205,26 @@ describe('seekTarget / offsetAt', () => {
     // Chromium without userAgentData (old, or not a secure context): its model isn't known to hold
     expect(seekModel(nav(chrome))).toBeNull();
     expect(seekModel(undefined)).toBeNull();
+  });
+});
+
+describe('playPoint', () => {
+  it('gives the currentTime to set and the offset that follows, for both models', () => {
+    // Offsets grow from 0 to 10 s over the episode
+    const table: SeekTable = { duration: 1000, offsets: Array.from({ length: GRID + 1 }, (_, k) => k / 100) };
+    const p = playPoint(table, 500)!;
+    for (const model of ['entry', 'interp'] as const) {
+      const [at, off] = p[model];
+      expect(at).toBeCloseTo(seekTarget(table, 500, model), 2);
+      expect(off).toBeCloseTo(offsetAt(table, at, model), 1);
+      // What plays is the time asked for, or just before it
+      expect(at + off).toBeLessThanOrEqual(500.1);
+      expect(at + off).toBeGreaterThan(495);
+    }
+  });
+
+  it('has nothing for an episode without a table', () => {
+    expect(playPoint(null, 500)).toBeNull();
   });
 });
 
