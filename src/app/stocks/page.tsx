@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { StockList, type StockListGroup } from '@/components/StockList';
+import { StatRow } from '@/components/TopicCard';
 import { SITE_NAME, shareMetadata } from '@/lib/seo';
 import { stockIndex } from '@/lib/stock-pages';
 import { listedStocks, MARKET_LABELS, STOCK_LIST_MIN_EPISODES, STOCKS_LABEL, shownCode, stockHref, stockSearchText } from '@/lib/stocks';
@@ -28,7 +29,9 @@ export default async function StocksPage() {
       listed: s.episodes.length >= STOCK_LIST_MIN_EPISODES,
     })),
   }));
-  const total = groups.reduce((n, g) => n + g.stocks.filter((s) => s.listed).length, 0);
+  // How many per market: the same numbers the list's headings give, never which ones most
+  const markets = groups.map((g) => ({ label: g.label, value: g.stocks.filter((s) => s.listed).length, unit: '個' })).filter((m) => m.value > 0);
+  const total = markets.reduce((n, m) => n + m.value, 0);
 
   if (total === 0) {
     return (
@@ -41,17 +44,20 @@ export default async function StocksPage() {
   }
 
   return (
-    <div className="home">
+    <div className="home topics-page">
       <Link className="back" href="/topics" prefetch={false}>
         ← 所有主題
       </Link>
       <div className="stock-head">
         <h1>{STOCKS_LABEL}</h1>
         <p className="muted" style={{ margin: 0 }}>
-          節目裡在 {STOCK_LIST_MIN_EPISODES} 集以上提過的公司和 ETF，共 {total} 個。照代號或名稱排列。
+          節目裡在 {STOCK_LIST_MIN_EPISODES} 集以上提過的公司和 ETF，照代號或名稱排列。
         </p>
       </div>
-      <StockList groups={groups} />
+      <StatRow stats={[{ label: '全部', value: total, unit: '個' }, ...markets]} />
+      <div className="rise">
+        <StockList groups={groups} />
+      </div>
       <p className="fine" style={{ margin: 0 }}>
         主持人在節目中的個人看法，不是投資建議。內容由 AI 自動整理，可能有遺漏或誤聽，以原節目為準。
       </p>

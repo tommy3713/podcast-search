@@ -17,6 +17,8 @@ export function CountUp({ value, ms = 900 }: { value: number; ms?: number }) {
     const io = new IntersectionObserver(([e]) => {
       if (!e?.isIntersecting) return;
       io.disconnect();
+      // A tab in the background runs no frames: it would sit at 0 until shown
+      if (document.visibilityState !== 'visible') return;
       const start = performance.now();
       const tick = (now: number) => {
         const k = Math.min(1, (now - start) / ms);

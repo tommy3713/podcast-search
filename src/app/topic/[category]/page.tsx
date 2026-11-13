@@ -1,8 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { Sparkline } from '@/components/Sparkline';
+import { Marquee, StatRow, TopicCard } from '@/components/TopicCard';
+import { SpotlightGrid } from '@/components/TopicsMotion';
 import { SITE_NAME, shareMetadata } from '@/lib/seo';
 import { stockData } from '@/lib/stock-pages';
+import { bigCards, monthlySeries, recentItems } from '@/lib/topics-overview';
 import { listedTopics, TOPIC_INDEX_MIN_EPISODES, topicCategory, topicCategoryHref, topicHref } from '@/lib/topics';
 
 type Props = { params: Promise<{ category: string }> };
@@ -22,36 +26,50 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function TopicCategoryPage({ params }: Props) {
   const c = topicCategory((await params).category);
   if (!c) notFound();
-  const items = listedTopics((await stockData()).topics, c.slug);
+  const { topics, sponsors, liveMonths, newest } = await stockData();
+  const items = listedTopics(topics, c.slug);
   const repeated = items.filter((i) => i.episodes.length >= TOPIC_INDEX_MIN_EPISODES);
   const once = items.filter((i) => i.episodes.length < TOPIC_INDEX_MIN_EPISODES);
+  const episodes = new Set(items.flatMap((i) => i.episodes.map((e) => e.no))).size;
+  const big = bigCards(repeated.length);
+  // This category's things in the newest two episodes; the strip doesn't repeat the category
+  const recent = recentItems(topics, sponsors, newest, { category: c.slug }).map(({ href, label }) => ({ href, label }));
 
   return (
-    <div className="home">
+    <div className="home topics-page">
       <Link className="back" href="/topics" prefetch={false}>
         ← 所有主題
       </Link>
       <div className="stock-head">
         <h1>{c.label}</h1>
         <p className="muted" style={{ margin: 0 }}>
-          {c.blurb}，共 {items.length} 項，照提到的集數排。
+          {c.blurb}，照提到的集數排。
         </p>
       </div>
+      <StatRow
+        stats={[
+          { label: '項目', value: items.length, unit: '項' },
+          { label: `提過 ${TOPIC_INDEX_MIN_EPISODES} 集以上`, value: repeated.length, unit: '項' },
+          { label: '提到的集數', value: episodes, unit: '集' },
+        ]}
+      />
+      <Marquee items={recent} label="最近提到" />
       {repeated.length > 0 && (
-        <section className="card list">
-          <h2 className="month">
-            提過 {TOPIC_INDEX_MIN_EPISODES} 集以上
-            <span className="fine">　{repeated.length} 項</span>
-          </h2>
-          <div className="stock-grid">
-            {repeated.map((i) => (
-              <Link key={i.slug} href={topicHref(i)} prefetch={false}>
-                <span className="n">{i.name}</span>
-                <span className="fine">{i.episodes.length} 集</span>
-              </Link>
-            ))}
-          </div>
-        </section>
+        <SpotlightGrid className="bento">
+          {repeated.map((item, i) => (
+            <TopicCard
+              key={item.slug}
+              i={i}
+              href={topicHref(item)}
+              label={item.name}
+              count={item.episodes.length}
+              unit="集"
+              big={i < big}
+              preview={<Sparkline bars series={monthlySeries(item.episodes.map((e) => e.publishedAt), liveMonths)} label={`每個月提到${item.name}的集數`} />}
+              facts={[`最近 EP${item.episodes[0]!.no}`, `最早 EP${item.episodes.at(-1)!.no}`]}
+            />
+          ))}
+        </SpotlightGrid>
       )}
       {once.length > 0 && (
         <section className="card topic-once">

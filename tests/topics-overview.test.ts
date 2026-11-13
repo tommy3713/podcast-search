@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type AdChapter, buildSponsorIndex } from '@/lib/sponsors.ts';
-import { monthlySeries, recentItems } from '@/lib/topics-overview.ts';
+import { bigCards, monthlySeries, recentItems } from '@/lib/topics-overview.ts';
 import { buildTopicIndex, type TopicRow } from '@/lib/topics.ts';
 
 const at = (no: number) => `2026-${String(1 + (no % 12)).padStart(2, '0')}-10T04:00:00Z`;
@@ -38,6 +38,21 @@ describe('recentItems', () => {
       [713, '業配', 'NordVPN'],
       [712, '旅遊', '日本'],
     ]);
+    // Something that came up once goes straight to the moment; twice or more, to its page
+    const hrefs = Object.fromEntries(recentItems(topics, sponsors, [713, 712]).map((r) => [r.label, r.href]));
+    expect(hrefs['網球']).toBe('/topic/sports/%E7%B6%B2%E7%90%83');
+    expect(hrefs['日本']).toBe('/ep/712?t=60');
+    // One category, or the sponsors only
+    expect(recentItems(topics, sponsors, [713, 712], { category: 'sports' }).map((r) => r.label)).toEqual(['網球']);
+    expect(recentItems(topics, sponsors, [713, 712], 'sponsors').map((r) => r.label)).toEqual(['NordVPN']);
+  });
+});
+
+describe('bigCards', () => {
+  it('makes the first two big only when enough cards follow to fill rows', () => {
+    expect(bigCards(6)).toBe(2);
+    expect(bigCards(5)).toBe(0);
+    expect(bigCards(0)).toBe(0);
   });
 });
 

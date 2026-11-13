@@ -57,3 +57,15 @@ export function TopBars({ rows, label }: { rows: { name: string; value: number }
     </div>
   );
 }
+
+// Where each episode falls between the first and the last of the span: a sponsor card's
+// preview, so its ads can be compared with the others' over the same stretch of time
+export function DotStrip({ positions, label }: { positions: number[]; label: string }) {
+  return (
+    <div className="dotstrip" role="img" aria-label={label}>
+      {positions.map((p, i) => (
+        <i key={i} style={{ left: `${p * 100}%`, ['--i' as string]: i }} />
+      ))}
+    </div>
+  );
+}

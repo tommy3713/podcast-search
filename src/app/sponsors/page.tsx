@@ -1,9 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { formatDate } from '@/lib/format';
+import { DotStrip } from '@/components/Sparkline';
+import { Marquee, StatRow, TopicCard } from '@/components/TopicCard';
+import { SpotlightGrid } from '@/components/TopicsMotion';
 import { SITE_NAME, shareMetadata } from '@/lib/seo';
-import { listedSponsors, spanPosition, sponsorHref } from '@/lib/sponsors';
+import { averageGapDays, listedSponsors, SPONSOR_INDEX_MIN_EPISODES, spanPosition, sponsorHref } from '@/lib/sponsors';
 import { stockData } from '@/lib/stock-pages';
+import { bigCards, recentItems } from '@/lib/topics-overview';
 
 const TITLE = `股癌業配一覽・${SITE_NAME}`;
 const DESCRIPTION = '《股癌》每一集的業配：哪些品牌贊助過、幾次、第一次和最近一次在哪一集，每次主打什麼。非官方粉絲整理。';
@@ -16,7 +19,7 @@ export const metadata: Metadata = {
 };
 
 export default async function SponsorsPage() {
-  const { sponsors: index } = await stockData();
+  const { sponsors: index, topics, newest } = await stockData();
   const sponsors = listedSponsors(index);
   const all = sponsors.flatMap((s) => s.episodes);
   if (all.length === 0) {
@@ -28,45 +31,71 @@ export default async function SponsorsPage() {
       </div>
     );
   }
-  // The strip under each sponsor spans the site's episodes with an ad, oldest to newest
+  // Every sponsor's dots span the same stretch: the first ad on the site to the newest
   const dates = all.map((e) => e.publishedAt).sort();
   const [from, to] = [dates[0]!, dates.at(-1)!];
   const unnamed = index.unnamed;
   const episodes = new Set([...all, ...unnamed].map((e) => e.no)).size;
+  const repeated = sponsors.filter((s) => s.episodes.length >= SPONSOR_INDEX_MIN_EPISODES);
+  const once = sponsors.filter((s) => s.episodes.length < SPONSOR_INDEX_MIN_EPISODES);
+  const recent = recentItems(topics, index, newest, 'sponsors').map(({ href, label }) => ({ href, label }));
+  const big = bigCards(repeated.length);
 
   return (
-    <div className="home">
+    <div className="home topics-page">
       <Link className="back" href="/topics" prefetch={false}>
         ← 所有主題
       </Link>
       <div className="stock-head">
         <h1>業配</h1>
         <p className="muted" style={{ margin: 0 }}>
-          {episodes} 集裡的業配，共 {sponsors.length} 個品牌，照贊助的集數排。品牌名稱由 AI 從摘要整理，可能有誤聽。
+          哪些品牌贊助過、幾次、每次主打什麼，照贊助的集數排。品牌名稱由 AI 從摘要整理，可能有誤聽。
         </p>
       </div>
-      <section className="card list" id="sponsor-list">
-        <div className="sponsor-row head" aria-hidden="true">
-          <span>品牌</span>
-          <span className="span-label">
-            <span>{formatDate(from).slice(0, 7)}</span>
-            <span>{formatDate(to).slice(0, 7)}</span>
-          </span>
-          <span>集數</span>
-        </div>
-        {sponsors.map((s) => (
-          <Link key={s.slug} className="sponsor-row" href={sponsorHref(s)} prefetch={false}>
-            <span className="n">{s.name}</span>
-            {/* A dot per episode, placed by date: how often and since when */}
-            <span className="dots" role="img" aria-label={`第一次 EP${s.episodes.at(-1)!.no}，最近 EP${s.episodes[0]!.no}`}>
-              {s.episodes.map((e) => (
-                <i key={e.no} style={{ left: `${spanPosition(e.publishedAt, from, to) * 100}%` }} />
-              ))}
-            </span>
-            <span className="fine">{s.episodes.length} 集</span>
-          </Link>
-        ))}
-      </section>
+      <StatRow
+        stats={[
+          { label: '品牌', value: sponsors.length, unit: '個' },
+          { label: `贊助 ${SPONSOR_INDEX_MIN_EPISODES} 集以上`, value: repeated.length, unit: '個' },
+          { label: '有業配的集數', value: episodes, unit: '集' },
+        ]}
+      />
+      <Marquee items={recent} label="最近的業配" />
+      {repeated.length > 0 && (
+      <SpotlightGrid className="bento">
+        {repeated.map((s, i) => {
+          const gap = averageGapDays(s);
+          return (
+            <TopicCard
+              key={s.slug}
+              i={i}
+              href={sponsorHref(s)}
+              label={s.name}
+              count={s.episodes.length}
+              unit="集"
+              big={i < big}
+              // A dot per ad, placed by date over the same stretch for every sponsor, big or small
+              preview={<DotStrip positions={s.episodes.map((e) => spanPosition(e.publishedAt, from, to))} label={`第一次 EP${s.episodes.at(-1)!.no}，最近 EP${s.episodes[0]!.no}`} />}
+              facts={[`最近 EP${s.episodes[0]!.no}`, `第一次 EP${s.episodes.at(-1)!.no}`, ...(gap !== null ? [`平均每 ${gap} 天`] : [])]}
+            />
+          );
+        })}
+      </SpotlightGrid>
+      )}
+      {once.length > 0 && (
+        <section className="card topic-once">
+          <h2 className="month">
+            只出現一次
+            <span className="fine">　{once.length} 個</span>
+          </h2>
+          <div className="chips">
+            {once.map((s) => (
+              <Link key={s.slug} className="chip" href={sponsorHref(s)} prefetch={false} title={`EP${s.episodes[0]!.no}`}>
+                {s.name}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
       {unnamed.length > 0 && (
         <p className="fine" style={{ margin: 0 }}>
           另有 {unnamed.length} 段業配沒寫出品牌：

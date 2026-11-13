@@ -159,8 +159,14 @@ export function topicRows(db: DB): TopicRow[] {
 // Every episode page needs the index for its links, so it is built once and kept until an
 // episode is published, re-run or taken down: each of those moves the count of live episodes
 // or their newest updated_at. Not PRAGMA data_version, which every logged question moves too.
-type Pages = { index: StockIndex; sponsors: SponsorIndex; topics: TopicIndex; liveMonths: Map<string, number> };
+// newest: the numbers of the newest live episodes, newest first, for the 最近提到 strips
+type Pages = { index: StockIndex; sponsors: SponsorIndex; topics: TopicIndex; liveMonths: Map<string, number>; newest: number[] };
 let cached: ({ version: string } & Pages) | undefined;
+
+// The newest live episodes' numbers, newest first
+export function newestEpisodes(db: DB, n: number): number[] {
+  return (db.prepare(`SELECT episode_no FROM episodes WHERE status = 'done' ORDER BY published_at DESC, episode_no DESC LIMIT ?`).all(n) as { episode_no: number }[]).map((r) => r.episode_no);
+}
 
 // Live episodes per month (Taipei), for the chart on a stock's page
 export function liveMonths(db: DB): Map<string, number> {
@@ -183,6 +189,7 @@ export async function stockData(): Promise<Pages> {
       index: buildStockIndex(stockRows(d), episodeOutlines(d)), sponsors: buildSponsorIndex(adChapters(d)),
       topics: buildTopicIndex(topicRows(d)),
       liveMonths: liveMonths(d),
+      newest: newestEpisodes(d, 2),
     };
   }
   return cached;
