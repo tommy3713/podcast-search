@@ -121,7 +121,8 @@ export const TOPIC_ALIASES: Record<string, Alias[]> = {
     // Heard as 秋口 and 秋狗
     { name: 'Choco', slug: 'choco', patterns: [/^choco$|^秋[口狗]$/i] },
     { name: 'Lisa', slug: 'lisa', patterns: [/^li[sz]a$/i] },
-    { name: '祁安', slug: 'qian', patterns: [/^[祁祈]安$/] },
+    // His younger son: 安哥, also written as his name 祁安 / 祈安 and as Killian
+    { name: '安哥', slug: 'ange', patterns: [/^安哥$|^[祁祈]安$|^killian$/i] },
   ],
   科技產品: [
     // Before iPhone and Apple

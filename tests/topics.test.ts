@@ -34,6 +34,7 @@ describe('topicOf', () => {
     for (const n of ['ChatGPT', 'GPT', 'GPT-4o', 'O3']) expect(topicOf('科技產品', n)?.slug).toBe('chatgpt');
     for (const n of ['諾亞', 'Noah', '謝諾亞']) expect(topicOf('家庭', n)?.slug).toBe('noah');
     for (const n of ['Choco', '秋口', '秋狗']) expect(topicOf('家庭', n)?.slug).toBe('choco');
+    for (const n of ['安哥', '祁安', '祈安', 'Killian']) expect(topicOf('家庭', n)?.slug).toBe('ange');
   });
 
   it('keeps a narrower name before a wider one', () => {
