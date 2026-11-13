@@ -110,7 +110,76 @@ export type StockRow = {
 };
 
 export type StockNote = { t: number; text: string };
-export type StockEpisode = { no: number; title: string; publishedAt: string; notes: StockNote[] };
+export type StockEpisode = {
+  no: number;
+  title: string;
+  publishedAt: string;
+  notes: StockNote[];
+  // Titles of the chapters the notes fall in, in order: what he was talking about
+  chapters: string[];
+  // The summary's bullets that name the company, beyond the notes
+  points: StockNote[];
+  // He dwelt on it, rather than naming it in passing: it is in a chapter title or a key
+  // point, or several bullets name it. How much he said, never what he thought.
+  deep: boolean;
+};
+
+// What a stock's page needs of an episode's summary
+export type EpisodeOutline = {
+  chapters: { t: number; title: string; ad: boolean; bullets: StockNote[] }[];
+  keys: StockNote[];
+};
+
+const MAX_POINTS = 4;
+
+// How close a bullet must be to a note to be the same passage said twice
+const SAME_PASSAGE_SEC = 20;
+
+// Summary texts are matched against every stock of their episode: normalised once per build
+type Normalise = (text: string) => string;
+function normaliser(): Normalise {
+  const seen = new Map<string, string>();
+  return (text) => {
+    let n = seen.get(text);
+    if (n === undefined) seen.set(text, (n = text.normalize('NFKC').toLowerCase()));
+    return n;
+  };
+}
+
+// Whether a text names the company by any of the names its rows use. Latin names need word
+// ends ("Meta" is not in "metaverse"); codes are left out, since NET, NOW and ON are words,
+// and so is a row's name that is just the code. A short Chinese name still matches inside a
+// longer one (長榮 in 長榮航空): there is no word end to check.
+function nameMatcher(names: Iterable<string>, code: string | null, norm: Normalise): (text: string) => boolean {
+  const parts = new Set<string>();
+  for (const n of names) {
+    if (code && canonicalCode(n) === code && wholeCode(n)) continue;
+    for (const part of n.normalize('NFKC').toLowerCase().split(/[/()]/)) if (part.trim().length >= 2) parts.add(part.trim());
+  }
+  const tests = [...parts].map((part) =>
+    /^[\x20-\x7e]+$/.test(part)
+      ? new RegExp(`(?<![a-z0-9])${part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z0-9])`)
+      : { test: (t: string) => t.includes(part) },
+  );
+  return (text) => {
+    const t = norm(text);
+    return tests.some((x) => x.test(t));
+  };
+}
+
+// Fills in an episode's chapters, points and depth from its summary
+function outlineEpisode(ep: StockEpisode, outline: EpisodeOutline | undefined, named: (text: string) => boolean): void {
+  if (!outline) return;
+  for (const n of ep.notes) {
+    // A note inside an ad chapter has no chapter, rather than the one before the ad
+    const c = outline.chapters.findLast((c) => c.t <= n.t);
+    if (c && !c.ad && c.title && !ep.chapters.includes(c.title)) ep.chapters.push(c.title);
+  }
+  const bullets = outline.chapters.filter((c) => !c.ad).flatMap((c) => c.bullets).filter((b) => named(b.text));
+  // The summary times a stock's note and the bullet on the same passage separately
+  ep.points = bullets.filter((b) => !ep.notes.some((n) => Math.abs(n.t - b.t) <= SAME_PASSAGE_SEC)).slice(0, MAX_POINTS);
+  ep.deep = ep.chapters.some(named) || outline.keys.some((k) => named(k.text)) || bullets.length >= 2;
+}
 export type Stock = {
   // The last path segment of its page, not URL-encoded: the code, or the name in lower case
   // (not as the newest episode spells it, so the URL stays where it is)
@@ -160,7 +229,8 @@ function keyOf(name: string, code: string | null, codes: Set<string>, nameCodes:
   return `n:${nk}`;
 }
 
-export function buildStockIndex(rows: StockRow[]): StockIndex {
+// `outlines`: episode number → its summary; without one an episode has just its notes
+export function buildStockIndex(rows: StockRow[], outlines: Map<number, EpisodeOutline> = new Map()): StockIndex {
   const codes = new Set<string>();
   const codesOfName = new Map<string, Map<string, number>>();
   for (const r of rows) {
@@ -186,18 +256,23 @@ export function buildStockIndex(rows: StockRow[]): StockIndex {
     bump(g.names, r.name.trim());
     for (const c of (r.code ?? '').normalize('NFKC').toUpperCase().split(/[/,、\s]+/)) if (CODE_SHAPE.test(c)) g.rawCodes.add(c);
     let ep = g.episodes.get(r.episodeNo);
-    if (!ep) g.episodes.set(r.episodeNo, (ep = { no: r.episodeNo, title: r.title, publishedAt: r.publishedAt, notes: [] }));
+    if (!ep) g.episodes.set(r.episodeNo, (ep = { no: r.episodeNo, title: r.title, publishedAt: r.publishedAt, notes: [], chapters: [], points: [], deep: false }));
     const text = (r.detail ?? '').trim();
     // Two spellings of one company in an episode often carry the same note
     if (!ep.notes.some((n) => n.text === text)) ep.notes.push({ t: r.startSec, text });
   }
 
   const byKey = new Map<string, Stock>();
+  const norm = normaliser();
   for (const [key, g] of groups) {
     const code = key.startsWith('c:') ? key.slice(2) : null;
     const name = mostCommon(g.names)!;
     const episodes = [...g.episodes.values()].sort((a, b) => (a.publishedAt === b.publishedAt ? b.no - a.no : a.publishedAt < b.publishedAt ? 1 : -1));
-    for (const e of episodes) e.notes.sort((a, b) => a.t - b.t);
+    const named = nameMatcher(g.names.keys(), code, norm);
+    for (const e of episodes) {
+      e.notes.sort((a, b) => a.t - b.t);
+      outlineEpisode(e, outlines.get(e.no), named);
+    }
     const aliases = [...g.names.keys(), ...g.rawCodes].filter((a) => a !== name && a !== code);
     byKey.set(key, { slug: key.slice(2), name, code, market: marketOf(code), episodes, aliases });
   }
