@@ -40,6 +40,12 @@ const NAME_ALIASES: Record<string, string> = {
   'nitto boseki': '日東紡',
 };
 
+// Codes the summaries don't give yet: a company that listed after most of its episodes, whose
+// rows have a name and no code. Keys as nameKey gives them.
+const NAME_CODES: Record<string, string> = {
+  spacex: 'SPCX',
+};
+
 const CODE_SHAPE = /^[0-9A-Z][0-9A-Z.-]{0,11}$/;
 
 // "2330.TW/TSM" → "2330", "tsm" → "2330", "5347.TWO" → "5347". null: nothing usable.
@@ -166,7 +172,9 @@ export function buildStockIndex(rows: StockRow[]): StockIndex {
     if (!counts) codesOfName.set(nk, (counts = new Map()));
     bump(counts, c);
   }
-  const nameCodes = new Map<string, string>();
+  const nameCodes = new Map<string, string>(Object.entries(NAME_CODES));
+  for (const code of nameCodes.values()) codes.add(code);
+  // A code the rows themselves give a name wins over the table
   for (const [nk, counts] of codesOfName) nameCodes.set(nk, mostCommon(counts)!);
 
   const groups = new Map<string, { names: Map<string, number>; rawCodes: Set<string>; episodes: Map<number, StockEpisode> }>();

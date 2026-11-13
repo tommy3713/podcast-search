@@ -102,6 +102,14 @@ describe('buildStockIndex', () => {
     expect(stockFor(buildStockIndex([row(1, '元大台灣50 ETF', '0050')]), '元大台灣50 ETF', '0050')!.slug).toBe('0050');
   });
 
+  it('gives a company that listed later its code, on rows from before', () => {
+    const index = buildStockIndex([row(713, 'SpaceX', null), row(712, 'SpaceX', null)]);
+    expect(findStock(index, 'SPCX')).toMatchObject({ slug: 'SPCX', name: 'SpaceX', code: 'SPCX', market: 'us' });
+    // The old URL still finds it
+    expect(findStock(index, 'spacex')!.slug).toBe('SPCX');
+    expect(stockFor(index, 'SpaceX', null)!.episodes).toHaveLength(2);
+  });
+
   it('joins the names of one company that has no code', () => {
     const index = buildStockIndex([row(713, 'Nexperia', null), row(712, '安世半導體', null), row(711, 'Nexperia 安世半導體', null), row(710, 'xAI（Grok）', null), row(709, 'xAI', null)]);
     expect(findStock(index, 'nexperia')!.episodes.map((e) => e.no)).toEqual([713, 712, 711]);
@@ -134,7 +142,7 @@ describe('buildStockIndex', () => {
   });
 
   it('sorts markets apart', () => {
-    const index = buildStockIndex([row(1, '台積電', '2330'), row(1, '正2', '00631L'), row(1, '波克夏', 'BRK.B'), row(1, '三星電子', '005930.KS'), row(1, 'SpaceX', null)]);
+    const index = buildStockIndex([row(1, '台積電', '2330'), row(1, '正2', '00631L'), row(1, '波克夏', 'BRK.B'), row(1, '三星電子', '005930.KS'), row(1, 'OpenAI', null)]);
     expect([...index.byKey.values()].map((s) => s.market)).toEqual(['tw', 'tw', 'us', 'other', 'none']);
     // A one-letter suffix other than a share class is an exchange
     expect(findStock(buildStockIndex([row(1, 'IQE', 'IQE.L')]), 'IQE.L')!.market).toBe('other');
@@ -170,7 +178,7 @@ describe('listedStocks', () => {
     row(713, 'AMD', 'AMD'), row(712, 'AMD', 'AMD'),
     row(713, '聯發科', '2454'), row(712, '聯發科', '2454'),
     row(713, '台積電', '2330'), row(710, '台積電', 'TSM'),
-    row(713, 'SpaceX', null), row(712, 'SpaceX', null),
+    row(713, 'xAI', null), row(712, 'xAI', null),
     row(713, 'OpenAI', null), row(712, 'OpenAI', null),
     // One episode only
     row(713, '鴻海', '2317'),
@@ -181,7 +189,7 @@ describe('listedStocks', () => {
     expect(listedStocks(index).map((g) => [g.market, g.stocks.map((s) => s.slug)])).toEqual([
       ['tw', ['2330', '2454']],
       ['us', ['AMD', 'NVDA']],
-      ['none', ['openai', 'spacex']],
+      ['none', ['openai', 'xai']],
     ]);
   });
 
