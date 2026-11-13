@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { EpName } from '@/components/Badge';
 import { EpisodeFilter } from '@/components/EpisodeFilter';
 import { ExcerptText, ExcerptToggle } from '@/components/Excerpt';
+import { MonthChart } from '@/components/MonthChart';
 import { PlayTs, StockPlayer } from '@/components/StockPlayer';
 import { formatDate, monthKey } from '@/lib/format';
 import { shareMetadata, stockDescription, stockTitle } from '@/lib/seo';
@@ -11,7 +12,6 @@ import type { PlayPoint } from '@/lib/seek';
 import { readDb } from '@/lib/server-db';
 import { excerptAt, stockData, stockPlayPoints } from '@/lib/stock-pages';
 import {
-  type ChartBar,
   chartBars,
   coMentioned,
   findStock,
@@ -61,38 +61,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     ...(stock.episodes.length < STOCK_LIST_MIN_EPISODES ? { robots: { index: false, follow: true } } : {}),
     ...shareMetadata(title, url, description),
   };
-}
-
-// How many episodes brought it up over time: when he talked about it and how much, nothing
-// about what he thought. One colour, on purpose.
-function Chart({ bars }: { bars: ChartBar[] }) {
-  const max = Math.max(...bars.map((b) => b.mentioned));
-  const gaps = bars.some((b) => b.episodes === 0);
-  // A year under its first bar, the first one only when the next is far enough not to run into it
-  const years = bars.map((b, i) => (i === 0 || b.year !== bars[i - 1]!.year ? b.year : ''));
-  const next = years.findIndex((y, i) => i > 0 && y !== '');
-  if (next !== -1 && next < 4) years[0] = '';
-  return (
-    <section className="card stock-chart" aria-label="提到的集數，依時間">
-      <div className="fine">
-        什麼時候提到（最高的一格 {max} 集）{gaps && '・虛線是還沒收錄的時間'}
-      </div>
-      <div className="bars">
-        {bars.map((b) => {
-          if (b.target === null) {
-            return <span key={b.label} className={b.episodes === 0 ? 'none' : 'zero'} title={`${b.label}：${b.episodes === 0 ? '還沒收錄' : '沒有提到'}`} />;
-          }
-          const text = `${b.label}：${b.mentioned} 集提到（收錄 ${b.episodes} 集）`;
-          return <a key={b.label} href={`#m-${b.target}`} title={text} aria-label={text} style={{ height: `${Math.max(10, (b.mentioned / max) * 100)}%` }} />;
-        })}
-      </div>
-      <div className="bar-years" aria-hidden="true">
-        {bars.map((b, i) => (
-          <span key={b.label}>{years[i]}</span>
-        ))}
-      </div>
-    </section>
-  );
 }
 
 // What he said in one episode: the chapters it came up in, the summary's note, and the
@@ -190,7 +158,7 @@ export default async function StockPage({ params }: Props) {
         <Said e={latest} points={points} />
         {latestExcerpt && <ExcerptText episodeNo={latest.no} excerpt={latestExcerpt} />}
       </section>
-      {bars.length > 0 && <Chart bars={bars} />}
+      {bars.length > 0 && <MonthChart bars={bars} />}
       <section className="card stock-next">
         {others.length > 0 && (
           <div>

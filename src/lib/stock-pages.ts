@@ -3,7 +3,8 @@ import { appendSegment, monthKey } from './format.ts';
 import { parseSeekTable, type PlayPoint, playPoint, type SeekTable } from './seek.ts';
 import type { Segment } from './segments.ts';
 import { readDb } from './server-db.ts';
-import { buildStockIndex, type EpisodeOutline, type Stock, type StockIndex, type StockRow } from './stocks.ts';
+import { type AdChapter, buildSponsorIndex, type SponsorIndex } from './sponsors.ts';
+import { buildStockIndex, type EpisodeOutline, type StockIndex, type StockNote, type StockRow } from './stocks.ts';
 import { STOCK_CATEGORY, type Summary } from './summary.ts';
 
 // Live episodes' stock rows, newest episode first
@@ -104,20 +105,46 @@ function seekTablesOf(db: DB, episodeNos: number[]): Map<number, SeekTable | nul
 
 // Where to start the audio for every timestamp on a stock's page: "<episode>:<seconds>" →
 // PlayPoint, or null to play from the time as it is
-export function stockPlayPoints(db: DB, stock: Stock): Map<string, PlayPoint | null> {
+export function stockPlayPoints(db: DB, stock: { episodes: { no: number; notes: StockNote[]; points?: StockNote[] }[] }): Map<string, PlayPoint | null> {
   const points = new Map<string, PlayPoint | null>();
   const tables = seekTablesOf(db, stock.episodes.map((e) => e.no));
   for (const e of stock.episodes) {
     const table = tables.get(e.no) ?? null;
-    for (const n of [...e.notes, ...e.points]) points.set(`${e.no}:${n.t}`, playPoint(table, n.t));
+    for (const n of [...e.notes, ...(e.points ?? [])]) points.set(`${e.no}:${n.t}`, playPoint(table, n.t));
   }
   return points;
+}
+
+// Live episodes' ad chapters, for the sponsor pages. A chapter whose JSON is off is left out.
+export function adChapters(db: DB): AdChapter[] {
+  const rows = db
+    .prepare(
+      `SELECT e.episode_no AS episodeNo, e.title, e.published_at AS publishedAt, e.audio_url AS audioUrl,
+         json_extract(c.value, '$.title') AS chapterTitle, json_extract(c.value, '$.t') AS t, json_extract(c.value, '$.bullets') AS bullets
+       FROM episodes e, json_each(e.summary_json, '$.chapters') c
+       WHERE e.status = 'done' AND json_valid(e.summary_json) AND json_extract(c.value, '$.ad') = 1`,
+    )
+    .all() as { episodeNo: number; title: string; publishedAt: string; audioUrl: string; chapterTitle: string | null; t: number | null; bullets: string | null }[];
+  const chapters: AdChapter[] = [];
+  for (const r of rows) {
+    // Every page reads the index this feeds, so a chapter that isn't the expected shape is
+    // left out rather than taking the site down
+    try {
+      const raw: unknown = r.bullets ? JSON.parse(r.bullets) : [];
+      if (!Array.isArray(raw) || typeof r.chapterTitle !== 'string' || typeof r.t !== 'number') continue;
+      const bullets = raw.filter((b): b is { t: number; text: string } => typeof b?.text === 'string' && typeof b?.t === 'number');
+      chapters.push({ episodeNo: r.episodeNo, episodeTitle: r.title, publishedAt: r.publishedAt, audioUrl: r.audioUrl, title: r.chapterTitle, t: r.t, bullets });
+    } catch {
+      // Left out
+    }
+  }
+  return chapters;
 }
 
 // Every episode page needs the index for its links, so it is built once and kept until an
 // episode is published, re-run or taken down: each of those moves the count of live episodes
 // or their newest updated_at. Not PRAGMA data_version, which every logged question moves too.
-let cached: { version: string; index: StockIndex; liveMonths: Map<string, number> } | undefined;
+let cached: { version: string; index: StockIndex; sponsors: SponsorIndex; liveMonths: Map<string, number> } | undefined;
 
 // Live episodes per month (Taipei), for the chart on a stock's page
 export function liveMonths(db: DB): Map<string, number> {
@@ -129,13 +156,13 @@ export function liveMonths(db: DB): Map<string, number> {
 
 // The index and the months of one moment: read apart, a publish in between could leave a
 // stock with an episode in a month the chart doesn't have
-export async function stockData(): Promise<{ index: StockIndex; liveMonths: Map<string, number> }> {
+export async function stockData(): Promise<{ index: StockIndex; sponsors: SponsorIndex; liveMonths: Map<string, number> }> {
   const d = await readDb();
   const v = d.prepare(`SELECT COUNT(*) AS n, MAX(updated_at) AS at FROM episodes WHERE status = 'done'`).get() as { n: number; at: string | null };
   const version = `${v.n} ${v.at}`;
   if (cached?.version !== version) {
     seekTables.clear();
-    cached = { version, index: buildStockIndex(stockRows(d), episodeOutlines(d)), liveMonths: liveMonths(d) };
+    cached = { version, index: buildStockIndex(stockRows(d), episodeOutlines(d)), sponsors: buildSponsorIndex(adChapters(d)), liveMonths: liveMonths(d) };
   }
   return cached;
 }

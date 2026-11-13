@@ -391,7 +391,7 @@ const monthOfIndex = (i: number) => `${Math.floor(i / 12)}-${String((i % 12) + 1
 // One entry per month from the site's oldest episode to its newest, oldest first, so every
 // stock's chart covers the same span. `liveMonths`: monthKey → live episodes in it; a key
 // from a date that didn't parse is left out.
-export function stockMonths(stock: Stock, liveMonths: Map<string, number>): StockMonth[] {
+export function stockMonths(stock: { episodes: { publishedAt: string }[] }, liveMonths: Map<string, number>): StockMonth[] {
   const keys = [...liveMonths.keys()].filter((k) => MONTH_KEY.test(k)).sort();
   if (keys.length === 0) return [];
   const mentioned = new Map<string, number>();

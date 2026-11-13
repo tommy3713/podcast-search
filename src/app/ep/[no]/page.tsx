@@ -8,6 +8,7 @@ import { formatDate, groupParagraphs, minutes } from '@/lib/format';
 import { pageHref, pageOfIndex } from '@/lib/paging';
 import { episodeDescription, episodeJsonLd, episodeTitle, SHARE_IMAGE, SITE_NAME } from '@/lib/seo';
 import { stockIndex } from '@/lib/stock-pages';
+import { sponsorHref, sponsorOf } from '@/lib/sponsors';
 import { stockFor, stockHref } from '@/lib/stocks';
 
 type Props = {
@@ -57,6 +58,11 @@ export default async function EpisodePage({ params, searchParams }: Props) {
     const stock = stockFor(stocks, s.name, s.code);
     return stock ? stockHref(stock) : null;
   });
+  // Each ad chapter's sponsor page, from the chapter itself (the same rule the pages use)
+  const sponsorHrefs = ep.summary.chapters.map((c) => {
+    const s = c.ad ? sponsorOf(c) : null;
+    return s ? sponsorHref(s) : null;
+  });
 
   return (
     <>
@@ -83,6 +89,7 @@ export default async function EpisodePage({ params, searchParams }: Props) {
         duration={ep.duration ?? ep.segments.at(-1)?.end ?? 0}
         summary={ep.summary}
         stockHrefs={stockHrefs}
+        sponsorHrefs={sponsorHrefs}
         paragraphs={groupParagraphs(ep.segments)}
         initialTab={sp.tab === 'tx' || t !== null ? 'tx' : 'summary'}
         initialT={t}
