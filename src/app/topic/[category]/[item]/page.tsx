@@ -1,15 +1,18 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { EpisodeTimeline } from '@/components/EpisodeTimeline';
+import { ExcerptText } from '@/components/Excerpt';
 import { MonthChart } from '@/components/MonthChart';
-import { StockPlayer } from '@/components/StockPlayer';
+import { QuoteWall, Said } from '@/components/QuoteWall';
+import { PlayTs, StockPlayer } from '@/components/StockPlayer';
+import { StatRow } from '@/components/TopicCard';
 import { formatDate } from '@/lib/format';
 import { shareMetadata } from '@/lib/seo';
 import { readDb } from '@/lib/server-db';
-import { stockData, stockPlayPoints } from '@/lib/stock-pages';
+import { excerptAt, stockData, stockPlayPoints } from '@/lib/stock-pages';
 import { chartBars, stockMonths } from '@/lib/stocks';
-import { findTopic, TOPIC_INDEX_MIN_EPISODES, type TopicItem, topicCategoryHref, topicHref } from '@/lib/topics';
+import { monthsBetween, spanFrom } from '@/lib/topics-overview';
+import { coTopics, findTopic, TOPIC_INDEX_MIN_EPISODES, type TopicItem, topicCategoryHref, topicHref, topicQuestion } from '@/lib/topics';
 
 type Props = { params: Promise<{ category: string; item: string }> };
 
@@ -26,7 +29,7 @@ async function load(params: Props['params']) {
   }
   const { topics, liveMonths } = await stockData();
   const item = findTopic(topics, p.category, segment);
-  return item && { item, liveMonths };
+  return item && { item, topics, liveMonths };
 }
 
 function title(i: TopicItem): string {
@@ -55,36 +58,75 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function TopicItemPage({ params }: Props) {
   const found = await load(params);
   if (!found) notFound();
-  const { item, liveMonths } = found;
+  const { item, topics, liveMonths } = found;
   const [latest, first] = [item.episodes[0]!, item.episodes.at(-1)!];
-  const bars = item.episodes.length >= CHART_MIN_EPISODES ? chartBars(stockMonths(item, liveMonths)) : [];
-  const points = stockPlayPoints(await readDb(), item);
+  // Its own span: from the month it first came up to the site's newest
+  const bars = item.episodes.length >= CHART_MIN_EPISODES ? chartBars(stockMonths(item, spanFrom(liveMonths, first.publishedAt))) : [];
+  const db = await readDb();
+  const points = stockPlayPoints(db, item);
   const audio = Object.fromEntries(item.episodes.map((e) => [e.no, e.audioUrl]));
+  const lead = latest.notes[0]!;
+  // The newest episode's words are on the page from the start; the others' come on a click
+  const excerpt = excerptAt(db, latest.no, lead.t);
+  const related = coTopics(topics, item);
+  const question = topicQuestion(item);
 
   return (
     <StockPlayer audio={audio}>
-      <div className="home">
-        <div>
-          <Link className="back" href={topicCategoryHref(item.category)}>
-            ← 所有{item.category.label}
-          </Link>
-          <div className="stock-head">
-            <h1>{item.name}</h1>
-            <div className="meta">
-              <span>在 {item.episodes.length} 集提到</span>
-              {first.no !== latest.no && (
-                <span>
-                  最早 <Link href={`/ep/${first.no}`}>EP{first.no}</Link>・{formatDate(first.publishedAt)}
-                </span>
-              )}
-              <span>
-                最近 <Link href={`/ep/${latest.no}`}>EP{latest.no}</Link>・{formatDate(latest.publishedAt)}
-              </span>
-            </div>
-          </div>
+      <div className="home topics-page">
+        <Link className="back" href={topicCategoryHref(item.category)} prefetch={false}>
+          ← 所有{item.category.label}
+        </Link>
+        <div className="stock-head">
+          <h1>{item.name}</h1>
         </div>
+        <StatRow
+          stats={[
+            { label: '提到', value: item.episodes.length, unit: '集' },
+            // Between the first and the newest mention, both ends named: not "since", which an item
+            // that stopped coming up would read wrongly
+            ...(first.no !== latest.no
+              ? [{ label: `${formatDate(first.publishedAt).slice(0, 7)}–${formatDate(latest.publishedAt).slice(0, 7)}`, value: monthsBetween(first.publishedAt, latest.publishedAt), unit: '個月' }]
+              : []),
+            { label: `最近一集・${formatDate(latest.publishedAt).slice(0, 10)}`, value: latest.no, prefix: 'EP', href: `/ep/${latest.no}` },
+          ]}
+        />
+        <section className="card stock-latest quote-hero">
+          <div className="eyebrow">
+            最近一次・EP{latest.no}・{formatDate(latest.publishedAt)}
+          </div>
+          <blockquote className={lead.quoted ? undefined : 'bare'}>
+            <Said note={lead} />
+          </blockquote>
+          {latest.line && <p className="qline">{latest.line}</p>}
+          {excerpt ? (
+            <ExcerptText episodeNo={latest.no} excerpt={excerpt} />
+          ) : (
+            <div>
+              <PlayTs episodeNo={latest.no} t={lead.t} point={points.get(`${latest.no}:${lead.t}`) ?? null} />
+            </div>
+          )}
+        </section>
         {bars.length > 0 && <MonthChart bars={bars} />}
-        <EpisodeTimeline heading="每一集說了什麼" episodes={item.episodes} points={points} />
+        <section className="card stock-next">
+          {related.length > 0 && (
+            <div>
+              <h3>同一集也提到</h3>
+              <div className="chips">
+                {related.map((r) => (
+                  <Link key={topicHref(r)} className="chip" href={topicHref(r)} prefetch={false}>
+                    {r.category.slug !== item.category.slug && <span className="fine">{r.category.label}</span>} {r.name}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* nofollow: /ask is noindex, and a crawler would ask for one per item */}
+          <Link className="btn" href={`/ask?q=${encodeURIComponent(question)}`} prefetch={false} rel="nofollow">
+            問 AI：{question}
+          </Link>
+        </section>
+        <QuoteWall episodes={item.episodes} points={points} />
         <p className="fine" style={{ margin: 0 }}>
           內容由 AI 從每一集的摘要整理，引述是摘要記下的原話，可能有誤聽。以原節目為準。
         </p>

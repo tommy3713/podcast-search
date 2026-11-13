@@ -130,6 +130,8 @@ export type StockEpisode = {
 export type EpisodeOutline = {
   chapters: { t: number; title: string; ad: boolean; bullets: StockNote[] }[];
   keys: StockNote[];
+  // The episode's one-line summary
+  line?: string;
 };
 
 const MAX_POINTS = 4;
@@ -392,7 +394,7 @@ export function monthKeyLabel(key: string): string {
 
 const MONTH_KEY = /^\d{4}-(0[1-9]|1[0-2])$/;
 // Months since year 0, so a span is a plain range
-const monthIndex = (key: string) => Number(key.slice(0, 4)) * 12 + Number(key.slice(5)) - 1;
+export const monthIndex = (key: string) => Number(key.slice(0, 4)) * 12 + Number(key.slice(5)) - 1;
 const monthOfIndex = (i: number) => `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
 
 // One entry per month from the site's oldest episode to its newest, oldest first, so every
