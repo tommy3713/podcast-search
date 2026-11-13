@@ -44,7 +44,7 @@ export default async function StocksPage() {
       <div className="stock-head">
         <h1>{STOCKS_LABEL}</h1>
         <p className="muted" style={{ margin: 0 }}>
-          節目裡在 {STOCK_LIST_MIN_EPISODES} 集以上提過的公司和 ETF，共 {total} 個。照代號或名稱排列，不是排行，也不是推薦。提得更少的用搜尋找得到。
+          節目裡在 {STOCK_LIST_MIN_EPISODES} 集以上提過的公司和 ETF，共 {total} 個。照代號或名稱排列。
         </p>
       </div>
       <StockList groups={groups} />
