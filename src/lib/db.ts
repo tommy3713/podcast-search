@@ -165,6 +165,45 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX transcript_edits_episode ON transcript_edits (episode_id, id);
   `,
+  // Listeners' typo reports (src/lib/reports.ts), which an admin accepts or rejects in
+  // /admin/reports. The reporter's account id is kept ASK_LOG_DAYS (nightly sets it NULL), for
+  // the daily limit and abuse. Accepting turns a report into transcript_edits and/or
+  // summary_edits rows, which the worker applies like any edit.
+  `
+  CREATE TABLE typo_reports (
+    id          INTEGER PRIMARY KEY,
+    episode_id  INTEGER NOT NULL REFERENCES episodes (id) ON DELETE CASCADE,
+    target      TEXT    NOT NULL CHECK (target IN ('transcript', 'summary')),
+    at_sec      REAL,                            -- transcript: start of the paragraph selected
+    original    TEXT    NOT NULL,                -- the words selected
+    suggestion  TEXT    NOT NULL,                -- what they should be
+    note        TEXT,
+    user_id     TEXT,                            -- NULL after ASK_LOG_DAYS
+    status      TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    resolved_at TEXT,
+    notified_at TEXT                             -- when the worker told Telegram about it
+  );
+  CREATE INDEX typo_reports_status ON typo_reports (status, id);
+  CREATE INDEX typo_reports_user ON typo_reports (user_id, created_at);
+
+  ALTER TABLE transcript_edits ADD COLUMN report_id INTEGER; -- the report it came from, if any
+
+  -- An admin's correction of a summary: every occurrence of old_text in the episode's summary
+  -- (its line, key points, chapters, quotes, stocks' names and notes, mentions) becomes
+  -- new_text. Applied by the worker like transcript_edits, and again after a re-summary.
+  CREATE TABLE summary_edits (
+    id         INTEGER PRIMARY KEY,
+    episode_id INTEGER NOT NULL REFERENCES episodes (id) ON DELETE CASCADE,
+    old_text   TEXT    NOT NULL,
+    new_text   TEXT    NOT NULL,
+    report_id  INTEGER,
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    applied_at TEXT,
+    error      TEXT
+  );
+  CREATE INDEX summary_edits_episode ON summary_edits (episode_id, id);
+  `,
 ];
 
 export function defaultDbPath(): string {

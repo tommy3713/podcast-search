@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge, EpName } from '@/components/Badge';
 import { EpisodeView } from '@/components/EpisodeView';
+import { currentUser } from '@/lib/auth';
 import { episodeIndex, getEpisode, parseEpisodeNo } from '@/lib/episodes';
 import { formatDate, groupParagraphs, minutes } from '@/lib/format';
 import { pageHref, pageOfIndex } from '@/lib/paging';
@@ -102,6 +103,9 @@ export default async function EpisodePage({ params, searchParams }: Props) {
         initialTab={sp.tab === 'tx' || t !== null ? 'tx' : 'summary'}
         initialT={t}
         seek={ep.seek}
+        episode={ep.no}
+        // The root layout reads the session for the header already
+        signedIn={(await currentUser()) !== null}
       />
     </>
   );

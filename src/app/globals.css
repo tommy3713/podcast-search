@@ -567,3 +567,32 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
   .admin-flags { grid-column: 2; }
   .admin-bar { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); padding-bottom: 10px; }
 }
+
+/* Typo reports on an episode's page (components/report/TypoReporter.tsx) */
+.report-hint { font-size: 13px; margin: -10px 0 12px; text-align: right; }
+.report-fab { position: fixed; z-index: 40; box-shadow: 0 4px 14px rgb(0 0 0 / .14); font-size: 14px; padding: 6px 12px; }
+.report-backdrop { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / .32); display: grid; place-items: center; padding: 16px; }
+.report-dialog { width: min(420px, 100%); padding: 18px 18px 14px; display: grid; gap: 10px; }
+.report-dialog h2 { font-size: 17px; margin: 0; }
+.report-dialog p { margin: 0; line-height: 1.7; }
+.report-dialog form { display: grid; gap: 10px; }
+.report-field { display: grid; gap: 4px; font-size: 14px; }
+.report-field span { color: var(--muted); }
+.report-field input { border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 10px; padding: 9px 12px; font: inherit; min-width: 0; }
+.report-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.report-error { color: var(--warn); font-weight: 500; }
+.report-small { font-size: 13px; }
+@media (max-width: 640px) {
+  .report-backdrop { place-items: end center; padding-bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom, 0px)); }
+}
+.admin-count { margin-left: 6px; background: var(--warn); color: var(--surface); border-radius: 999px; padding: 0 7px; font-size: 12px; }
+.admin-reports { list-style: none; padding: 0; margin: 0 0 28px; display: grid; gap: 12px; }
+.admin-report { padding: 14px 16px; display: grid; gap: 10px; }
+.admin-report-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 14px; }
+.admin-report-change { display: flex; gap: 10px; align-items: center; font-size: 17px; }
+.admin-report-change del { color: var(--warn); }
+.admin-report-change input { flex: 1; min-width: 0; font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 8px; padding: 6px 10px; }
+.admin-report-note { margin: 0; font-size: 14px; }
+.admin-report-facts { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 13px; }
+.admin-report-context { margin: 0; padding: 8px 12px; border-left: 3px solid var(--line); background: var(--bg); border-radius: 0 8px 8px 0; line-height: 1.7; font-size: 14px; overflow-wrap: anywhere; }
+.admin-report-actions { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 14px; }

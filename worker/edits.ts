@@ -1,17 +1,25 @@
 import type { DB } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
-import { applyEdits, type EditResult } from '@/lib/transcript-edits.ts';
-import { chunkSegments } from './chunk.ts';
+import type { Summary } from '@/lib/summary.ts';
+import { countInSummary, replaceInSummary } from '@/lib/summary-edits.ts';
+import { applyEdits, type EditResult, type TranscriptEdit } from '@/lib/transcript-edits.ts';
+import { chunkSegments, summaryPoints } from './chunk.ts';
 import { embed } from './embed.ts';
 import { notify } from './notify.ts';
 import {
   appliedEdits,
+  appliedSummaryEdits,
+  type EpisodeRow,
   episodesWithPendingEdits,
   failPendingEdits,
   getEpisode,
+  markSummaryEdits,
   pendingEdits,
+  pendingSummaryEdits,
   recordEditResults,
   reindexEpisode,
+  reviseSummary,
+  type SummaryEdit,
 } from './repo.ts';
 
 // An admin's transcript edits (src/lib/transcript-edits.ts) are rows the web inserts; this is
@@ -31,21 +39,31 @@ const counted = (results: EditResult[]) => ({
   missing: results.filter((r) => r.outcome === 'missing').length,
 });
 
-// Applies an episode's pending edits, re-chunks and re-embeds the whole transcript (about
-// US$0.0005; cheaper than working out which chunks moved) and swaps it in; the summary and
-// mentions stay as they are. Null when nothing was pending.
+// Applies an episode's pending transcript edits, then its pending summary edits. Null when
+// nothing was pending.
 export async function applyPendingEdits(db: DB, episodeNo: number): Promise<{ done: number; missing: number } | null> {
   const ep = getEpisode(db, episodeNo);
   if (!ep) return null;
-  const edits = pendingEdits(db, ep.id);
-  if (!edits.length) return null;
-  const label = `EP${episodeNo}`;
+  const transcript = pendingEdits(db, ep.id);
+  const summary = pendingSummaryEdits(db, ep.id);
+  if (!transcript.length && !summary.length) return null;
   if (ep.status !== 'done' || !ep.segments_json) {
     const n = failPendingEdits(db, ep.id, '這集不在網站上');
-    await notify(`❌ ${label} 有 ${n} 處逐字稿修正沒有套用：這集不在網站上`);
+    await notify(`❌ EP${episodeNo} 有 ${n} 處修正沒有套用：這集不在網站上`);
     return { done: 0, missing: n };
   }
-  const readJson = ep.segments_json;
+  const a = transcript.length ? await applyTranscriptEdits(db, ep, transcript) : { done: 0, missing: 0 };
+  const b = summary.length ? await applySummaryEdits(db, getEpisode(db, episodeNo)!, summary) : { done: 0, missing: 0 };
+  return { done: a.done + b.done, missing: a.missing + b.missing };
+}
+
+// Applies transcript edits, re-chunks and re-embeds the whole transcript (about US$0.0005;
+// cheaper than working out which chunks moved) and swaps it in; the summary and mentions stay
+// as they are
+async function applyTranscriptEdits(db: DB, ep: EpisodeRow, edits: TranscriptEdit[]): Promise<{ done: number; missing: number }> {
+  const episodeNo = ep.episode_no;
+  const label = `EP${episodeNo}`;
+  const readJson = ep.segments_json!;
   const { segments, results } = applyEdits(JSON.parse(readJson) as Segment[], edits);
   const { done, missing } = counted(results);
   const missingLine = missing ? `\n⚠️ ${missing} 處找不到要改的原文，沒有套用` : '';
@@ -61,6 +79,63 @@ export async function applyPendingEdits(db: DB, episodeNo: number): Promise<{ do
   reindexEpisode(db, ep.id, { readJson, segments, chunks, vectors, costUsd, results });
   await notify(`✏️ ${label} 逐字稿修正 ${done} 處，已重新索引（${chunks.length} 段，US$${costUsd.toFixed(4)}）${missingLine}${adminLink(episodeNo)}`);
   return { done, missing };
+}
+
+// Replaces each edit's words everywhere in the summary (replaceInSummary), in order, then
+// swaps in the summary with the mentions made from it and its re-embedded summary points
+// (a fraction of a cent). An edit whose words aren't there counts as done when the corrected
+// words are (already right), and fails otherwise.
+async function applySummaryEdits(db: DB, ep: EpisodeRow, edits: SummaryEdit[]): Promise<{ done: number; missing: number }> {
+  const label = `EP${ep.episode_no}`;
+  const row = db.prepare('SELECT summary_json FROM episodes WHERE id = ?').get(ep.id) as { summary_json: string | null };
+  if (!row.summary_json) {
+    markSummaryEdits(db, [], edits.map((e) => e.id), '這集沒有重點');
+    return { done: 0, missing: edits.length };
+  }
+  const readJson = row.summary_json;
+  let summary = JSON.parse(readJson) as Summary;
+  const applied: number[] = [];
+  const missing: number[] = [];
+  let changed = 0;
+  for (const e of edits) {
+    const r = replaceInSummary(summary, e.oldText, e.newText);
+    if (r.count) {
+      summary = r.summary;
+      changed += r.count;
+      applied.push(e.id);
+    } else if (countInSummary(summary, e.newText)) {
+      applied.push(e.id);
+    } else {
+      missing.push(e.id);
+    }
+  }
+  const missingError = '重點裡找不到要改的原文';
+  const missingLine = missing.length ? `\n⚠️ ${missing.length} 處找不到要改的原文，沒有套用` : '';
+  if (!changed) {
+    markSummaryEdits(db, applied, missing, missingError);
+    await notify(`✏️ ${label} 重點修正：沒有文字需要改${missingLine}${adminLink(ep.episode_no)}`);
+    return { done: applied.length, missing: missing.length };
+  }
+  const points = summaryPoints(summary);
+  const { vectors, costUsd } = await embed(points.map((p) => p.text));
+  reviseSummary(db, ep.id, { readJson, summary, points, pointVectors: vectors, costUsd, applied, missing, missingError });
+  await notify(`✏️ ${label} 重點修正 ${changed} 處，已更新${missingLine}${adminLink(ep.episode_no)}`);
+  return { done: applied.length, missing: missing.length };
+}
+
+// A re-summary writes a new summary from the transcript, so the summary edits applied to the
+// old one are applied to it again wherever their words still are (an edit whose words the
+// new summary doesn't have just doesn't apply; nothing is marked). `message` is null when
+// none applied.
+export function putBackSummaryEdits(db: DB, episodeId: number, episodeNo: number, summary: Summary): { summary: Summary; message: string | null } {
+  let out = summary;
+  let n = 0;
+  for (const e of appliedSummaryEdits(db, episodeId)) {
+    const r = replaceInSummary(out, e.oldText, e.newText);
+    out = r.summary;
+    n += r.count;
+  }
+  return { summary: out, message: n ? `✏️ EP${episodeNo} 重新整理重點後套回 ${n} 處重點修正` : null };
 }
 
 type Enqueue = <T>(label: string, job: () => Promise<T>) => Promise<T>;
@@ -82,21 +157,21 @@ export function watchEdits(db: DB, enqueue: Enqueue, intervalMs = EDIT_POLL_MS):
     for (const { id, episode_no: no } of eps) {
       if (queued.has(no) || (failures.get(no)?.retryAt ?? 0) > Date.now()) continue;
       queued.add(no);
-      void enqueue(`修正逐字稿 EP${no}`, () => applyPendingEdits(db, no))
+      void enqueue(`套用修正 EP${no}`, () => applyPendingEdits(db, no))
         .then(() => failures.delete(no))
         .catch(async (err: unknown) => {
           const msg = (err instanceof Error ? err.message : String(err)).slice(0, 300);
-          console.error(`EP${no}: transcript edits failed`, err);
+          console.error(`EP${no}: edits failed`, err);
           const count = (failures.get(no)?.count ?? 0) + 1;
           if (count >= EDIT_MAX_FAILURES) {
             failures.delete(no);
             const n = failPendingEdits(db, id, `套用失敗：${msg}`);
-            await notify(`❌ EP${no} 逐字稿修正連續失敗 ${count} 次，${n} 處已標為失敗，請到管理頁重新送出：${msg}${adminLink(no)}`);
+            await notify(`❌ EP${no} 修正連續失敗 ${count} 次，${n} 處已標為失敗，請到管理頁重新送出：${msg}${adminLink(no)}`);
             return;
           }
           failures.set(no, { count, retryAt: Date.now() + EDIT_RETRY_MS });
           // Reported on the first failure, not every retry
-          if (count === 1) await notify(`❌ EP${no} 逐字稿修正失敗，${EDIT_RETRY_MS / 60_000} 分鐘後重試：${msg}`);
+          if (count === 1) await notify(`❌ EP${no} 修正失敗，${EDIT_RETRY_MS / 60_000} 分鐘後重試：${msg}`);
         })
         .finally(() => queued.delete(no));
     }

@@ -247,6 +247,14 @@ function writeChunks(db: DB, id: number, chunks: Chunk[], vectors: number[][], p
   });
 }
 
+// Replaces an episode's mentions with its summary's stocks and mentions. Run inside a transaction.
+function writeMentions(db: DB, id: number, summary: Summary): void {
+  db.prepare('DELETE FROM mentions WHERE episode_id = ?').run(id);
+  const ins = db.prepare('INSERT INTO mentions (episode_id, category, name, code, detail, quote, start_sec) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  for (const s of summary.stocks) ins.run(id, STOCK_CATEGORY, s.name, s.code, s.note, null, s.t);
+  for (const m of summary.mentions) ins.run(id, m.category, m.name, null, null, m.quote, m.t);
+}
+
 // Replaces any earlier chunks, summary points and mentions, so re-running an episode is
 // safe. Returns the episode's total cost so far.
 export function publishEpisode(
@@ -265,13 +273,7 @@ export function publishEpisode(
   const pinyins = data.chunks.map((c) => toPinyin(c.text));
   return db.transaction(() => {
     writeChunks(db, id, data.chunks, data.vectors, pinyins);
-    db.prepare('DELETE FROM mentions WHERE episode_id = ?').run(id);
-
-    const insMention = db.prepare(
-      'INSERT INTO mentions (episode_id, category, name, code, detail, quote, start_sec) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    );
-    for (const s of data.summary.stocks) insMention.run(id, STOCK_CATEGORY, s.name, s.code, s.note, null, s.t);
-    for (const m of data.summary.mentions) insMention.run(id, m.category, m.name, null, null, m.quote, m.t);
+    writeMentions(db, id, data.summary);
     writeSummaryPoints(db, id, data.points, data.pointVectors);
 
     const row = db
@@ -307,11 +309,16 @@ type EditRow = { id: number; seg_start: number; old_text: string; new_text: stri
 const toEdit = (r: EditRow): TranscriptEdit => ({ id: r.id, segStart: r.seg_start, oldText: r.old_text, newText: r.new_text });
 
 // Episodes with edits waiting to be applied, oldest edit first
+// Episodes with transcript or summary edits waiting to be applied, the longest-waiting first
 export function episodesWithPendingEdits(db: DB): { id: number; episode_no: number }[] {
   return db
     .prepare(
-      `SELECT e.id, e.episode_no FROM episodes e JOIN transcript_edits t ON t.episode_id = e.id
-       WHERE t.applied_at IS NULL AND t.error IS NULL GROUP BY e.id ORDER BY MIN(t.id)`,
+      `SELECT e.id, e.episode_no FROM episodes e JOIN (
+         SELECT episode_id, created_at FROM transcript_edits WHERE applied_at IS NULL AND error IS NULL
+         UNION ALL
+         SELECT episode_id, created_at FROM summary_edits WHERE applied_at IS NULL AND error IS NULL
+       ) p ON p.episode_id = e.id
+       GROUP BY e.id ORDER BY MIN(p.created_at), e.id`,
     )
     .all() as { id: number; episode_no: number }[];
 }
@@ -384,7 +391,72 @@ export function reindexEpisode(
 
 // Gives up on an episode's pending edits (it isn't on the site), returning how many
 export function failPendingEdits(db: DB, episodeId: number, error: string): number {
+  return db.transaction(() =>
+    ['transcript_edits', 'summary_edits'].reduce(
+      (n, table) =>
+        n + db.prepare(`UPDATE ${table} SET error = ? WHERE episode_id = ? AND applied_at IS NULL AND error IS NULL`).run(error, episodeId).changes,
+      0,
+    ),
+  )();
+}
+
+// ── summary edits (src/lib/summary-edits.ts) ────────────────────────────────────
+
+export type SummaryEdit = { id: number; oldText: string; newText: string };
+
+export function pendingSummaryEdits(db: DB, episodeId: number): SummaryEdit[] {
   return db
-    .prepare('UPDATE transcript_edits SET error = ? WHERE episode_id = ? AND applied_at IS NULL AND error IS NULL')
-    .run(error, episodeId).changes;
+    .prepare(
+      `SELECT id, old_text AS oldText, new_text AS newText FROM summary_edits
+       WHERE episode_id = ? AND applied_at IS NULL AND error IS NULL ORDER BY id`,
+    )
+    .all(episodeId) as SummaryEdit[];
+}
+
+// In the summary now, so a re-summary gets them again
+export function appliedSummaryEdits(db: DB, episodeId: number): SummaryEdit[] {
+  return db
+    .prepare(
+      `SELECT id, old_text AS oldText, new_text AS newText FROM summary_edits
+       WHERE episode_id = ? AND applied_at IS NOT NULL AND error IS NULL ORDER BY id`,
+    )
+    .all(episodeId) as SummaryEdit[];
+}
+
+// Swaps in a corrected summary: summary_json, the mentions made from it and its summary
+// points with their vectors, in one transaction, and marks the edits (`applied` ones applied,
+// the others failed with `missingError`). Throws if summary_json changed since it was read.
+export function reviseSummary(
+  db: DB,
+  id: number,
+  data: {
+    readJson: string;
+    summary: Summary;
+    points: SummaryPoint[];
+    pointVectors: number[][];
+    costUsd: number;
+    applied: number[];
+    missing: number[];
+    missingError: string;
+  },
+): void {
+  db.transaction(() => {
+    const now = db.prepare('SELECT summary_json FROM episodes WHERE id = ?').get(id) as { summary_json: string | null } | undefined;
+    if (now?.summary_json !== data.readJson) throw new Error('重點在套用修正時被改過');
+    writeMentions(db, id, data.summary);
+    writeSummaryPoints(db, id, data.points, data.pointVectors);
+    db.prepare(
+      `UPDATE episodes SET summary_json = ?, cost_usd = COALESCE(cost_usd, 0) + ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`,
+    ).run(JSON.stringify(data.summary), data.costUsd, id);
+    markSummaryEdits(db, data.applied, data.missing, data.missingError);
+  })();
+}
+
+export function markSummaryEdits(db: DB, applied: number[], missing: number[], missingError: string): void {
+  const ok = db.prepare(`UPDATE summary_edits SET applied_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`);
+  const bad = db.prepare('UPDATE summary_edits SET error = ? WHERE id = ?');
+  db.transaction(() => {
+    for (const e of applied) ok.run(e);
+    for (const e of missing) bad.run(missingError, e);
+  })();
 }
