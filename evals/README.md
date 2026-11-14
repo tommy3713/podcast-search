@@ -1,6 +1,6 @@
 # /ask golden set
 
-`golden.jsonl` lists questions for checking `/ask` (issue #24), one JSON object per line. It stores checks rather than full answers, since the wording changes from run to run. The answers were last checked against EP502–713.
+`golden.jsonl` lists questions for checking `/ask` (issue #24), one JSON object per line. It stores checks rather than full answers, since the wording changes from run to run. The answers were last checked against EP452–713.
 
 | Field | Meaning |
 |---|---|
