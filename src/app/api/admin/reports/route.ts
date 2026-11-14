@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { insertEdits } from '@/lib/admin-edits';
+import { insertEdits, insertSummaryEdit } from '@/lib/admin-edits';
 import { reportEpisode, reportHere } from '@/lib/admin-reports';
 import { currentAdmin } from '@/lib/auth';
-import { getReport, insertSummaryEdit, resolveReport } from '@/lib/reports';
+import { getReport, resolveReport } from '@/lib/reports';
 import { readDb, writeDb } from '@/lib/server-db';
 import { countInSummary } from '@/lib/summary-edits';
 import { cleanSegmentText, replaceMatches, replaceOpen } from '@/lib/transcript-edits';
@@ -81,8 +81,8 @@ export async function POST(req: Request) {
   if (action === 'summary' && !inSummary) return json(409, { error: '這集重點沒有要改的原文' });
 
   const refused = decide('accepted', suggestion, () => {
-    if (edits.length) insertEdits(wdb, ep.id, edits, report.id);
-    if (summary && inSummary) insertSummaryEdit(wdb, ep.id, report.original, suggestion, report.id);
+    if (edits.length) insertEdits(wdb, ep.id, edits, { reportId: report.id });
+    if (summary && inSummary) insertSummaryEdit(wdb, ep.id, report.original, suggestion, { reportId: report.id });
   });
   if (refused) return refused;
   const parts = [edits.length && `逐字稿 ${edits.length} 句`, summary && inSummary && `重點 ${inSummary} 處`].filter(Boolean);

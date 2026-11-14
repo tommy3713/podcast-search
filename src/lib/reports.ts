@@ -1,6 +1,7 @@
 import { taipeiDate, taipeiDayStart } from './ask/quota.ts';
 import { type DB, toDbTime } from './db.ts';
 import { groupParagraphs, paragraphStarts } from './format.ts';
+import { ftsPhrase } from './fts.ts';
 import { charCount, REPORT_DAILY_LIMIT } from './report-limits.ts';
 import type { Segment } from './segments.ts';
 import type { Summary } from './summary.ts';
@@ -201,7 +202,6 @@ export function resolveReport(db: DB, r: AdminReport, status: 'accepted' | 'reje
   return true;
 }
 
-const ftsPhrase = (term: string) => `"${term.replace(/"/g, '""')}"`;
 
 // Live episodes whose transcript has the words, for a rule across episodes (an admin hint).
 // Through the trigram index when the words are long enough for it (3+ characters), like the
@@ -216,6 +216,3 @@ export function episodesWith(db: DB, words: string): number {
   return (db.prepare(sql).get(short ? words : ftsPhrase(words)) as { n: number }).n;
 }
 
-export function insertSummaryEdit(db: DB, episodeId: number, oldText: string, newText: string, reportId: number | null): void {
-  db.prepare('INSERT INTO summary_edits (episode_id, old_text, new_text, report_id) VALUES (?, ?, ?, ?)').run(episodeId, oldText, newText, reportId);
-}

@@ -18,13 +18,15 @@ import {
   saveDraft,
   saveSegments,
   saveSeekTable,
+  setWhisperPrompt,
+  transcriptionSettings,
   setStatus,
   type Step,
 } from './repo.ts';
 import { seekTableOfFile } from './seek-table.ts';
 import { summarize } from './summarize.ts';
 import type { Button } from './telegram.ts';
-import { transcribe } from './transcribe.ts';
+import { type TranscribeOptions, transcribe } from './transcribe.ts';
 
 export type ProcessOptions = {
   // Default: resume from the saved checkpoints (transcript, summary draft).
@@ -71,6 +73,8 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
       segments = back.segments;
       duration = segments.at(-1)?.end ?? 0;
       saveSegments(db, ep.id, segments, duration, 0);
+      // Not transcribed here, so no prompt of ours is behind it
+      setWhisperPrompt(db, ep.id, null);
       back.save();
       if (back.message) await notify(back.message);
     } else if (ep.segments_json && opts.redoFrom !== 'transcribe') {
@@ -82,11 +86,14 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
       let billedSeconds: number;
       let seek: SeekTable | null | undefined;
       let fresh: Segment[];
-      ({ segments: fresh, duration, billedSeconds, seek } = await transcribeFromRss(ep));
+      // The prompt and rules as /admin/whisper and /admin/rules have them now
+      const settings = transcriptionSettings(db);
+      ({ segments: fresh, duration, billedSeconds, seek } = await transcribeFromRss(ep, settings));
       // An admin's corrections to the old transcript, put back before the summary reads it
       const back = putBackEdits(db, ep.id, ep.episode_no, fresh);
       segments = back.segments;
       saveSegments(db, ep.id, segments, duration, whisperCost(billedSeconds));
+      setWhisperPrompt(db, ep.id, settings.promptId);
       back.save();
       if (back.message) await notify(back.message);
       // The table of the file just transcribed; undefined (unreadable) leaves it to seek-index.ts
@@ -156,6 +163,7 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
 
 async function transcribeFromRss(
   ep: EpisodeRow,
+  opts: TranscribeOptions,
 ): Promise<{ segments: Segment[]; duration: number; billedSeconds: number; seek: SeekTable | null | undefined }> {
   const dir = path.join(WORK_DIR, `ep${ep.episode_no}`);
   fs.rmSync(dir, { recursive: true, force: true });
@@ -171,7 +179,7 @@ async function transcribeFromRss(
     });
     const { parts, duration } = await compress(original, dir);
     console.log(`EP${ep.episode_no}: transcribing ${Math.round(duration / 60)} min in ${parts.length} part(s)`);
-    const { segments, billedSeconds } = await transcribe(parts);
+    const { segments, billedSeconds } = await transcribe(parts, opts);
     return { segments, duration, billedSeconds, seek };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

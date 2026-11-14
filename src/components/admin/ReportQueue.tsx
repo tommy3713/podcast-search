@@ -138,6 +138,12 @@ function ReportCard({ item: { report: r, context: c } }: { item: QueueItem }) {
               駁回
             </button>
           </div>
+          {/* Beyond this episode: a rule for every transcript, or a word for Whisper's prompt.
+              Neither decides the report, which still needs a button above. */}
+          <p className="admin-report-more">
+            <Link href={`/admin/rules?original=${encodeURIComponent(r.original)}&replacement=${encodeURIComponent(suggestion)}`}>設成全站規則</Link>
+            <Link href={`/admin/whisper?add=${encodeURIComponent(suggestion)}`}>加進 Whisper 提示詞</Link>
+          </p>
         </>
       )}
       {note && <p className={note.ok ? 'muted' : 'admin-error'}>{note.text}</p>}

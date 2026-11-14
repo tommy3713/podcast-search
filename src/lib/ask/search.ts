@@ -1,4 +1,5 @@
 import type { DB } from '../db.ts';
+import { ftsPhrase, likePattern } from '../fts.ts';
 import { soundSearchable, toPinyin } from '../pinyin.ts';
 import { taipeiDayStart } from './quota.ts';
 import { toVecBlob } from '../db.ts';
@@ -30,8 +31,7 @@ export function queryTerms(query: string): string[] {
   return [...new Set(query.split(/[\s,，、]+/).map((t) => t.trim()).filter(Boolean))].slice(0, MAX_TERMS);
 }
 
-const ftsPhrase = (term: string) => `"${term.replace(/"/g, '""')}"`;
-export const likePattern = (term: string) => `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+export { likePattern } from '../fts.ts';
 
 // One episode or a range of Taipei days (both ends included), for either search
 export type EpisodeScope = { episode?: number | null; since?: string | null; until?: string | null };
