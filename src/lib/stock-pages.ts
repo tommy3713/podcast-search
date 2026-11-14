@@ -1,5 +1,6 @@
 import type { DB } from './db.ts';
 import { appendSegment, monthKey } from './format.ts';
+import { addHolidays, HOLIDAY_TERMS, type HolidayEpisode } from './holidays.ts';
 import { parseSeekTable, type PlayPoint, playPoint, type SeekTable } from './seek.ts';
 import type { Segment } from './segments.ts';
 import { readDb } from './server-db.ts';
@@ -143,9 +144,9 @@ export function adChapters(db: DB): AdChapter[] {
   return chapters;
 }
 
-// Live episodes' mentions in the topic categories
+// Live episodes' mentions in the topic categories (not 節日, which comes from the transcripts)
 export function topicRows(db: DB): TopicRow[] {
-  const cats = TOPIC_CATEGORIES.map((c) => c.category);
+  const cats = TOPIC_CATEGORIES.filter((c) => !c.source).map((c) => c.category);
   return db
     .prepare(
       `SELECT m.category, m.name, m.quote, m.start_sec AS startSec, e.episode_no AS episodeNo, e.title, e.published_at AS publishedAt,
@@ -155,6 +156,27 @@ export function topicRows(db: DB): TopicRow[] {
        ORDER BY e.episode_no DESC, m.start_sec, m.id`,
     )
     .all(...cats) as TopicRow[];
+}
+
+// Live episodes whose transcript has a holiday's word, for the 節日 pages. Only those are
+// parsed (about 130 of 313, a third of the transcripts' 14 MB), one at a time; one whose
+// transcript doesn't parse is left out.
+export function* holidayEpisodes(db: DB): Generator<HolidayEpisode> {
+  const rows = db
+    .prepare(
+      `SELECT episode_no AS episodeNo, title, published_at AS publishedAt, audio_url AS audioUrl, segments_json AS segments
+       FROM episodes WHERE status = 'done' AND segments_json IS NOT NULL AND (${HOLIDAY_TERMS.map(() => 'segments_json LIKE ?').join(' OR ')})`,
+    )
+    .iterate(...HOLIDAY_TERMS.map((t) => `%${t}%`)) as Iterable<Omit<HolidayEpisode, 'segments'> & { segments: string }>;
+  for (const r of rows) {
+    let segments: unknown;
+    try {
+      segments = JSON.parse(r.segments);
+    } catch {
+      continue;
+    }
+    if (Array.isArray(segments)) yield { ...r, segments: segments as Segment[] };
+  }
 }
 
 // Every episode page needs the index for its links, so it is built once and kept until an
@@ -177,6 +199,12 @@ export function liveMonths(db: DB): Map<string, number> {
   return months;
 }
 
+function topicIndex(db: DB, outlines: Map<number, EpisodeOutline>): TopicIndex {
+  const topics = buildTopicIndex(topicRows(db), new Map([...outlines].map(([no, o]) => [no, o.line ?? ''])));
+  addHolidays(topics, holidayEpisodes(db), outlines);
+  return topics;
+}
+
 // The index and the months of one moment: read apart, a publish in between could leave a
 // stock with an episode in a month the chart doesn't have
 export async function stockData(): Promise<Pages> {
@@ -189,7 +217,7 @@ export async function stockData(): Promise<Pages> {
     cached = {
       version,
       index: buildStockIndex(stockRows(d), outlines), sponsors: buildSponsorIndex(adChapters(d)),
-      topics: buildTopicIndex(topicRows(d), new Map([...outlines].map(([no, o]) => [no, o.line ?? '']))),
+      topics: topicIndex(d, outlines),
       liveMonths: liveMonths(d),
       newest: newestEpisodes(d, 2),
     };

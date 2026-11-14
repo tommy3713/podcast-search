@@ -71,8 +71,9 @@ export function Marquee({ items, label = '最近提到', min = 8 }: { items: { h
           {(still ? [0] : [0, 1]).map((copy) => (
             // The second copy only closes the loop
             <div key={copy} className="marquee-set" aria-hidden={copy === 1 || undefined}>
+              {/* Two things that came up once at the same moment share an href; recentItems keeps kind + label unique */}
               {items.map((r) => (
-                <Link key={r.href} href={r.href} prefetch={false} tabIndex={copy === 1 ? -1 : undefined} className="chip">
+                <Link key={`${r.kind}|${r.label}`} href={r.href} prefetch={false} tabIndex={copy === 1 ? -1 : undefined} className="chip">
                   {r.kind && <span className="fine">{r.kind}</span>}
                   {r.label}
                 </Link>

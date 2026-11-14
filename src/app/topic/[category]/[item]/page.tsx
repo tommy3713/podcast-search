@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ExcerptText } from '@/components/Excerpt';
+import { ExcerptText, ExcerptToggle } from '@/components/Excerpt';
 import { MonthChart } from '@/components/MonthChart';
 import { QuoteWall, Said } from '@/components/QuoteWall';
 import { PlayTs, StockPlayer } from '@/components/StockPlayer';
@@ -66,8 +66,11 @@ export default async function TopicItemPage({ params }: Props) {
   const points = stockPlayPoints(db, item);
   const audio = Object.fromEntries(item.episodes.map((e) => [e.no, e.audioUrl]));
   const lead = latest.notes[0]!;
+  // 節日 comes from the transcripts, where the passage is often a listener's message read on
+  // air: its words come on a click only, like every card's
+  const fromTranscript = item.category.source === 'transcript';
   // The newest episode's words are on the page from the start; the others' come on a click
-  const excerpt = excerptAt(db, latest.no, lead.t);
+  const excerpt = fromTranscript ? null : excerptAt(db, latest.no, lead.t);
   const related = coTopics(topics, item);
   const question = topicQuestion(item);
 
@@ -106,6 +109,7 @@ export default async function TopicItemPage({ params }: Props) {
               <PlayTs episodeNo={latest.no} t={lead.t} point={points.get(`${latest.no}:${lead.t}`) ?? null} />
             </div>
           )}
+          {fromTranscript && <ExcerptToggle episodeNo={latest.no} t={lead.t} />}
         </section>
         {bars.length > 0 && <MonthChart bars={bars} />}
         <section className="card stock-next">
@@ -128,7 +132,9 @@ export default async function TopicItemPage({ params }: Props) {
         </section>
         <QuoteWall episodes={item.episodes} points={points} />
         <p className="fine" style={{ margin: 0 }}>
-          內容由 AI 從每一集的摘要整理，引述是摘要記下的原話，可能有誤聽。以原節目為準。
+          {fromTranscript
+            ? `從每一集的逐字稿找出說到${item.name}的段落（業配不算），卡片上是 AI 摘要裡那一段的內容。逐字稿由 AI 轉錄，可能有誤聽，也可能是念出來的聽眾留言。以原節目為準。`
+            : '內容由 AI 從每一集的摘要整理，引述是摘要記下的原話，可能有誤聽。以原節目為準。'}
         </p>
       </div>
     </StockPlayer>
