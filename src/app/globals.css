@@ -596,3 +596,20 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
 .admin-report-facts { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 13px; }
 .admin-report-context { margin: 0; padding: 8px 12px; border-left: 3px solid var(--line); background: var(--bg); border-radius: 0 8px 8px 0; line-height: 1.7; font-size: 14px; overflow-wrap: anywhere; }
 .admin-report-actions { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 14px; }
+.admin-tabs { flex-wrap: wrap; }
+.admin-whisper { padding: 14px 16px; display: grid; gap: 10px; margin-bottom: 24px; }
+.admin-whisper textarea { width: 100%; box-sizing: border-box; font: inherit; line-height: 1.7; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical; }
+.admin-whisper-add { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 14px; }
+.admin-versions { list-style: none; padding: 0; margin: 0 0 24px; display: grid; gap: 10px; }
+.admin-versions li { padding: 12px 14px; }
+.admin-versions p { margin: 8px 0 0; line-height: 1.7; overflow-wrap: anywhere; }
+.admin-rule-editor { padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-bottom: 24px; }
+.admin-rule-editor .admin-report-actions button { white-space: normal; text-align: left; }
+.admin-rule-editor label { font-size: 14px; display: inline-flex; gap: 6px; align-items: center; }
+.admin-rule-note { border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 10px; padding: 9px 12px; font: inherit; min-width: 0; }
+.admin-rule-preview { list-style: none; padding: 0; margin: 0; max-height: 420px; overflow-y: auto; display: grid; gap: 10px; }
+.admin-rule-sample { margin: 2px 0 0 24px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.admin-small { font-size: 13px; margin: 0; }
+.admin-rules li.off { opacity: .55; }
+.admin-rule-toggle { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; }
+.admin-report-more { margin: 0; display: flex; gap: 14px; font-size: 13px; }

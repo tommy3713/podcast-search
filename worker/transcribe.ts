@@ -14,12 +14,18 @@ const MIN_GAP_SECONDS = 12;
 // Groq bills at least 10 seconds per request
 const MIN_BILLED_SECONDS = 10;
 
+// The Whisper prompt and the text_fixes rules to use (worker/repo.ts transcriptionSettings);
+// the defaults are the built-in prompt and no rules
+export type TranscribeOptions = { prompt?: string; rules?: [string, string][] };
+
 // Returns segments with episode-relative times, plus the audio seconds Groq will bill.
-export async function transcribe(parts: AudioPart[]): Promise<{ segments: Segment[]; billedSeconds: number }> {
+export async function transcribe(parts: AudioPart[], opts: TranscribeOptions = {}): Promise<{ segments: Segment[]; billedSeconds: number }> {
+  const prompt = opts.prompt ?? WHISPER_PROMPT;
+  const rules = opts.rules ?? [];
   const all: Segment[] = [];
   let billedSeconds = 0;
   for (const part of parts) {
-    const segs = clean(await transcribeFile(part.file), 0);
+    const segs = clean(await transcribeFile(part.file, prompt), 0, rules);
     billedSeconds += Math.max(part.duration, MIN_BILLED_SECONDS);
 
     // Sent as one long file, Whisper sometimes returns nothing for whole 30s windows of
@@ -29,7 +35,7 @@ export async function transcribe(parts: AudioPart[]): Promise<{ segments: Segmen
       const seconds = gap.end + 1 - start;
       const clip = `${part.file}.gap${Math.round(start)}.mp3`;
       await cutClip(part.file, start, seconds, clip);
-      const fill = clean(await transcribeFile(clip, { allowEmpty: true }), start);
+      const fill = clean(await transcribeFile(clip, prompt, { allowEmpty: true }), start, rules);
       fs.rmSync(clip, { force: true });
       billedSeconds += Math.max(seconds, MIN_BILLED_SECONDS);
       const mid = (s: Segment) => (s.start + s.end) / 2;
@@ -42,11 +48,11 @@ export async function transcribe(parts: AudioPart[]): Promise<{ segments: Segmen
   return { segments: dropLoops(all), billedSeconds };
 }
 
-function clean(raw: GroqSegment[], offset: number): Segment[] {
+function clean(raw: GroqSegment[], offset: number, rules: [string, string][]): Segment[] {
   const out: Segment[] = [];
   for (const s of raw) {
     if (isSilence(s)) continue;
-    const text = normalizeText(s.text);
+    const text = normalizeText(s.text, rules);
     if (text) out.push({ start: s.start + offset, end: s.end + offset, text });
   }
   return out;
@@ -64,14 +70,14 @@ export function findGaps(segs: Segment[], duration: number, minGap = MIN_GAP_SEC
   return gaps;
 }
 
-async function transcribeFile(file: string, opts: { allowEmpty?: boolean } = {}): Promise<GroqSegment[]> {
+async function transcribeFile(file: string, prompt: string, opts: { allowEmpty?: boolean } = {}): Promise<GroqSegment[]> {
   const form = new FormData();
   form.append('file', new Blob([fs.readFileSync(file)], { type: 'audio/mpeg' }), path.basename(file));
   form.append('model', 'whisper-large-v3');
   form.append('response_format', 'verbose_json');
   form.append('language', 'zh');
   form.append('temperature', '0');
-  form.append('prompt', WHISPER_PROMPT);
+  form.append('prompt', prompt);
 
   const res = await postWithRateLimit(form);
   if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 300)}`);

@@ -5,6 +5,7 @@ import { GRID, type SeekTable } from '@/lib/seek.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { STOCK_CATEGORY, type Summary } from '@/lib/summary.ts';
 import type { EditResult, TranscriptEdit } from '@/lib/transcript-edits.ts';
+import { currentPromptVersion } from '@/lib/whisper/prompts.ts';
 import type { Chunk, SummaryPoint } from './chunk.ts';
 import { MAX_RETRIES } from './config.ts';
 import type { RssEpisode } from './rss.ts';
@@ -107,6 +108,20 @@ export function saveSegments(db: DB, id: number, segments: Segment[], duration: 
        updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
      WHERE id = ?`,
   ).run(JSON.stringify(segments), Math.round(duration), costUsd, id);
+}
+
+// What a transcription uses: the current Whisper prompt (null id: the built-in one) and the
+// enabled text_fixes rules, longest first so a rule never splits a longer one's words
+export function transcriptionSettings(db: DB): { promptId: number | null; prompt: string; rules: [string, string][] } {
+  const p = currentPromptVersion(db);
+  const rules = db
+    .prepare('SELECT original, replacement FROM text_fixes WHERE enabled = 1 ORDER BY length(original) DESC, id')
+    .all() as { original: string; replacement: string }[];
+  return { promptId: p.id, prompt: p.text, rules: rules.map((r) => [r.original, r.replacement]) };
+}
+
+export function setWhisperPrompt(db: DB, id: number, promptId: number | null): void {
+  db.prepare('UPDATE episodes SET whisper_prompt_id = ? WHERE id = ?').run(promptId, id);
 }
 
 // Saved before embedding so a later failure doesn't pay for the summary again

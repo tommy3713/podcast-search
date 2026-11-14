@@ -12,7 +12,8 @@ const config: NextConfig = {
   // The database is mounted at runtime; never bake a local copy into the image
   outputFileTracingExcludes: { '/*': ['./data/**/*', './.env*'] },
   // sqlite-vec picks its platform package (sqlite-vec-linux-x64, ...) at runtime, which tracing can't see
-  outputFileTracingIncludes: { '/*': ['./node_modules/sqlite-vec-*/**/*'] },
+  // Whisper's vocabulary, read with fs by src/lib/whisper/tokens.ts (only /admin/whisper and its API)
+  outputFileTracingIncludes: { '/*': ['./node_modules/sqlite-vec-*/**/*', './src/lib/whisper/multilingual.tiktoken'] },
   turbopack: { root },
   poweredByHeader: false,
   // Next writes AGENTS.md on dev start; we keep our own docs

@@ -1,31 +1,25 @@
 import * as OpenCC from 'opencc-js';
+import { CONVERSION_FIXES } from '@/lib/text-fixes.ts';
+import { replaceOpen } from '@/lib/transcript-edits.ts';
 
 // Simplified → Traditional characters only (s2tw). Not twp: phrase conversion rewrites
 // what the speaker actually said (代碼→程式碼, 信息→資訊).
 const toTw = OpenCC.Converter({ from: 'cn', to: 'tw' });
 
-// Known mishearings of names on the show
-const FIXES: [string, string][] = [
-  ['聖風宮', '謝孟恭'],
-  ['謝夢恭', '謝孟恭'],
-  ['沈夢恭', '謝孟恭'],
-  // Not 孫悟空: when he talks about Dragon Ball, that is what he said
-  ['谷海', '股癌'],
-  ['古愛', '股癌'],
-  // s2tw maps 里 one-to-one and misses 裡 in 里面
-  ['里面', '裡面'],
-  // OpenCC turns 台 into 臺; Taiwan usage (台股, 台積電) is 台
-  ['臺', '台'],
-];
-
 const HALF_TO_FULL: Record<string, string> = { ',': '，', '?': '？', '!': '！', ':': '：', ';': '；' };
 const CJK_PUNCT = /(?<=[一-鿿])[,?!:;]|[,?!:;](?=[一-鿿])/g;
 
-export function normalizeText(s: string): string {
+// `rules`: the enabled text_fixes, [original, replacement] (mishearings, edited in
+// /admin/rules). They run last, on the text as it will be saved (converted, with the
+// conversion's own fixes and full-width punctuation), so a rule matches here what it matched
+// in live transcripts; and like everywhere else a rule applies, words already inside its
+// replacement are left alone (台積 → 台積電 doesn't touch 台積電).
+export function normalizeText(s: string, rules: [string, string][] = []): string {
   let t = toTw(s.trim());
-  for (const [wrong, right] of FIXES) t = t.replaceAll(wrong, right);
-  return t.replace(CJK_PUNCT, (c) => HALF_TO_FULL[c] ?? c);
+  for (const [wrong, right] of CONVERSION_FIXES) t = t.replaceAll(wrong, right);
+  t = t.replace(CJK_PUNCT, (c) => HALF_TO_FULL[c] ?? c);
+  for (const [wrong, right] of rules) t = replaceOpen(t, wrong, right).text;
+  return t;
 }
 
-export const WHISPER_PROMPT =
-  '歡迎收聽股癌，我是謝孟恭。今天聊聊台股、美股，Fed 跟聯準會的升息、降息，還有通膨、殖利率、ETF。半導體方面有台積電、輝達 NVIDIA、蘋果、Google、Meta、特斯拉。';
+export { WHISPER_PROMPT } from '@/lib/whisper/default-prompt.ts';

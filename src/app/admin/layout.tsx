@@ -18,6 +18,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <Link href="/admin/reports">
           錯字回報{pending > 0 && <span className="admin-count">{pending}</span>}
         </Link>
+        <Link href="/admin/rules">錯字規則</Link>
+        <Link href="/admin/whisper">Whisper 提示詞</Link>
       </nav>
       {children}
     </div>

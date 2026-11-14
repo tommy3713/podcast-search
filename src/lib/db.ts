@@ -204,6 +204,40 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX summary_edits_episode ON summary_edits (episode_id, id);
   `,
+  // Rules the worker applies to every new transcript (worker/text.ts normalizeText), edited in
+  // /admin/rules: the known mishearings that were hardcoded in FIXES, seeded here so nothing
+  // changes until an admin changes them. Applying one to episodes already live goes through
+  // transcript_edits / summary_edits (fix_id). And the Whisper prompt, edited in
+  // /admin/whisper: the newest row is the one used, none means the built-in one (WHISPER_PROMPT);
+  // each episode records the one it was transcribed with (NULL: the built-in one, or from
+  // before this was recorded).
+  `
+  CREATE TABLE text_fixes (
+    id          INTEGER PRIMARY KEY,
+    original    TEXT    NOT NULL UNIQUE,
+    replacement TEXT    NOT NULL,
+    note        TEXT,
+    enabled     INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+  );
+  INSERT INTO text_fixes (original, replacement, note) VALUES
+    ('聖風宮', '謝孟恭', '主持人的名字'),
+    ('謝夢恭', '謝孟恭', '主持人的名字'),
+    ('沈夢恭', '謝孟恭', '主持人的名字'),
+    ('谷海', '股癌', '節目名稱'),
+    ('古愛', '股癌', '節目名稱');
+
+  CREATE TABLE whisper_prompts (
+    id         INTEGER PRIMARY KEY,
+    text       TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+  );
+  ALTER TABLE episodes ADD COLUMN whisper_prompt_id INTEGER;
+
+  ALTER TABLE transcript_edits ADD COLUMN fix_id INTEGER; -- the rule it came from, if any
+  ALTER TABLE summary_edits ADD COLUMN fix_id INTEGER;
+  `,
 ];
 
 export function defaultDbPath(): string {

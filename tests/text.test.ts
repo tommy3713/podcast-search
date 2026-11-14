@@ -8,9 +8,16 @@ import { dropLoops, findGaps, isSilence, retryAfterMs } from '../worker/transcri
 const seg = (start: number, text: string) => ({ start, end: start + 5, text });
 
 describe('normalizeText', () => {
-  it('converts characters only, keeps 台, fixes names and punctuation', () => {
-    expect(normalizeText('台积电的代码,谢梦恭说')).toBe('台積電的代碼，謝孟恭說');
+  it('converts characters only, keeps 台, fixes punctuation and applies the rules given', () => {
+    expect(normalizeText('台积电的代码,谢梦恭说')).toBe('台積電的代碼，謝夢恭說');
+    expect(normalizeText('台积电的代码,谢梦恭说', [['謝夢恭', '謝孟恭']])).toBe('台積電的代碼，謝孟恭說');
     expect(normalizeText('趴进指数里面')).toBe('趴進指數裡面');
+  });
+
+  it('applies rules last, on the punctuation as saved, never doubling words already right', () => {
+    expect(normalizeText('台积和台积电', [['台積', '台積電']])).toBe('台積電和台積電');
+    // Whisper's half-width comma is full-width by the time the rule looks
+    expect(normalizeText('谢梦恭,说', [['謝夢恭，說', '謝孟恭，說']])).toBe('謝孟恭，說');
   });
 });
 

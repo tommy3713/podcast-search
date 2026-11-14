@@ -84,16 +84,26 @@ export function adminEpisode(db: DB, no: number): AdminEpisode | null {
   };
 }
 
-// reportId: the listener's report they come from (typo_reports), if any. Run inside the
-// caller's transaction when it has one.
-export function insertEdits(
-  db: DB,
-  episodeId: number,
-  edits: { start: number; oldText: string; newText: string }[],
-  reportId: number | null = null,
-): void {
-  const ins = db.prepare('INSERT INTO transcript_edits (episode_id, seg_start, old_text, new_text, report_id) VALUES (?, ?, ?, ?, ?)');
+// Where an edit came from, when not typed in the editor: a listener's report (typo_reports)
+// or a rule applied to episodes already live (text_fixes)
+export type EditSource = { reportId?: number; fixId?: number };
+
+// Run inside the caller's transaction when it has one
+export function insertEdits(db: DB, episodeId: number, edits: { start: number; oldText: string; newText: string }[], from: EditSource = {}): void {
+  const ins = db.prepare(
+    'INSERT INTO transcript_edits (episode_id, seg_start, old_text, new_text, report_id, fix_id) VALUES (?, ?, ?, ?, ?, ?)',
+  );
   db.transaction(() => {
-    for (const e of edits) ins.run(episodeId, e.start, e.oldText, e.newText, reportId);
+    for (const e of edits) ins.run(episodeId, e.start, e.oldText, e.newText, from.reportId ?? null, from.fixId ?? null);
   })();
+}
+
+export function insertSummaryEdit(db: DB, episodeId: number, oldText: string, newText: string, from: EditSource = {}): void {
+  db.prepare('INSERT INTO summary_edits (episode_id, old_text, new_text, report_id, fix_id) VALUES (?, ?, ?, ?, ?)').run(
+    episodeId,
+    oldText,
+    newText,
+    from.reportId ?? null,
+    from.fixId ?? null,
+  );
 }
