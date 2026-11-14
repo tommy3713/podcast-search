@@ -12,6 +12,10 @@
   /* The logo's two colours (components/BrandMark.tsx, app/icon.svg): the wave and handle, the glass's ring */
   --logo-ink: #537395;
   --logo-ring: #6ad7b4;
+  /* The players' play button and progress bar, in the logo's colours: slate with a white icon here,
+     teal with a dark icon in dark themes (white on teal would be 1.7:1) */
+  --play-bg: #537395;
+  --play-fg: #ffffff;
       --font-body: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
   --font-display: var(--font-serif), "Noto Serif TC", "Songti TC", "PMingLiU", serif;
   --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -23,6 +27,7 @@
     --accent: #5bb5dc; --accent-soft: #15303d;
     --warn: #e2a64a; --warn-soft: #36290f;
     --logo-ink: #8fabc9;
+    --play-bg: #6ad7b4; --play-fg: #0f1418;
     color-scheme: dark;
   }
 }
@@ -31,6 +36,7 @@
   --accent: #5bb5dc; --accent-soft: #15303d;
   --warn: #e2a64a; --warn-soft: #36290f;
   --logo-ink: #8fabc9;
+  --play-bg: #6ad7b4; --play-fg: #0f1418;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -167,10 +173,12 @@ h1, h2, h3 { text-wrap: balance; }
 .back { display: inline-block; font-size: 14px; color: var(--muted); text-decoration: none; margin-bottom: 14px; }
 .player { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 56px); z-index: 15; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; display: grid; grid-template-columns: auto auto auto auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-bottom: 16px; }
 .pbtn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); display: grid; place-items: center; padding: 0; }
-.pbtn.main { width: 42px; height: 42px; background: var(--fg); border-color: var(--fg); color: var(--surface); }
+.pbtn.main { width: 42px; height: 42px; background: var(--play-bg); border-color: var(--play-bg); color: var(--play-fg); }
+/* A little towards the text colour: darker in light themes, lighter in dark ones */
+.pbtn.main:hover, .mini-player .pbtn:not(.ghost):hover { background: color-mix(in srgb, var(--play-bg) 85%, var(--fg)); border-color: transparent; }
 .pbtn svg { width: 18px; height: 18px; fill: currentColor; }
 .ptime { font-size: 13px; white-space: nowrap; }
-.player input[type=range] { width: 100%; accent-color: var(--accent); }
+.player input[type=range] { width: 100%; accent-color: var(--play-bg); }
 .pspeed { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 2px 8px; font-size: 13px; font-family: var(--font-mono); }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
 .tabs button { border: 0; background: none; padding: 10px 16px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
@@ -340,7 +348,7 @@ a.cite { display: inline-block; text-decoration: none; }
 .stock-next a.chip:hover { border-color: var(--accent); color: var(--accent); }
 .stock-next .btn { font-size: 14px; }
 .mini-player { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 30; display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 6px 24px rgb(0 0 0 / .25); font-size: 14px; white-space: nowrap; max-width: calc(100vw - 24px); }
-.mini-player .pbtn { width: 36px; height: 36px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--fg); color: var(--surface); flex: none; }
+.mini-player .pbtn { width: 36px; height: 36px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--play-bg); color: var(--play-fg); flex: none; }
 .mini-player .pbtn svg { width: 18px; height: 18px; fill: currentColor; }
 .mini-player .pbtn.ghost { background: transparent; color: var(--muted); width: 30px; height: 30px; }
 .mini-player .now { display: flex; gap: 8px; align-items: baseline; }
