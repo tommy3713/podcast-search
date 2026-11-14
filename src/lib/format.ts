@@ -47,17 +47,25 @@ export function appendSegment(text: string, next: string): string {
   return text && !/[，。！？、：；,.!?]$/.test(text) ? `${text}，${next}` : text + next;
 }
 
+// The start of the paragraph each segment goes in: a segment starts a new paragraph once
+// `minSeconds` have passed since the current one started
+export function paragraphStarts(segments: Segment[], minSeconds = 30): number[] {
+  let start: number | null = null;
+  return segments.map((seg) => {
+    if (start === null || seg.start - start >= minSeconds) start = seg.start;
+    return start;
+  });
+}
+
 // Whisper segments are only a few seconds long; merge them into paragraphs of at
 // least `minSeconds` so the transcript reads as prose with a timestamp per paragraph.
 export function groupParagraphs(segments: Segment[], minSeconds = 30): Paragraph[] {
   const paragraphs: Paragraph[] = [];
-  let current: Paragraph | null = null;
-  for (const seg of segments) {
-    if (!current || seg.start - current.start >= minSeconds) {
-      current = { start: seg.start, text: '' };
-      paragraphs.push(current);
-    }
-    current.text = appendSegment(current.text, seg.text);
-  }
+  const starts = paragraphStarts(segments, minSeconds);
+  segments.forEach((seg, i) => {
+    const last = paragraphs.at(-1);
+    if (last && last.start === starts[i]) last.text = appendSegment(last.text, seg.text);
+    else paragraphs.push({ start: starts[i]!, text: seg.text });
+  });
   return paragraphs;
 }

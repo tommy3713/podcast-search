@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Paragraph } from '@/lib/format';
 import { offsetAt, type SeekModel, type SeekTable, seekModel, seekTarget } from '@/lib/seek';
 import { formatTimestamp, type Summary } from '@/lib/summary';
+import { TypoReporter } from './report/TypoReporter';
 
 type Tab = 'summary' | 'tx';
 
@@ -22,11 +23,27 @@ type Props = {
   initialTab: Tab;
   initialT: number | null;
   seek: SeekTable | null;
+  // For typo reports (TypoReporter)
+  episode: number;
+  signedIn: boolean;
 };
 
 const SPEEDS = [1, 1.25, 1.5, 2];
 
-export function EpisodeView({ audioUrl, duration, summary, stockHrefs, sponsorHrefs, mentionHrefs, paragraphs, initialTab, initialT, seek: table }: Props) {
+export function EpisodeView({
+  audioUrl,
+  duration,
+  summary,
+  stockHrefs,
+  sponsorHrefs,
+  mentionHrefs,
+  paragraphs,
+  initialTab,
+  initialT,
+  seek: table,
+  episode,
+  signedIn,
+}: Props) {
   const audio = useRef<HTMLAudioElement>(null);
   // Everything here works in audio time: where the listener really is. In Chromium and Safari,
   // which seek through the MP3's table of contents (src/lib/seek.ts), that's currentTime plus
@@ -177,10 +194,15 @@ export function EpisodeView({ audioUrl, duration, summary, stockHrefs, sponsorHr
       {/* Both panels are always rendered, so the transcript is in the server HTML for search
           engines; the inactive one is hidden. data-nosnippet keeps it indexed but out of result
           snippets, which use the description and key points instead of raw speech-to-text. */}
-      <div role="tabpanel" hidden={tab !== 'summary'}>
+      <p className="report-hint muted" data-nosnippet="">
+        看到錯字？選取文字就能回報{signedIn ? '' : '（需登入）'}
+      </p>
+      {/* data-report: where TypoReporter takes a selection from */}
+      <div role="tabpanel" hidden={tab !== 'summary'} data-report="summary">
         <SummaryTab summary={summary} stockHrefs={stockHrefs} sponsorHrefs={sponsorHrefs} mentionHrefs={mentionHrefs} onSeek={seek} />
       </div>
-      <div role="tabpanel" hidden={tab !== 'tx'} data-nosnippet="">
+      <TypoReporter episode={episode} signedIn={signedIn} />
+      <div role="tabpanel" hidden={tab !== 'tx'} data-nosnippet="" data-report="transcript">
         {/* While hidden it gets a fixed time, so playback (about 4 updates a second) doesn't
             re-render the whole transcript */}
         <TranscriptTab
@@ -464,7 +486,7 @@ const TranscriptTab = memo(function TranscriptTab(props: {
       );
     }
     rows.push(
-      <div key={i} data-i={i} className={`para${i === current && (playing || t > 0) ? ' now' : ''}`}>
+      <div key={i} data-i={i} data-at={p.start} className={`para${i === current && (playing || t > 0) ? ' now' : ''}`}>
         <Ts t={p.start} onSeek={onSeek} />
         <p>
           {parts[i]!.map((x, k) => {

@@ -9,6 +9,7 @@ import { backfillStep, describePlan, getBackfill, MAX_BACKFILL, planBackfill, ru
 import { backupToR2, episodeCountDrop, verifyBackup } from './backup.ts';
 import { runBot } from './bot.ts';
 import { applyPendingEdits, watchEdits } from './edits.ts';
+import { purgeReporters, watchReports } from './reports.ts';
 import { notify } from './notify.ts';
 import { diskWarning, ping, queueHealthy } from './monitor.ts';
 import { episodesWithPendingEdits, getEpisode, getState, setState } from './repo.ts';
@@ -45,7 +46,7 @@ const USAGE = `usage: worker <command>
   index-seek [ep]     work out where Chromium's and Safari's seeks land in live episodes lacking
                       it or with an older table (one download of each episode's audio; run does
                       this by itself)
-  apply-edits         apply the transcript edits sent from /admin and re-index those episodes
+  apply-edits         apply the transcript and summary edits sent from /admin and re-index those episodes
                       (run does this by itself every 15 s; this is for local snapshots)
   migrate             apply pending database migrations and exit (run by the deploy script)`;
 
@@ -88,6 +89,12 @@ async function nightly(db: DB): Promise<void> {
   check('清理問答紀錄', () => {
     purged = purgeAskLog(db);
     console.log(`nightly: deleted ${purged} ask_log rows`);
+    return null;
+  });
+  check('清理回報者', () => {
+    const n = purgeReporters(db);
+    purged += n;
+    console.log(`nightly: forgot the reporters of ${n} typo reports`);
     return null;
   });
   // Separate from the purge, so a failed VACUUM isn't reported as a failed purge
@@ -182,8 +189,10 @@ async function run(db: DB): Promise<void> {
   });
   void startSeekIndex(db, { paused: seekPaused });
   void runBackfill(db);
-  // Transcript corrections an admin sent from the site (src/app/admin)
+  // Transcript and summary corrections an admin sent from the site (src/app/admin), and
+  // listeners' typo reports waiting for the admin
   watchEdits(db, enqueue);
+  watchReports(db);
   for (;;) {
     const at = nextHalfHour(new Date());
     await new Promise((r) => setTimeout(r, at.getTime() - Date.now()));

@@ -84,9 +84,16 @@ export function adminEpisode(db: DB, no: number): AdminEpisode | null {
   };
 }
 
-export function insertEdits(db: DB, episodeId: number, edits: { start: number; oldText: string; newText: string }[]): void {
-  const ins = db.prepare('INSERT INTO transcript_edits (episode_id, seg_start, old_text, new_text) VALUES (?, ?, ?, ?)');
+// reportId: the listener's report they come from (typo_reports), if any. Run inside the
+// caller's transaction when it has one.
+export function insertEdits(
+  db: DB,
+  episodeId: number,
+  edits: { start: number; oldText: string; newText: string }[],
+  reportId: number | null = null,
+): void {
+  const ins = db.prepare('INSERT INTO transcript_edits (episode_id, seg_start, old_text, new_text, report_id) VALUES (?, ?, ?, ?, ?)');
   db.transaction(() => {
-    for (const e of edits) ins.run(episodeId, e.start, e.oldText, e.newText);
+    for (const e of edits) ins.run(episodeId, e.start, e.oldText, e.newText, reportId);
   })();
 }

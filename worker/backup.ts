@@ -56,6 +56,8 @@ export function stripAskLog(file: string): void {
   try {
     db.pragma('journal_mode = OFF');
     db.exec('DELETE FROM ask_log');
+    // Nor who sent a typo report (kept ASK_LOG_DAYS on the live database, like a question)
+    if (db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'typo_reports'`).get()) db.exec('UPDATE typo_reports SET user_id = NULL');
     db.exec('VACUUM');
   } finally {
     db.close();

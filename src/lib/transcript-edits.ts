@@ -63,6 +63,24 @@ function openOccurrences(text: string, wrong: string, right: string): { open: nu
   return { open, fixed: open.length < all.length };
 }
 
+// Replaces the occurrences of `wrong` in `text` (at most `limit`, from the start) that aren't
+// already part of `right` written there, so a suggestion that contains the words (台積 → 台積電)
+// never doubles text that's already right. How many it replaced.
+export function replaceOpen(text: string, wrong: string, right: string, limit = Infinity): { text: string; count: number } {
+  if (!wrong) return { text, count: 0 };
+  let out = '';
+  let last = 0;
+  let count = 0;
+  for (const q of openOccurrences(text, wrong, right).open) {
+    if (count >= limit) break;
+    if (q < last) continue; // overlapping occurrences (aa in aaa): the first one wins
+    out += text.slice(last, q) + right;
+    last = q + wrong.length;
+    count++;
+  }
+  return { text: out + text.slice(last), count };
+}
+
 // Applies edits in order to a copy of the segments. An edit applies to the segment it was
 // made on if that is unchanged; otherwise its change is applied in the nearest segment
 // within NEARBY_SECONDS that has the old words, at the occurrence nearest where it was.
@@ -113,7 +131,7 @@ export function cleanSegmentText(s: string): string {
 }
 
 // Every segment containing `wrong` (`index` into the segments: two can share a start), with
-// its text after replacing each occurrence
+// its text after replacing each occurrence not already inside `right` (replaceOpen)
 export function replaceMatches(
   segments: Segment[],
   wrong: string,
@@ -121,7 +139,7 @@ export function replaceMatches(
 ): { index: number; start: number; oldText: string; newText: string; count: number }[] {
   if (!wrong) return [];
   return segments.flatMap((s, index) => {
-    const count = s.text.split(wrong).length - 1;
-    return count ? [{ index, start: s.start, oldText: s.text, newText: s.text.replaceAll(wrong, () => right), count }] : [];
+    const r = replaceOpen(s.text, wrong, right);
+    return r.count ? [{ index, start: s.start, oldText: s.text, newText: r.text, count: r.count }] : [];
   });
 }

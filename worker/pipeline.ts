@@ -7,7 +7,7 @@ import type { Summary } from '@/lib/summary.ts';
 import { compress, download } from './audio.ts';
 import { chunkSegments, summaryPoints } from './chunk.ts';
 import { estimateCost, MAX_RETRIES, WORK_DIR, whisperCost } from './config.ts';
-import { putBackEdits } from './edits.ts';
+import { putBackEdits, putBackSummaryEdits } from './edits.ts';
 import { embed } from './embed.ts';
 import { notify } from './notify.ts';
 import {
@@ -97,14 +97,19 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
     step = 'summarize';
     let summary: Summary;
     if (ep.summary_draft_json && !opts.redoFrom && !opts.segments) {
-      summary = JSON.parse(ep.summary_draft_json) as Summary;
+      // An edit applied to the live summary while this draft waited goes into it too
+      // (a no-op for the ones already in it: replaceOpen)
+      summary = putBackSummaryEdits(db, ep.id, ep.episode_no, JSON.parse(ep.summary_draft_json) as Summary).summary;
       console.log(`${label}: reusing saved summary draft`);
     } else {
       progress('summarizing');
       console.log(`${label}: summarizing ${segments.length} segments`);
       const res = await summarize(ep.episode_no, segments, duration);
-      summary = res.summary;
+      // An admin's corrections to the old summary, where the new one has the same words
+      const back = putBackSummaryEdits(db, ep.id, ep.episode_no, res.summary);
+      summary = back.summary;
       saveDraft(db, ep.id, summary, res.costUsd);
+      if (back.message) await notify(back.message);
     }
 
     // ③ chunks, embeddings, publish
