@@ -9,7 +9,7 @@ const FIXES: [string, string][] = [
   ['聖風宮', '謝孟恭'],
   ['謝夢恭', '謝孟恭'],
   ['沈夢恭', '謝孟恭'],
-  ['孫悟空', '謝孟恭'],
+  // Not 孫悟空: when he talks about Dragon Ball, that is what he said
   ['谷海', '股癌'],
   ['古愛', '股癌'],
   // s2tw maps 里 one-to-one and misses 裡 in 里面
