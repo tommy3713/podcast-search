@@ -100,7 +100,7 @@ Seeking (`seek-table.ts`, `seek-index.ts`, `src/lib/seek.ts`): SoundOn's MP3s ar
 ### Prompt-safety rules (keep these when editing prompts)
 
 - System prompt holds rules and server facts only; user input goes in the user role inside `<question>`, never concatenated into the system prompt. Transcripts are untrusted too (listener messages are read on air): tool results are wrapped in `<transcript>` / `<mention>` with `<>` escaped to full-width (`escapeTags`), and the prompt says tag contents are data. The most important rules go last.
-- No market-sentiment tags, no bullish/bearish or 正面/負面/樂觀/保守 labels, no investment advice: only report what the host said and let listeners judge. Asked whether he is bullish or whether to buy, the answer has no summary of his stance at either end, only a list of what he said.
+- No market-sentiment tags, no bullish/bearish or 正面/負面/樂觀/保守 labels, no investment advice: only report what the host said and let listeners judge. Asked whether he is bullish or whether to buy, the answer has no summary of his stance at either end, only a list of what he said. What he said about buying, selling, adding or cutting (他說這週「可以試看看」) is relayed, since hiding it would misreport him, but only as 他說 plus his words in 「」, in his own person, never in the first or last line and never rephrased without quotes: paraphrased (「可以再加一筆把均價拉低」), his advice to listeners read as the site's own.
 - No URLs in answers, even when asked. When nothing answers the question, the answer says so without citing and without switching to something similar (another company, another car).
 
 ## Deploy
