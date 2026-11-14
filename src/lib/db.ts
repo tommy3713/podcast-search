@@ -149,6 +149,22 @@ const MIGRATIONS: string[] = [
     DELETE FROM chunks_pinyin WHERE rowid = old.id;
   END;
   `,
+  // An admin's corrections to transcripts (src/lib/transcript-edits.ts). The web only inserts
+  // rows; the worker applies them on its queue, re-indexes the episode and marks them, and
+  // puts them back after a retranscription. Pending: applied_at and error both NULL.
+  `
+  CREATE TABLE transcript_edits (
+    id         INTEGER PRIMARY KEY,
+    episode_id INTEGER NOT NULL REFERENCES episodes (id) ON DELETE CASCADE,
+    seg_start  REAL    NOT NULL,                 -- start of the segment edited (segments_json)
+    old_text   TEXT    NOT NULL,                 -- the segment's whole text before the edit
+    new_text   TEXT    NOT NULL,                 -- and after
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    applied_at TEXT,
+    error      TEXT                              -- why it couldn't be applied (or put back)
+  );
+  CREATE INDEX transcript_edits_episode ON transcript_edits (episode_id, id);
+  `,
 ];
 
 export function defaultDbPath(): string {

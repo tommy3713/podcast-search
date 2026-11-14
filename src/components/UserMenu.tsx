@@ -1,6 +1,7 @@
 'use client';
 
 import { signIn, signOut } from 'next-auth/react';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 // compact: the header's button, which reads just "登入" on phones (CSS hides .login-long
@@ -26,11 +27,13 @@ export function LoginButton({ callbackUrl, compact = false }: { callbackUrl?: st
   );
 }
 
-export function UserMenu({ name }: { name: string | null }) {
+// admin: the signed-in account is in ADMIN_USER_ID, so the header links to /admin
+export function UserMenu({ name, admin = false }: { name: string | null; admin?: boolean }) {
   if (name === null) return <div className="user"><LoginButton compact /></div>;
   const initial = [...name.trim()][0]?.toUpperCase() ?? '?';
   return (
     <div className="user">
+      {admin && <Link className="btn ghost" href="/admin" prefetch={false}>管理</Link>}
       <span className="name muted">{name}</span>
       <span className="avatar" title="已登入" aria-hidden="true">{initial}</span>
       <button className="btn ghost" onClick={() => signOut({ callbackUrl: '/' })}>登出</button>

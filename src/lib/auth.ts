@@ -30,3 +30,18 @@ export async function currentUser(): Promise<SessionUser | null> {
   const user = session?.user as Partial<SessionUser> | undefined;
   return user?.id ? { id: user.id, name: user.name ?? '' } : null;
 }
+
+// Admins are Google account ids (the sub) in ADMIN_USER_ID, comma-separated. Unset: nobody.
+export function isAdmin(user: SessionUser | null): boolean {
+  if (!user?.id) return false;
+  return (process.env.ADMIN_USER_ID ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .includes(user.id);
+}
+
+// The signed-in admin, or null. Admin pages and APIs answer 404 to everyone else.
+export async function currentAdmin(): Promise<SessionUser | null> {
+  const user = await currentUser();
+  return isAdmin(user) ? user : null;
+}
