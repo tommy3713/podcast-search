@@ -91,7 +91,9 @@ export default async function TopicCategoryPage({ params }: Props) {
         </section>
       )}
       <p className="fine" style={{ margin: 0 }}>
-        內容由 AI 從每一集的摘要整理，名稱可能有誤聽，同一件事也可能寫成不同名字。以原節目為準。
+        {c.source === 'transcript'
+          ? '從每一集的逐字稿找出說到這些節日的集數，業配不算。逐字稿由 AI 轉錄，可能有誤聽或遺漏。以原節目為準。'
+          : '內容由 AI 從每一集的摘要整理，名稱可能有誤聽，同一件事也可能寫成不同名字。以原節目為準。'}
       </p>
     </div>
   );

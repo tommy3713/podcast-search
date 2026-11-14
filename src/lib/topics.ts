@@ -16,9 +16,12 @@ export type TopicCategory = {
   label: string;
   // What the category page says it is
   blurb: string;
+  // Where its items come from: the summaries' mentions (the default), or the transcripts (節日,
+  // which the summaries don't keep as mentions)
+  source?: 'transcript';
 };
 
-// Every category but 其他. 家庭 is in at the owner's call (2026-11-13), parenting included.
+// Every mention category but 其他, then 節日. 家庭 is in at the owner's call (2026-11-13), parenting included.
 export const TOPIC_CATEGORIES: TopicCategory[] = [
   { slug: 'sports', category: '運動', label: '運動', blurb: '主委在做、在看的運動和比賽' },
   { slug: 'games', category: '遊戲', label: '電玩', blurb: '主委在玩、在聊的遊戲和遊戲機' },
@@ -27,7 +30,31 @@ export const TOPIC_CATEGORIES: TopicCategory[] = [
   { slug: 'food', category: '美食', label: '美食', blurb: '主委吃過、喝過的餐廳、食物和酒' },
   { slug: 'tech', category: '科技產品', label: '科技產品', blurb: '主委在用、在聊的 3C、App 和車' },
   { slug: 'family', category: '家庭', label: '家庭', blurb: '主委的家人、育兒和寵物' },
+  // Not a mention category: built from the transcripts by holidays.ts (owner's call, 2026-11-14)
+  { slug: 'holidays', category: '節日', label: '節日', blurb: '節目裡聊到的節日：怎麼過、聊了什麼', source: 'transcript' },
 ];
+
+export type Holiday = { name: string; slug: string; terms: string[] };
+
+// The holidays with a page, and the words that name each in a transcript. Looked for in the
+// transcript, where 新年 is mostly listeners' 新年快樂 and doesn't say which new year, so it isn't
+// one; 雙11 is left out, being nearly all ads. Every word here was checked in the transcripts
+// for what it also catches (過年 in 抱股過年 is the holiday too).
+export const HOLIDAYS: Holiday[] = [
+  { name: '跨年', slug: 'new-years-eve', terms: ['跨年', '元旦'] },
+  { name: '農曆新年', slug: 'lunar-new-year', terms: ['過年', '春節', '農曆新年', '除夕'] },
+  { name: '情人節', slug: 'valentines-day', terms: ['情人節', '七夕'] },
+  { name: '母親節', slug: 'mothers-day', terms: ['母親節'] },
+  { name: '端午節', slug: 'dragon-boat-festival', terms: ['端午'] },
+  { name: '父親節', slug: 'fathers-day', terms: ['父親節'] },
+  { name: '中秋節', slug: 'mid-autumn-festival', terms: ['中秋'] },
+  { name: '萬聖節', slug: 'halloween', terms: ['萬聖', 'halloween'] },
+  { name: '聖誕節', slug: 'christmas', terms: ['聖誕', '耶誕', 'christmas'] },
+];
+
+export function holidayPattern(h: Holiday): RegExp {
+  return new RegExp(h.terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'i');
+}
 
 type Alias = { name: string; slug: string; patterns: RegExp[] };
 
@@ -124,6 +151,8 @@ export const TOPIC_ALIASES: Record<string, Alias[]> = {
     // His younger son: 安哥, also written as his name 祁安 / 祈安 and as Killian
     { name: '安哥', slug: 'ange', patterns: [/^安哥$|^[祁祈]安$|^killian$/i] },
   ],
+  // So /topic/holidays/萬聖節 finds its page
+  節日: HOLIDAYS.map((h) => ({ name: h.name, slug: h.slug, patterns: [holidayPattern(h)] })),
   科技產品: [
     // Before iPhone and Apple
     { name: 'Apple 折疊機', slug: 'apple-foldable', patterns: [/(apple|蘋果) ?(折疊|摺疊)|apple duo|iphone \d* ?折疊/i] },
@@ -205,6 +234,11 @@ export function topicOf(category: string, name: string): { slug: string; name: s
   return { slug, name: alias?.name ?? null };
 }
 
+// An item's episodes: newest first, by date
+export function newestFirst(a: Pick<TopicEpisode, 'no' | 'publishedAt'>, b: Pick<TopicEpisode, 'no' | 'publishedAt'>): number {
+  return a.publishedAt === b.publishedAt ? b.no - a.no : a.publishedAt < b.publishedAt ? 1 : -1;
+}
+
 const CATEGORY_OF = new Map(TOPIC_CATEGORIES.map((c) => [c.category, c]));
 
 // `lines`: episode number → its one-line summary
@@ -241,7 +275,7 @@ export function buildTopicIndex(rows: TopicRow[], lines: Map<number, string> = n
     const isAlias = (TOPIC_ALIASES[item.category.category] ?? []).some((a) => a.slug === item.slug);
     if (isAlias) item.name = TOPIC_ALIASES[item.category.category]!.find((a) => a.slug === item.slug)!.name;
     else item.name = [...names].sort((a, b) => b[1] - a[1])[0]![0];
-    item.episodes.sort((a, b) => (a.publishedAt === b.publishedAt ? b.no - a.no : a.publishedAt < b.publishedAt ? 1 : -1));
+    item.episodes.sort(newestFirst);
     for (const e of item.episodes) e.notes.sort((a, b) => a.t - b.t);
   }
   return index;

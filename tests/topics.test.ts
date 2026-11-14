@@ -118,7 +118,7 @@ describe('buildTopicIndex', () => {
   });
 
   it('leaves the categories without pages out', () => {
-    expect([...index.keys()]).toEqual(['sports', 'games', 'travel', 'media', 'food', 'tech', 'family']);
+    expect([...index.keys()]).toEqual(['sports', 'games', 'travel', 'media', 'food', 'tech', 'family', 'holidays']);
     expect([...index.values()].flatMap((m) => [...m.values()]).some((i) => i.name === '林口')).toBe(false);
     expect(findTopic(index, 'family', 'noah')!.name).toBe('諾亞');
   });

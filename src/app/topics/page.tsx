@@ -11,7 +11,7 @@ import { listedTopics, TOPIC_CATEGORIES, TOPIC_INDEX_MIN_EPISODES, topicCategory
 
 const TITLE = `主題・${SITE_NAME}`;
 const DESCRIPTION =
-  '《股癌》跨集數的主題整理：提過的個股、業配，以及主委的運動、電玩、旅遊、書影音、美食、科技產品和家庭，每一個在哪幾集、第幾分鐘。非官方粉絲整理。';
+  '《股癌》跨集數的主題整理：提過的個股、業配，以及主委的運動、電玩、旅遊、書影音、美食、科技產品、家庭和節日，每一個在哪幾集、第幾分鐘。非官方粉絲整理。';
 
 export const metadata: Metadata = {
   title: { absolute: TITLE },
@@ -88,7 +88,7 @@ export default async function TopicsPage() {
         ))}
       </SpotlightGrid>
       <p className="fine" style={{ margin: 0 }}>
-        內容由 AI 從每一集的摘要整理，可能有遺漏或誤聽，以原節目為準。
+        內容由 AI 從每一集的摘要和逐字稿整理，可能有遺漏或誤聽，以原節目為準。
       </p>
     </div>
   );
