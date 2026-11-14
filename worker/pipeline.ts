@@ -7,6 +7,7 @@ import type { Summary } from '@/lib/summary.ts';
 import { compress, download } from './audio.ts';
 import { chunkSegments, summaryPoints } from './chunk.ts';
 import { estimateCost, MAX_RETRIES, WORK_DIR, whisperCost } from './config.ts';
+import { putBackEdits } from './edits.ts';
 import { embed } from './embed.ts';
 import { notify } from './notify.ts';
 import {
@@ -65,9 +66,13 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
     let segments: Segment[];
     let duration: number;
     if (opts.segments) {
-      segments = opts.segments;
+      // A whole new transcript, like a retranscription: an admin's corrections go back in
+      const back = putBackEdits(db, ep.id, ep.episode_no, opts.segments);
+      segments = back.segments;
       duration = segments.at(-1)?.end ?? 0;
       saveSegments(db, ep.id, segments, duration, 0);
+      back.save();
+      if (back.message) await notify(back.message);
     } else if (ep.segments_json && opts.redoFrom !== 'transcribe') {
       segments = JSON.parse(ep.segments_json) as Segment[];
       duration = ep.duration ?? segments.at(-1)?.end ?? 0;
@@ -76,8 +81,14 @@ export async function processEpisode(db: DB, ep: EpisodeRow, opts: ProcessOption
       progress('transcribing');
       let billedSeconds: number;
       let seek: SeekTable | null | undefined;
-      ({ segments, duration, billedSeconds, seek } = await transcribeFromRss(ep));
+      let fresh: Segment[];
+      ({ segments: fresh, duration, billedSeconds, seek } = await transcribeFromRss(ep));
+      // An admin's corrections to the old transcript, put back before the summary reads it
+      const back = putBackEdits(db, ep.id, ep.episode_no, fresh);
+      segments = back.segments;
       saveSegments(db, ep.id, segments, duration, whisperCost(billedSeconds));
+      back.save();
+      if (back.message) await notify(back.message);
       // The table of the file just transcribed; undefined (unreadable) leaves it to seek-index.ts
       saveSeekTable(db, ep.id, seek === undefined ? null : (seek ?? NO_SEEK_TABLE));
     }

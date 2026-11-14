@@ -3,7 +3,8 @@ import { type DB, defaultDbPath, openDb } from './db.ts';
 
 // Pages and Q&A tools only read. The worker is the main writer; WAL lets both run at once.
 let readonly: DB | undefined;
-// Only for ask_usage and ask_log. Never handed to anything the model can call.
+// Only for ask_usage, ask_log and an admin's transcript_edits. Never handed to anything the
+// model can call.
 let writable: DB | undefined;
 
 export async function readDb(): Promise<DB> {

@@ -8,9 +8,10 @@ import { drain, type EpisodeAction, enqueue, onQueueChange, poll, queueState, ru
 import { backfillStep, describePlan, getBackfill, MAX_BACKFILL, planBackfill, runBackfill, startBackfill } from './backfill.ts';
 import { backupToR2, episodeCountDrop, verifyBackup } from './backup.ts';
 import { runBot } from './bot.ts';
+import { applyPendingEdits, watchEdits } from './edits.ts';
 import { notify } from './notify.ts';
 import { diskWarning, ping, queueHealthy } from './monitor.ts';
-import { getEpisode, getState, setState } from './repo.ts';
+import { episodesWithPendingEdits, getEpisode, getState, setState } from './repo.ts';
 import { fetchFeed, parseFeed } from './rss.ts';
 import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } from './schedule.ts';
 import { indexPinyin } from './pinyin-index.ts';
@@ -44,6 +45,8 @@ const USAGE = `usage: worker <command>
   index-seek [ep]     work out where Chromium's and Safari's seeks land in live episodes lacking
                       it or with an older table (one download of each episode's audio; run does
                       this by itself)
+  apply-edits         apply the transcript edits sent from /admin and re-index those episodes
+                      (run does this by itself every 15 s; this is for local snapshots)
   migrate             apply pending database migrations and exit (run by the deploy script)`;
 
 async function ingest(db: DB, episodeNo: number, args: string[]): Promise<void> {
@@ -179,6 +182,8 @@ async function run(db: DB): Promise<void> {
   });
   void startSeekIndex(db, { paused: seekPaused });
   void runBackfill(db);
+  // Transcript corrections an admin sent from the site (src/app/admin)
+  watchEdits(db, enqueue);
   for (;;) {
     const at = nextHalfHour(new Date());
     await new Promise((r) => setTimeout(r, at.getTime() - Date.now()));
@@ -276,6 +281,12 @@ async function main(): Promise<void> {
       const r = await indexSeekTables(db, { only });
       if (r.failed.length) process.exitCode = 1;
       else if (!r.episodes) console.log('every live episode has a seek table');
+      return;
+    }
+    case 'apply-edits': {
+      const eps = episodesWithPendingEdits(db);
+      if (!eps.length) console.log('no transcript edits waiting');
+      for (const ep of eps) await applyPendingEdits(db, ep.episode_no);
       return;
     }
     case 'migrate':

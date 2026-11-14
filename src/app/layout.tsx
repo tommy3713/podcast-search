@@ -5,7 +5,7 @@ import { BrandMark } from '@/components/BrandMark';
 import { Nav } from '@/components/Nav';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UserMenu } from '@/components/UserMenu';
-import { currentUser } from '@/lib/auth';
+import { currentUser, isAdmin } from '@/lib/auth';
 import { isProduction } from '@/lib/env';
 import { SITE_NAME, SITE_URL } from '@/lib/seo';
 import { THEME_SCRIPT } from '@/lib/theme';
@@ -54,7 +54,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Nav variant="desk" />
             <div className="actions">
               <ThemeToggle />
-              <UserMenu name={user?.name ?? null} />
+              <UserMenu name={user?.name ?? null} admin={isAdmin(user)} />
             </div>
           </div>
         </header>

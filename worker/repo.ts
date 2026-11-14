@@ -4,6 +4,7 @@ import { toPinyin } from '@/lib/pinyin.ts';
 import { GRID, type SeekTable } from '@/lib/seek.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { STOCK_CATEGORY, type Summary } from '@/lib/summary.ts';
+import type { EditResult, TranscriptEdit } from '@/lib/transcript-edits.ts';
 import type { Chunk, SummaryPoint } from './chunk.ts';
 import { MAX_RETRIES } from './config.ts';
 import type { RssEpisode } from './rss.ts';
@@ -225,6 +226,27 @@ export function savePinyin(db: DB, rows: { id: number; text: string; pinyin: str
   })();
 }
 
+// Replaces an episode's chunks with their vectors and pinyin (FTS follows by trigger). Run
+// inside a transaction.
+function writeChunks(db: DB, id: number, chunks: Chunk[], vectors: number[][], pinyins: string[]): void {
+  if (chunks.length !== vectors.length) throw new Error(`${chunks.length} chunks but ${vectors.length} vectors`);
+  const old = db.prepare('SELECT id FROM chunks WHERE episode_id = ?').all(id) as { id: number }[];
+  const delVec = db.prepare('DELETE FROM chunks_vec WHERE rowid = ?');
+  for (const c of old) delVec.run(BigInt(c.id));
+  db.prepare('DELETE FROM chunks WHERE episode_id = ?').run(id);
+
+  const insChunk = db.prepare('INSERT INTO chunks (episode_id, idx, start_sec, text) VALUES (?, ?, ?, ?)');
+  // The old chunks' rows went with them (trigger chunks_pinyin_ad)
+  const writePinyin = pinyinWriter(db);
+  // sqlite-vec rejects rowids bound as JS numbers (better-sqlite3 sends REAL); use BigInt
+  const insVec = db.prepare('INSERT INTO chunks_vec (rowid, embedding) VALUES (?, ?)');
+  chunks.forEach((c, i) => {
+    const { lastInsertRowid } = insChunk.run(id, c.idx, c.startSec, c.text);
+    insVec.run(BigInt(lastInsertRowid), toVecBlob(vectors[i]!));
+    writePinyin(lastInsertRowid, pinyins[i]!);
+  });
+}
+
 // Replaces any earlier chunks, summary points and mentions, so re-running an episode is
 // safe. Returns the episode's total cost so far.
 export function publishEpisode(
@@ -239,26 +261,11 @@ export function publishEpisode(
     costUsd: number;
   },
 ): number {
-  if (data.chunks.length !== data.vectors.length) throw new Error(`${data.chunks.length} chunks but ${data.vectors.length} vectors`);
   // Before the transaction, which this CPU work would otherwise hold open
   const pinyins = data.chunks.map((c) => toPinyin(c.text));
   return db.transaction(() => {
-    const old = db.prepare('SELECT id FROM chunks WHERE episode_id = ?').all(id) as { id: number }[];
-    const delVec = db.prepare('DELETE FROM chunks_vec WHERE rowid = ?');
-    for (const c of old) delVec.run(BigInt(c.id));
-    db.prepare('DELETE FROM chunks WHERE episode_id = ?').run(id);
+    writeChunks(db, id, data.chunks, data.vectors, pinyins);
     db.prepare('DELETE FROM mentions WHERE episode_id = ?').run(id);
-
-    const insChunk = db.prepare('INSERT INTO chunks (episode_id, idx, start_sec, text) VALUES (?, ?, ?, ?)');
-    // The old chunks' rows went with them (trigger chunks_pinyin_ad)
-    const writePinyin = pinyinWriter(db);
-    // sqlite-vec rejects rowids bound as JS numbers (better-sqlite3 sends REAL); use BigInt
-    const insVec = db.prepare('INSERT INTO chunks_vec (rowid, embedding) VALUES (?, ?)');
-    data.chunks.forEach((c, i) => {
-      const { lastInsertRowid } = insChunk.run(id, c.idx, c.startSec, c.text);
-      insVec.run(BigInt(lastInsertRowid), toVecBlob(data.vectors[i]!));
-      writePinyin(lastInsertRowid, pinyins[i]!);
-    });
 
     const insMention = db.prepare(
       'INSERT INTO mentions (episode_id, category, name, code, detail, quote, start_sec) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -294,4 +301,90 @@ export function episodesWithoutSeekTable(db: DB): { id: number; episode_no: numb
 // null: not known (seek-index.ts works it out later)
 export function saveSeekTable(db: DB, id: number, table: SeekTable | null): void {
   db.prepare('UPDATE episodes SET seek_json = ? WHERE id = ?').run(table && JSON.stringify(table), id);
+}
+
+type EditRow = { id: number; seg_start: number; old_text: string; new_text: string };
+const toEdit = (r: EditRow): TranscriptEdit => ({ id: r.id, segStart: r.seg_start, oldText: r.old_text, newText: r.new_text });
+
+// Episodes with edits waiting to be applied, oldest edit first
+export function episodesWithPendingEdits(db: DB): { id: number; episode_no: number }[] {
+  return db
+    .prepare(
+      `SELECT e.id, e.episode_no FROM episodes e JOIN transcript_edits t ON t.episode_id = e.id
+       WHERE t.applied_at IS NULL AND t.error IS NULL GROUP BY e.id ORDER BY MIN(t.id)`,
+    )
+    .all() as { id: number; episode_no: number }[];
+}
+
+export function pendingEdits(db: DB, episodeId: number): TranscriptEdit[] {
+  return (
+    db
+      .prepare(
+        'SELECT id, seg_start, old_text, new_text FROM transcript_edits WHERE episode_id = ? AND applied_at IS NULL AND error IS NULL ORDER BY id',
+      )
+      .all(episodeId) as EditRow[]
+  ).map(toEdit);
+}
+
+// Edits in the episode's transcript now, which a retranscription has to put back
+export function appliedEdits(db: DB, episodeId: number): TranscriptEdit[] {
+  return (
+    db
+      .prepare(
+        'SELECT id, seg_start, old_text, new_text FROM transcript_edits WHERE episode_id = ? AND applied_at IS NOT NULL AND error IS NULL ORDER BY id',
+      )
+      .all(episodeId) as EditRow[]
+  ).map(toEdit);
+}
+
+// Records what applying (or putting back) edits did: exact and nearby rows move to where they
+// now apply, already ones keep theirs, and both are marked applied if they weren't; missing
+// ones get the error. Run inside a transaction.
+function saveEditResults(db: DB, results: EditResult[], missingError: string): void {
+  const stamp = `applied_at = COALESCE(applied_at, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))`;
+  const moved = db.prepare(`UPDATE transcript_edits SET seg_start = ?, old_text = ?, new_text = ?, ${stamp} WHERE id = ?`);
+  const applied = db.prepare(`UPDATE transcript_edits SET ${stamp} WHERE id = ?`);
+  const failed = db.prepare('UPDATE transcript_edits SET error = ? WHERE id = ?');
+  for (const r of results) {
+    if (r.outcome === 'missing') failed.run(missingError, r.id);
+    else if (r.outcome === 'already') applied.run(r.id);
+    else moved.run(r.segStart!, r.oldText!, r.newText!, r.id);
+  }
+}
+
+export function recordEditResults(db: DB, results: EditResult[], missingError: string): void {
+  db.transaction(() => saveEditResults(db, results, missingError))();
+}
+
+// Swaps in an edited transcript and its chunks in one transaction and marks the edits,
+// leaving the summary, its points and the mentions alone. Throws if segments_json changed
+// since it was read (`readJson`), so edits never overwrite a transcript they weren't applied
+// to. Returns the episode's total cost so far.
+export function reindexEpisode(
+  db: DB,
+  id: number,
+  data: { readJson: string; segments: Segment[]; chunks: Chunk[]; vectors: number[][]; costUsd: number; results: EditResult[] },
+): number {
+  // Before the transaction, which this CPU work would otherwise hold open
+  const pinyins = data.chunks.map((c) => toPinyin(c.text));
+  return db.transaction(() => {
+    const now = db.prepare('SELECT segments_json FROM episodes WHERE id = ?').get(id) as { segments_json: string | null } | undefined;
+    if (now?.segments_json !== data.readJson) throw new Error('逐字稿在套用修正時被改過');
+    writeChunks(db, id, data.chunks, data.vectors, pinyins);
+    saveEditResults(db, data.results, '找不到要改的原文');
+    const row = db
+      .prepare(
+        `UPDATE episodes SET segments_json = ?, cost_usd = COALESCE(cost_usd, 0) + ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+         WHERE id = ? RETURNING cost_usd`,
+      )
+      .get(JSON.stringify(data.segments), data.costUsd, id) as { cost_usd: number };
+    return row.cost_usd;
+  })();
+}
+
+// Gives up on an episode's pending edits (it isn't on the site), returning how many
+export function failPendingEdits(db: DB, episodeId: number, error: string): number {
+  return db
+    .prepare('UPDATE transcript_edits SET error = ? WHERE episode_id = ? AND applied_at IS NULL AND error IS NULL')
+    .run(error, episodeId).changes;
 }

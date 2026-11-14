@@ -18,7 +18,7 @@ const TRAINING_ONLY = [
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
-      { userAgent: '*', allow: '/', disallow: '/api/' },
+      { userAgent: '*', allow: '/', disallow: ['/api/', '/admin'] },
       { userAgent: TRAINING_ONLY, disallow: '/' },
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,
