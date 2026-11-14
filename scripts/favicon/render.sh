@@ -8,7 +8,9 @@ ROOT="$DIR/../.."
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 CHROME="${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+# Light scheme whatever the Mac's setting: icon.svg has a dark-mode rule, and these files are static
 "$CHROME" --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
+  --blink-settings=preferredColorScheme=1 \
   --default-background-color=00000000 --window-size=276,180 \
   --virtual-time-budget=4000 --screenshot="$TMP/strip.png" "file://$DIR/icons.html" 2>/dev/null
 [ -s "$TMP/strip.png" ] || { echo "Chrome wrote no screenshot (set CHROME to its binary)" >&2; exit 1; }

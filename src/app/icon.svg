@@ -1,10 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="#16202a"/>
-  <circle cx="14.5" cy="14.5" r="8.5" fill="none" stroke="#fff" stroke-width="3"/>
-  <path d="M21 21 L26.5 26.5" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
-  <g fill="#5bb5dc">
-    <rect x="9" y="12" width="3" height="5" rx="1.5"/>
-    <rect x="13" y="9" width="3" height="11" rx="1.5"/>
-    <rect x="17" y="11" width="3" height="7" rx="1.5"/>
+  <!-- The header mark (components/BrandMark.tsx) cut down to what reads at 16 px: the ring, three bars, the handle -->
+  <style>@media (prefers-color-scheme: dark) { .ink { fill: #8fabc9; } }</style>
+  <g class="ink" fill="#537395">
+    <rect x="8.7" y="10.5" width="2.4" height="6" rx="1.2"/>
+    <rect x="12.3" y="8" width="2.4" height="11" rx="1.2"/>
+    <rect x="15.9" y="10" width="2.4" height="7" rx="1.2"/>
+    <path transform="translate(13.5 13.5) rotate(45)" d="M14 -2.6 L21 -2.6 A2.6 2.6 0 0 1 21 2.6 L14 2.6 Z"/>
   </g>
+  <path d="M21.28 21.28 L23.75 23.75" stroke="#6AD7B4" stroke-width="2.2"/>
+  <circle cx="13.5" cy="13.5" r="9.5" fill="none" stroke="#6AD7B4" stroke-width="3.2"/>
 </svg>

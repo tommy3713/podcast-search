@@ -2,58 +2,160 @@
 <html lang="zh-Hant-TW">
 <head>
 <meta charset="utf-8">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700&family=IBM+Plex+Mono:wght@500&display=block">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600&family=Noto+Sans+TC:wght@500&display=block">
 <style>
+  /* Light frosted look: a big wordmark in the middle, glass cards (search, players, transcript
+     lines) and faint sound waves around it. Waves and bars are drawn by the script below. */
   html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
   :root {
-    --og-bg: #101a22; --og-fg: #eef2f5; --og-muted: #8fa1b0; --og-accent: #5bb5dc;
-    --font-display: "Noto Serif TC", "Songti TC", serif;
-    --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+    --bg: #eef0f4; --ink: #1d2a3c; --slate: #537395; --teal: #6ad7b4; --muted: #8a94a3;
+    --sans: "Inter", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
   }
-  .og-frame { container-type: inline-size; width: 1200px; height: 630px; }
-  .og { width: 100%; height: 100%; box-sizing: border-box; background: var(--og-bg); color: var(--og-fg); display: grid; grid-template-columns: 1.15fr 1fr; padding: 6.5cqw 6cqw; gap: 4cqw; }
-  .og-left { display: grid; align-content: space-between; min-width: 0; }
-  .og-brand { display: flex; align-items: center; gap: 2.2cqw; }
-  .og-mark { width: 9cqw; height: 9cqw; display: block; flex: none; }
-  .og-name { font-family: var(--font-display); font-weight: 700; font-size: 6.4cqw; letter-spacing: .03em; }
-  .og-claim { font-family: var(--font-display); font-weight: 600; font-size: 3.6cqw; line-height: 1.45; }
-  .og-claim em { font-style: normal; color: var(--og-accent); }
-  .og-foot { display: grid; gap: .6cqw; font-family: "PingFang TC", sans-serif; font-size: 1.9cqw; color: var(--og-muted); }
-  .og-foot b { color: var(--og-fg); font-family: var(--font-mono); font-weight: 500; font-size: 2.1cqw; letter-spacing: .02em; }
-  .og-right { display: grid; align-content: center; gap: 1.5cqw; min-width: 0; }
-  .og-row { display: grid; grid-template-columns: 7.4cqw 1fr; gap: 1.4cqw; align-items: center; }
-  .og-ts { font-family: var(--font-mono); font-size: 1.85cqw; color: var(--og-accent); background: color-mix(in srgb, var(--og-accent) 14%, transparent); border-radius: .8cqw; padding: .4cqw 0; text-align: center; }
-  .og-bar { height: 1.3cqw; border-radius: 1cqw; background: color-mix(in srgb, var(--og-fg) 16%, transparent); }
-  .og-row:nth-child(1) .og-bar { width: 92%; } .og-row:nth-child(2) .og-bar { width: 74%; }
-  .og-row:nth-child(3) .og-bar { width: 86%; } .og-row:nth-child(4) .og-bar { width: 62%; }
-  .og-row:nth-child(5) .og-bar { width: 80%; } .og-row:nth-child(6) .og-bar { width: 54%; }
-  .og-row.hl .og-bar { background: color-mix(in srgb, var(--og-accent) 55%, transparent); }
+  .og { position: relative; width: 1200px; height: 630px; overflow: hidden; font-family: var(--sans); color: var(--ink);
+    background: radial-gradient(ellipse at 50% 45%, #f7f8fa 0%, var(--bg) 70%); }
+  .abs { position: absolute; }
+  .glow { position: absolute; border-radius: 50%; background: radial-gradient(circle, rgb(106 215 180 / .32), transparent 70%); filter: blur(6px); }
+  .glow.slate { background: radial-gradient(circle, rgb(83 115 149 / .2), transparent 70%); }
+  .card { position: absolute; box-sizing: border-box; border-radius: 12px; background: rgb(255 255 255 / .62);
+    border: 1px solid rgb(255 255 255 / .95); box-shadow: 0 10px 30px rgb(29 42 60 / .08), 0 1px 2px rgb(29 42 60 / .06); backdrop-filter: blur(6px); }
+  .wave { position: absolute; display: block; }
+  .dots { position: absolute; display: grid; gap: 9px; }
+  .dots i { width: 5px; height: 5px; border-radius: 50%; background: #c9ced6; }
+  .dots i.t { background: var(--teal); }
+  .node { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: #4fc4a1; box-shadow: 0 0 0 5px rgb(106 215 180 / .25), 0 0 18px 6px rgb(106 215 180 / .35); }
+  svg.lines { position: absolute; inset: 0; }
+  .play { width: 26px; height: 26px; border-radius: 50%; background: #6c7f99; display: grid; place-items: center; flex: none; }
+  .play::after { content: ""; border-left: 8px solid #fff; border-top: 5px solid transparent; border-bottom: 5px solid transparent; margin-left: 2px; }
+  .tri { width: 0; height: 0; border-left: 11px solid var(--ink); border-top: 7px solid transparent; border-bottom: 7px solid transparent; flex: none; }
+  .player { display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+  .skel { height: 7px; border-radius: 4px; background: #d7dce3; }
+  .ts { font: 500 12px var(--sans); color: #2f8f73; background: rgb(106 215 180 / .2); border-radius: 5px; padding: 2px 7px; }
+  h1 { position: absolute; left: 0; right: 0; top: 232px; margin: 0; text-align: center; font-weight: 600; font-size: 132px; line-height: 1; letter-spacing: -.035em; }
+  .sub { position: absolute; left: 0; right: 0; top: 400px; text-align: center; font-weight: 500; font-size: 44px; letter-spacing: -.02em; }
+  .sub span { color: var(--slate); }
+  .spark { position: absolute; left: 896px; top: 384px; }
+  .foot { position: absolute; left: 0; right: 0; top: 484px; text-align: center; font: 500 17px var(--sans); color: var(--muted); letter-spacing: .01em; }
 </style>
 </head>
 <body>
-<div class="og-frame"><div class="og">
-  <div class="og-left">
-    <div class="og-brand">
-      <!-- The shapes of src/app/icon.svg, inverted like the header mark in dark mode -->
-      <svg class="og-mark" viewBox="0 0 32 32">
-        <rect width="32" height="32" rx="7" fill="#eef2f5"/>
-        <circle cx="14.5" cy="14.5" r="8.5" fill="none" stroke="#101a22" stroke-width="3"/>
-        <path d="M21 21 L26.5 26.5" stroke="#101a22" stroke-width="4" stroke-linecap="round"/>
-        <g fill="#12597a"><rect x="9" y="12" width="3" height="5" rx="1.5"/><rect x="13" y="9" width="3" height="11" rx="1.5"/><rect x="17" y="11" width="3" height="7" rx="1.5"/></g>
-      </svg>
-      <span class="og-name">股癌搜尋</span>
+<div class="og" id="og">
+  <!-- glows behind the cards -->
+  <div class="glow" style="left:360px; top:120px; width:160px; height:110px"></div>
+  <div class="glow" style="left:660px; top:40px; width:160px; height:120px"></div>
+  <div class="glow" style="left:960px; top:110px; width:140px; height:110px"></div>
+  <div class="glow" style="left:170px; top:430px; width:170px; height:110px"></div>
+  <div class="glow slate" style="left:980px; top:420px; width:200px; height:140px"></div>
+
+  <!-- faint waves -->
+  <svg class="wave" data-wave="48,1,soft" style="left:0; top:300px; width:146px; height:74px"></svg>
+  <svg class="wave" data-wave="56,2,soft" style="left:1032px; top:296px; width:168px; height:54px"></svg>
+  <svg class="wave" data-wave="86,3,soft" style="left:630px; top:514px; width:522px; height:72px"></svg>
+  <svg class="wave" data-wave="34,4,top" style="left:586px; top:50px; width:292px; height:88px"></svg>
+
+  <!-- connector lines -->
+  <svg class="lines" viewBox="0 0 1200 630" fill="none" stroke="#8fd9c1" stroke-width="1.2">
+    <path d="M816 179 C 860 182, 900 196, 930 205"/>
+    <path d="M1000 212 C 1030 222, 1060 240, 1066 262"/>
+    <path d="M107 418 C 112 440, 125 455, 140 464"/>
+    <path d="M220 514 C 250 545, 300 556, 345 556"/>
+  </svg>
+  <div class="node" style="left:811px; top:174px"></div>
+  <div class="node" style="left:1061px; top:259px"></div>
+  <div class="node" style="left:102px; top:413px"></div>
+  <div class="node" style="left:340px; top:551px; width:7px; height:7px"></div>
+
+  <!-- dot grids -->
+  <div class="dots" style="left:64px; top:52px; grid-template-columns:repeat(2, 11px); gap:7px"><i style="width:11px;height:11px;background:#d3d7de"></i><i class="t" style="width:11px;height:11px;background:#5fb7a4"></i></div>
+  <div class="dots" style="left:273px; top:68px; grid-template-columns:repeat(3, 5px)"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="dots" style="left:132px; top:114px; grid-template-columns:repeat(3, 5px); gap:20px"><i></i><i class="t" style="background:#6c7f99"></i><i></i><i></i><i class="t" style="background:#6c7f99"></i><i></i><i></i></div>
+  <div class="dots" style="left:81px; top:221px; grid-template-columns:repeat(3, 5px)"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="dots" style="left:1115px; top:48px; grid-template-columns:repeat(3, 8px); gap:6px"><i style="width:8px;height:8px;border-radius:2px"></i><i style="width:8px;height:8px;border-radius:2px"></i><i style="width:8px;height:8px;border-radius:2px"></i><i style="width:8px;height:8px;border-radius:2px"></i><i style="width:8px;height:8px;border-radius:2px"></i><i style="width:8px;height:8px;border-radius:2px"></i><i style="width:8px;height:8px;border-radius:2px"></i><i style="width:8px;height:8px;border-radius:2px"></i><i style="width:8px;height:8px;border-radius:2px"></i></div>
+  <div class="dots" style="left:1116px; top:235px; grid-template-columns:repeat(3, 5px)"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="dots" style="left:58px; top:556px; grid-template-columns:repeat(3, 7px); gap:7px"><i style="width:7px;height:7px"></i><i style="width:7px;height:7px"></i><i style="width:7px;height:7px"></i><i style="width:7px;height:7px"></i><i style="width:7px;height:7px"></i><i style="width:7px;height:7px"></i></div>
+  <div class="dots" style="left:1088px; top:402px; grid-template-columns:repeat(3, 5px); gap:14px"><i></i><i></i><i class="t" style="background:#3faa8c"></i><i></i><i></i><i></i></div>
+
+  <!-- top left: a chart card behind the search box -->
+  <div class="card" style="left:327px; top:36px; width:120px; height:150px">
+    <div class="skel" style="position:absolute; left:12px; top:13px; width:36px"></div>
+    <svg class="abs" data-bars="1" style="left:12px; top:44px; width:96px; height:102px"></svg>
+  </div>
+  <div class="card" style="left:153px; top:148px; width:294px; height:38px; display:flex; align-items:center; padding-left:14px; font:500 15px var(--sans); color:#7f8896">
+    <span style="width:1.5px; height:17px; background:var(--ink); margin-right:3px"></span>搜尋逐字稿…
+  </div>
+
+  <!-- top right: two players -->
+  <div class="card" style="left:894px; top:102px; width:160px; height:71px">
+    <div class="skel" style="position:absolute; left:13px; top:13px; width:72px; height:6px"></div>
+    <div class="player" style="position:absolute; left:0; right:0; top:30px; height:36px; padding:0 13px; gap:9px">
+      <span class="play" style="width:22px; height:22px"></span><svg data-wave="34,5,dark" style="width:100px; height:24px"></svg>
     </div>
-    <div class="og-claim">《股癌 Gooaye》<br>每集<em>重點</em>、<em>逐字稿</em><br>和跨集數問答</div>
-    <div class="og-foot"><b>gooaye-notes.com</b><span>非官方粉絲網站</span></div>
   </div>
-  <div class="og-right">
-    <div class="og-row"><span class="og-ts">1:30</span><span class="og-bar"></span></div>
-    <div class="og-row"><span class="og-ts">4:12</span><span class="og-bar"></span></div>
-    <div class="og-row hl"><span class="og-ts">12:20</span><span class="og-bar"></span></div>
-    <div class="og-row"><span class="og-ts">18:46</span><span class="og-bar"></span></div>
-    <div class="og-row"><span class="og-ts">27:03</span><span class="og-bar"></span></div>
-    <div class="og-row"><span class="og-ts">41:58</span><span class="og-bar"></span></div>
+  <div class="card player" style="left:928px; top:164px; width:153px; height:48px">
+    <span class="tri"></span><svg data-wave="34,6,ink" style="width:100px; height:24px"></svg>
   </div>
-</div></div>
+
+  <!-- bottom left: a player -->
+  <div class="card player" style="left:128px; top:463px; width:180px; height:51px">
+    <span class="play"></span><svg data-wave="40,7,dark" style="width:114px; height:28px"></svg>
+  </div>
+
+  <!-- bottom right: transcript lines -->
+  <div class="card" style="left:948px; top:440px; width:180px; height:51px; padding:12px 14px; display:grid; gap:8px; align-content:center">
+    <div style="display:flex; align-items:center; gap:8px"><span class="ts">12:20</span><span class="skel" style="flex:1"></span></div>
+    <span class="skel" style="width:78%"></span>
+  </div>
+  <div class="card" style="left:881px; top:491px; width:180px; height:51px; padding:12px 14px; display:grid; gap:8px; align-content:center">
+    <div style="display:flex; align-items:center; gap:8px"><span class="ts">41:58</span><span class="skel" style="flex:1"></span></div>
+    <span class="skel" style="width:64%"></span>
+  </div>
+
+  <h1>Gooaye Search</h1>
+  <div class="sub"><span>AI Podcast</span> Transcript Search</div>
+  <svg class="spark" width="34" height="34" viewBox="0 0 34 34">
+    <path d="M12 6 C13 13, 15 15, 22 16 C15 17, 13 19, 12 26 C11 19, 9 17, 2 16 C9 15, 11 13, 12 6 Z" fill="#4b6582"/>
+    <path d="M26 2 C26.5 5, 27 5.5, 30 6 C27 6.5, 26.5 7, 26 10 C25.5 7, 25 6.5, 22 6 C25 5.5, 25.5 5, 26 2 Z" fill="#6c7f99"/>
+  </svg>
+  <div class="foot">gooaye-notes.com ・ 《股癌》非官方粉絲網站</div>
+</div>
+<script>
+  // A fixed pseudo-random sequence, so every render draws the same image
+  function rng(seed) { let s = seed * 9301 + 49297; return () => ((s = (s * 9301 + 49297) % 233280) / 233280); }
+  const NS = 'http://www.w3.org/2000/svg';
+  const STYLES = {
+    soft: (r) => ({ fill: '#b6bfcb', opacity: 0.25 + r() * 0.35 }),
+    top: (r) => ({ fill: r() < 0.35 ? '#7fd3bb' : '#c3ccd7', opacity: 0.35 + r() * 0.5 }),
+    dark: (r) => ({ fill: r() < 0.65 ? '#2c3a4e' : '#9aa6b5', opacity: 1 }),
+    ink: (r) => ({ fill: r() < 0.6 ? '#1d2a3c' : '#a7b1bf', opacity: 1 }),
+  };
+  for (const svg of document.querySelectorAll('svg[data-wave]')) {
+    const [n, seed, style] = svg.dataset.wave.split(',');
+    const r = rng(+seed), w = parseFloat(svg.style.width), h = parseFloat(svg.style.height);
+    const step = w / +n, bw = Math.max(1.5, step * 0.42);
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    for (let i = 0; i < +n; i++) {
+      const env = 0.35 + 0.65 * Math.sin(Math.PI * (i + 0.5) / +n);
+      const bh = Math.max(3, h * env * (0.25 + 0.75 * r()));
+      const rect = document.createElementNS(NS, 'rect');
+      const { fill, opacity } = STYLES[style](r);
+      Object.entries({ x: i * step + (step - bw) / 2, y: (h - bh) / 2, width: bw, height: bh, rx: bw / 2, fill, opacity })
+        .forEach(([k, v]) => rect.setAttribute(k, v));
+      svg.append(rect);
+    }
+  }
+  // The chart card: bars rising to the right, teal at the top of each
+  for (const svg of document.querySelectorAll('svg[data-bars]')) {
+    const w = parseFloat(svg.style.width), h = parseFloat(svg.style.height), heights = [0.14, 0.55, 0.4, 0.6, 0.78, 0.7, 0.95, 0.58];
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    const step = w / heights.length;
+    heights.forEach((f, i) => {
+      const bh = h * f, x = i * step + step * 0.18, bw = step * 0.64;
+      for (const [y, hh, fill] of [[h - bh, bh, i % 2 ? '#6c7f99' : '#7f97b2'], [h - bh, Math.min(bh, 16), '#7fd3bb']]) {
+        const rect = document.createElementNS(NS, 'rect');
+        Object.entries({ x, y, width: bw, height: hh, fill, opacity: 0.9 }).forEach(([k, v]) => rect.setAttribute(k, v));
+        svg.append(rect);
+      }
+    });
+  }
+</script>
 </body>
 </html>

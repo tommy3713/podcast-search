@@ -9,8 +9,9 @@
   --accent-soft: #e2eef4;
   --warn: #a86a12;
   --warn-soft: #fbf0dc;
-  /* The header mark's wave: the tab icon's blue on the dark square; dark themes invert the square, so the darker blue */
-  --mark-wave: #5bb5dc;
+  /* The logo's two colours (components/BrandMark.tsx, app/icon.svg): the wave and handle, the glass's ring */
+  --logo-ink: #537395;
+  --logo-ring: #6ad7b4;
       --font-body: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
   --font-display: var(--font-serif), "Noto Serif TC", "Songti TC", "PMingLiU", serif;
   --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -21,7 +22,7 @@
     --bg: #0f1418; --surface: #171e24; --fg: #e4e9ee; --muted: #94a1ad; --line: #2c3740;
     --accent: #5bb5dc; --accent-soft: #15303d;
     --warn: #e2a64a; --warn-soft: #36290f;
-    --mark-wave: #12597a;
+    --logo-ink: #8fabc9;
     color-scheme: dark;
   }
 }
@@ -29,7 +30,7 @@
   --bg: #0f1418; --surface: #171e24; --fg: #e4e9ee; --muted: #94a1ad; --line: #2c3740;
   --accent: #5bb5dc; --accent-soft: #15303d;
   --warn: #e2a64a; --warn-soft: #36290f;
-  --mark-wave: #12597a;
+  --logo-ink: #8fabc9;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -55,10 +56,12 @@ header.top .wrap { height: 56px; display: flex; align-items: center; gap: 24px; 
 .user .name { max-width: 10em; }
 header.top .btn, nav.desk a { white-space: nowrap; }
 nav.desk, .user, .avatar { flex: none; }
-.brand-mark { width: 28px; height: 28px; flex: none; display: block; }
-.brand-mark .bm-bg { fill: var(--fg); }
-.brand-mark .bm-fg { stroke: var(--surface); }
-.brand-mark .bm-wave { fill: var(--mark-wave); }
+.brand-mark { width: 40px; height: 28px; flex: none; display: block; }
+.brand-mark .bm-ink { fill: var(--logo-ink); }
+.brand-mark .bm-ring { stroke: var(--logo-ring); }
+/* The wordmark is Latin, so a sans like the logo file's rather than the display serif */
+.brand-name { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -.02em; }
+.brand-name .search { color: var(--logo-ink); font-weight: 700; letter-spacing: -.01em; }
 nav.desk { display: flex; gap: 4px; }
 nav.desk a { text-decoration: none; color: var(--muted); padding: 6px 12px; border-radius: 8px; font-weight: 500; }
 nav.desk a[aria-current="page"] { color: var(--fg); background: var(--bg); }
