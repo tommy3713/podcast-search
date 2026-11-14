@@ -71,6 +71,11 @@ jobs:
     needs: image
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/deploy.yml
+    # A called workflow gets no more than this; deploy.yml reads ci runs to find a commit
+    # when run by hand
+    permissions:
+      contents: read
+      actions: read
     with:
       sha: ${{ github.sha }}
     # Without this the called workflow sees the vps environment's variables but not its secrets

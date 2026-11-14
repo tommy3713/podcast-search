@@ -1,8 +1,12 @@
 name: deploy
+run-name: deploy ${{ inputs.sha || 'newest main' }}
 
 # Called by ci.yml after a merge to main has pushed images tagged with the commit sha.
-# Run it by hand (Actions → deploy → Run workflow, works from a phone) to roll back to an
-# earlier commit on main, or to retry after the worker update was deferred.
+# Run it by hand (Actions → deploy → Run workflow, works from a phone) to deploy again (after
+# changing web.env or worker.env on the VPS: the containers are recreated with the new
+# values), to roll back to an earlier commit on main, or to retry after the worker update was
+# deferred. Leave the sha empty for the newest commit on main whose images were built, or
+# paste one from the commit list (7 characters are enough).
 on:
   workflow_call:
     inputs:
@@ -12,12 +16,14 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: Full commit sha on main to deploy (its images must exist; rollbacks only reach commits that have deploy/remote-deploy.sh)
+        description: Commit on main to deploy, 7+ characters (empty = the newest one whose images were built). Rollbacks only reach commits that have deploy/remote-deploy.sh
         type: string
-        required: true
+        required: false
 
 permissions:
   contents: read
+  # To find the newest commit whose ci run pushed images
+  actions: read
 
 # One deploy at a time. A deploy waiting behind another is replaced by a newer one, which is
 # fine: the newer commit includes it.
@@ -33,12 +39,39 @@ jobs:
     # The worker update waits up to 60 minutes for an idle queue
     timeout-minutes: 80
     steps:
+      - name: Find the commit
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          INPUT: ${{ inputs.sha }}
+        run: |
+          ci_ok() {
+            gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$1&branch=main&event=push&status=success&per_page=1" --jq '.total_count'
+          }
+          if [ -z "$INPUT" ]; then
+            sha=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha')
+            [ -n "$sha" ] && [ "$sha" != null ] || { echo "::error::no successful ci run on main"; exit 1; }
+          else
+            [[ "$INPUT" =~ ^[0-9a-f]{7,40}$ ]] || { echo "::error::sha must be 7 to 40 lowercase hex characters"; exit 1; }
+            sha=$(gh api "repos/$REPO/commits/$INPUT" --jq '.sha') || { echo "::error::no commit $INPUT"; exit 1; }
+            # A merge's ci run pushes the images; without one the pull on the VPS would fail
+            if [ "${{ github.event_name }}" = workflow_dispatch ] && [ "$(ci_ok "$sha")" = 0 ]; then
+              echo "::error::$sha has no successful ci run on main, so its images may not exist"
+              exit 1
+            fi
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve a full sha"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          msg=$(gh api "repos/$REPO/commits/$sha" --jq '.commit.message | split("\n")[0]')
+          echo "Deploying \`${sha:0:7}\` $msg" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Deploy over SSH
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
           HOST: ${{ vars.DEPLOY_HOST }}
-          SHA: ${{ inputs.sha }}
+          SHA: ${{ steps.commit.outputs.sha }}
         run: |
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be the full 40-character commit sha"; exit 1; }
           install -m 600 /dev/null ~/deploy_key
