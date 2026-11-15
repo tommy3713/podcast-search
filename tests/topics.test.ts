@@ -35,6 +35,32 @@ describe('topicOf', () => {
     for (const n of ['諾亞', 'Noah', '謝諾亞']) expect(topicOf('家庭', n)?.slug).toBe('noah');
     for (const n of ['Choco', '秋口', '秋狗']) expect(topicOf('家庭', n)?.slug).toBe('choco');
     for (const n of ['安哥', '祁安', '祈安', 'Killian']) expect(topicOf('家庭', n)?.slug).toBe('ange');
+    for (const n of ['瑪利歐', '馬力歐', '馬利歐']) expect(topicOf('遊戲', n)?.slug).toBe('mario');
+    for (const n of ['世紀帝國', '世紀4', '帝國時代 4', 'Age of Empires']) expect(topicOf('遊戲', n)?.slug).toBe('age-of-empires');
+    for (const n of ['會計思考', '會計的思考']) expect(topicOf('書影音', n)?.slug).toBe('accounting-thinking');
+    for (const n of ['獵魔士', '《獵魔士》第二季']) expect(topicOf('書影音', n)?.slug).toBe('the-witcher-series');
+    for (const n of ["Don't Look Up", 'Don’t Look Up']) expect(topicOf('書影音', n)?.slug).toBe('dont-look-up');
+    for (const n of ['敏迪', '敏迪開箱']) expect(topicOf('書影音', n)?.slug).toBe('mindy');
+    for (const n of ['Top Gun', '捍衛戰士：獨行俠']) expect(topicOf('書影音', n)?.slug).toBe('top-gun');
+    for (const n of ['Instagram', 'IG']) expect(topicOf('科技產品', n)?.slug).toBe('instagram');
+    for (const n of ['Twitter', '推特', 'X', 'X／Twitter']) expect(topicOf('科技產品', n)?.slug).toBe('twitter');
+    for (const n of ['獵魔士', '巫師', 'The Witcher']) expect(topicOf('書影音', n)?.slug).toBe('the-witcher-series');
+    for (const n of ['Google地圖', 'Google Maps']) expect(topicOf('科技產品', n)?.slug).toBe('google-maps');
+  });
+
+  it('takes a title in 《》 for the bare title', () => {
+    expect(topicOf('書影音', '《反脆弱》')).toEqual(topicOf('書影音', '反脆弱'));
+    expect(topicOf('書影音', '《駭客任務》')?.slug).toBe('駭客任務');
+    expect(topicOf('遊戲', '《巫師》')?.slug).toBe('the-witcher');
+    // Only a name wholly in 《》: the artist or the rest stays part of it
+    expect(topicOf('書影音', '塔雷伯《反脆弱》')?.slug).not.toBe(topicOf('書影音', '反脆弱')?.slug);
+    expect(topicOf('書影音', '《阿拉丁》真人版')?.slug).toBe('《阿拉丁》真人版');
+    expect(topicOf('遊戲', '《 巫師 》')?.slug).toBe('the-witcher');
+    // Shown and counted without the 《》, and not repeated as the name it came up as
+    const index = buildTopicIndex([row(2, '書影音', '《反脆弱》'), row(3, '書影音', '《反脆弱》', ''), row(1, '書影音', '反脆弱'), row(4, '遊戲', '《巫師》', '巫師3')]);
+    expect(findTopic(index, 'media', '反脆弱')!.name).toBe('反脆弱');
+    expect(findTopic(index, 'media', '反脆弱')!.episodes).toHaveLength(3);
+    expect(findTopic(index, 'games', 'the-witcher')!.episodes[0]!.notes[0]!.as).toBeUndefined();
   });
 
   it('keeps a narrower name before a wider one', () => {

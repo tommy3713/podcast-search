@@ -31,13 +31,15 @@ export const SPONSOR_ALIASES: { name: string; slug: string; patterns: RegExp[] }
   { name: 'Saily', slug: 'saily', patterns: [/\bsaily\b/i, /\bsally\b/i, /\bseti\b/i] },
   { name: '善存', slug: 'centrum', patterns: [/善存/, /\bcentrum\b/i] },
   { name: '火星生技', slug: 'mars-biotech', patterns: [/火星生技/, /5倍對策|五倍對策/] },
-  // Heard as Duck 的情緒 once
-  { name: 'Dr.情趣', slug: 'dr-qingqu', patterns: [/dr\.? ?情趣/i, /duck ?的情緒/i] },
+  // Heard as Duck 的情緒, Duck的情趣 and Duckt情趣
+  { name: 'Dr.情趣', slug: 'dr-qingqu', patterns: [/dr\.? ?情趣/i, /\bduck ?t? ?的?情[緒趣]/i] },
   { name: 'Ray Chen', slug: 'ray-chen', patterns: [/ray ?chen/i, /正[脊級]坐墊/] },
   { name: 'ZZSleeper 忘憂枕', slug: 'zzsleeper', patterns: [/zzsleeper/i, /忘憂枕/] },
-  { name: '喬治庸', slug: 'george-yung', patterns: [/喬治庸/] },
-  { name: '修麗可', slug: 'skinceuticals', patterns: [/修[麗力]可/] },
-  { name: '米紅生醫', slug: 'mihong', patterns: [/[米咪][紅鴻哄]生醫/] },
+  { name: '喬治庸', slug: 'george-yung', patterns: [/喬治[庸永用]/] },
+  { name: '修麗可', slug: 'skinceuticals', patterns: [/修[麗力利]可/] },
+  // Also written 米紅, 米宏, 咪哄 and Mihon; 生醫 heard as 生衣. Without 生醫 only in a chapter
+  // title (米紅業配, 米鴻乳清業配), where the name is the brand
+  { name: '米鴻生醫', slug: 'mihong', patterns: [/[米咪][紅鴻哄宏]生[醫衣]/, /\bmihon\b/i, /^[米咪][紅鴻哄宏](業配|乳清|馬卡)/] },
   { name: '飛利浦', slug: 'philips', patterns: [/飛利浦|菲利普/, /philips/i] },
   { name: '優勢資本徵才', slug: 'youshi-hiring', patterns: [/優勢(資本)?徵才/] },
   { name: 'iHerb', slug: 'iherb', patterns: [/\biherb\b/i] },
@@ -46,6 +48,14 @@ export const SPONSOR_ALIASES: { name: string; slug: string; patterns: RegExp[] }
   { name: '優活', slug: 'youhuo', patterns: [/優活/] },
   { name: '棉豆腐', slug: 'cotton-tofu', patterns: [/棉豆腐/] },
   { name: 'MakeEasy', slug: 'makeeasy', patterns: [/make ?easy/i] },
+  // Bayer's vitamin tablets: 拜維佳, also written 拜維加, with or without 台灣拜耳 / 拜爾
+  { name: '拜維佳', slug: 'berocca', patterns: [/拜維[佳加]/, /\bberocca\b/i] },
+  // Bayer's vitamin C tablets, written six ways
+  { name: '力度伸', slug: 'redoxon', patterns: [/力度[伸生]|利杜森/, /\bredoxon\b/i] },
+  { name: 'VoiceTube', slug: 'voicetube', patterns: [/\bvoice ?tube\b/i] },
+  // 本集由 Pressplay Academy 贊助 is too long a name, so the title (英文課業配) won. Not
+  // Pressplay alone: other sellers' courses are on that platform too
+  { name: 'Pressplay Academy', slug: 'pressplay', patterns: [/\bpress ?play academy\b/i] },
 ];
 
 // The phrase that most chapters open with: 本集由 X 贊助 / 本期由 X 贊助
@@ -179,6 +189,15 @@ export function spanPosition(iso: string, from: string, to: string): number {
   return b > a ? Math.min(1, Math.max(0, (x - a) / (b - a))) : 1;
 }
 
+// By its slug, its name, or any spelling an alias knows (/sponsor/米紅生醫 from before the alias
+// took the brand's own name)
 export function findSponsor(index: SponsorIndex, segment: string): Sponsor | null {
-  return index.bySlug.get(segment) ?? index.bySlug.get(slugOf(segment)) ?? [...index.bySlug.values()].find((s) => searchKey(s.name) === searchKey(segment)) ?? null;
+  const alias = aliasIn(segment);
+  return (
+    index.bySlug.get(segment) ??
+    index.bySlug.get(slugOf(segment)) ??
+    [...index.bySlug.values()].find((s) => searchKey(s.name) === searchKey(segment)) ??
+    (alias && index.bySlug.get(alias.slug)) ??
+    null
+  );
 }

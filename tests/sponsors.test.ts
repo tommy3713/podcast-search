@@ -31,7 +31,17 @@ describe('sponsorOf', () => {
     // The title names the product; the bullets the brand, misheard
     expect(sponsorOf(ad(713, '開場業配', ['本集由 Duck 的情緒贊助，主委以雙十一檔期語氣介紹活動。']))?.name).toBe('Dr.情趣');
     expect(sponsorOf(ad(657, '開場業配', ['本集由台灣萊雅集團旗下醫學美容品牌修力可贊助']))?.name).toBe('修麗可');
-    for (const t of ['米紅生醫業配', '米鴻生醫業配', '咪哄生醫業配']) expect(sponsorOf(ad(1, t, []))?.slug).toBe('mihong');
+    for (const t of ['米紅生醫業配', '米鴻生醫業配', '咪哄生醫業配', '米紅生衣業配']) expect(sponsorOf(ad(1, t, []))?.name).toBe('米鴻生醫');
+    for (const t of ['拜維加業配', '拜維佳業配']) expect(sponsorOf(ad(1, t, []))?.slug).toBe('berocca');
+    expect(sponsorOf(ad(1, '拜維加業配', ['本集由台灣拜耳拜維佳贊助，主打看世足']))?.name).toBe('拜維佳');
+    expect(sponsorOf(ad(1, 'VoiceTube 業配', ['本集由 VoiceTube Hero 贊助']))?.name).toBe('VoiceTube');
+    expect(sponsorOf(ad(1, '英文課業配', ['本集由 Pressplay Academy 贊助，介紹 All Ears English 商務英文']))?.name).toBe('Pressplay Academy');
+    for (const t of ['Mihon業配', '米宏生醫業配', '米紅業配', '米鴻乳清業配']) expect(sponsorOf(ad(1, t, []))?.slug).toBe('mihong');
+    expect(sponsorOf(ad(1, '開場業配', ['本集由Mihon生醫贊助']))?.slug).toBe('mihong');
+    for (const t of ['拜爾利杜森業配', '拜爾力度伸業配', '台灣拜耳力度生業配', '利杜森業配']) expect(sponsorOf(ad(1, t, []))?.slug).toBe('redoxon');
+    for (const t of ['修利可業配', 'Duck的情趣業配', 'Duckt情趣業配', '喬治永業配', '喬治用業配']) expect(sponsorOf(ad(1, t, []))?.known).toBe(true);
+    // A course on the Pressplay platform from someone else keeps its own name
+    expect(sponsorOf(ad(1, '課程業配', ['本集由財經皓角贊助，課程在 PressPlay 上']))?.name).toBe('財經皓角');
   });
 
   it('takes the brand from 本集由 X 贊助 when the title names only the product', () => {
@@ -85,6 +95,8 @@ describe('buildSponsorIndex', () => {
     const nord = findSponsor(index, 'nordvpn')!;
     expect(nord.episodes.map((e) => e.no)).toEqual([707, 704, 658]);
     expect(findSponsor(index, 'NordVPN')).toBe(nord);
+    // Any spelling an alias knows, such as a name the brand had before
+    expect(findSponsor(index, 'Nord VPN')).toBe(nord);
     const youhuo = findSponsor(index, 'youhuo')!;
     expect(youhuo.episodes).toHaveLength(1);
     expect(youhuo.episodes[0]!.notes.map((n) => n.text)).toEqual(['膠囊', '海藻鈣']);
