@@ -43,7 +43,7 @@ describe('topicOf', () => {
     for (const n of ['敏迪', '敏迪開箱']) expect(topicOf('書影音', n)?.slug).toBe('mindy');
     for (const n of ['Top Gun', '捍衛戰士：獨行俠']) expect(topicOf('書影音', n)?.slug).toBe('top-gun');
     for (const n of ['Instagram', 'IG']) expect(topicOf('科技產品', n)?.slug).toBe('instagram');
-    for (const n of ['Twitter', '推特', 'X', 'X／Twitter']) expect(topicOf('科技產品', n)?.slug).toBe('twitter');
+    for (const n of ['X', 'Twitter', '推特', 'X／Twitter', 'X（Twitter）', 'X平台']) expect(topicOf('科技產品', n)).toEqual({ slug: 'x', name: 'X' });
     for (const n of ['獵魔士', '巫師', 'The Witcher']) expect(topicOf('書影音', n)?.slug).toBe('the-witcher-series');
     for (const n of ['Google地圖', 'Google Maps']) expect(topicOf('科技產品', n)?.slug).toBe('google-maps');
   });

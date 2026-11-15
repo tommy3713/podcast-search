@@ -191,7 +191,8 @@ export const TOPIC_ALIASES: Record<string, Alias[]> = {
     { name: 'Facebook', slug: 'facebook', patterns: [/^facebook/i] },
     { name: 'YouTube', slug: 'youtube', patterns: [/^youtube/i] },
     { name: 'Instagram', slug: 'instagram', patterns: [/^(instagram|ig)$/i] },
-    { name: 'Twitter', slug: 'twitter', patterns: [/^(twitter|推特|x|x ?[／/] ?twitter)$/i] },
+    // Named X since 2023; mentions from before say Twitter or 推特
+    { name: 'X', slug: 'x', patterns: [/^(x|x ?平台|twitter|推特|x ?[／/(（] ?twitter[)）]?)$/i] },
     { name: 'Google 地圖', slug: 'google-maps', patterns: [/^google ?(maps?|地圖)$/i] },
   ],
 };
