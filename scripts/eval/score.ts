@@ -54,7 +54,8 @@ export function ruleChecks(q: GoldenQuestion, f: RunFacts): Omit<Checks, 'points
 }
 
 // EP707, ep 707, EP707–709, EP707~EP709, 第 707 集, 707 集. "EP" must not end a word
-// (Step 3, DEEP 1), and a bare number needs 集 after it. A range wider than MAX_RANGE
+// (Step 3, DEEP 1), and a bare number needs 集 after it and isn't a year ("收錄的 2025
+// 集數裡" is the episodes of 2025, not EP2025). A range wider than MAX_RANGE
 // names no episode: it is the archive ("在收錄的 EP652–EP713 裡找不到"), not where
 // something was said.
 const EPISODE = /(?<![A-Za-z])EP\s?(\d{1,4})(?:\s*[-–—~～至到]\s*(?:EP\s?)?(\d{1,4}))?|第\s?(\d{1,4})\s?集|(?<![\d.])(\d{3,4})\s?集/gi;
@@ -64,6 +65,7 @@ const YEAR = 1900;
 export function episodesNamed(text: string): number[] {
   const eps = new Set<number>();
   for (const m of text.matchAll(EPISODE)) {
+    if (m[4] && Number(m[4]) >= YEAR) continue;
     const from = Number(m[1] ?? m[3] ?? m[4]);
     const to = m[2] ? Number(m[2]) : from;
     // "EP712 到 2026 年底": a year after the separator, not the end of a range
@@ -74,9 +76,11 @@ export function episodesNamed(text: string): number[] {
 }
 
 // Line by line, as the page renders the answer. A list item that names no episode
-// takes the episodes of the paragraph above it ("EP707 提到：" then "- 每天打網球 [2]");
-// a line with neither isn't checked, and one that names several only needs each
-// citation to be from one of them. A line that names an episode to contrast it with the
+// takes the episodes of the paragraph above it ("EP707 提到：" then "- 每天打網球 [2]"),
+// unless it cites one of them itself: its label then shows every episode it draws on
+// ("主要是 EP691" then "- 在北海道吃飯 [EP692][EP691]"), so nothing reads as from the
+// wrong one. A line with neither isn't checked, and one that names several only needs
+// each citation to be from one of them. A line that names an episode to contrast it with the
 // cited one ("跟 EP700 講的相反 [1]") is flagged wrongly; that is rare and the report
 // shows which line it was.
 export function misCitations(answer: string, sources: SourceRef[]): MisCite[] {
@@ -89,6 +93,7 @@ export function misCitations(answer: string, sources: SourceRef[]): MisCite[] {
     if (block.kind === 'p') heading = named;
     const says = named.length ? named : block.kind === 'li' ? heading : [];
     if (!says.length) continue;
+    if (!named.length && block.parts.some((p) => p.kind === 'cite' && says.includes(epOf.get(p.n)!))) continue;
     for (const p of block.parts) {
       if (p.kind !== 'cite') continue;
       const ep = epOf.get(p.n)!;
