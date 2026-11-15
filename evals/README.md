@@ -1,6 +1,6 @@
 # /ask golden set
 
-`golden.jsonl` lists questions for checking `/ask` (issue #24), one JSON object per line. It stores checks rather than full answers, since the wording changes from run to run. The answers were last checked against EP352–714.
+`golden.jsonl` lists questions for checking `/ask` (issue #24), one JSON object per line. It stores checks rather than full answers, since the wording changes from run to run. The answers were last checked against EP252–714.
 
 | Field | Meaning |
 |---|---|
@@ -20,7 +20,7 @@
 ```bash
 npm run eval -- --retrieval-only      # search functions only, with each question's `queries`: no model, no API key
 npm run eval                          # every question 3 times through answer(), then the judge (about US$2)
-npm run eval -- --only safety,nf-01   # some types or ids; saved, but never used as the baseline
+npm run eval -- --only safety,nf-07   # some types or ids; saved, but never used as the baseline
 npm run eval -- --set-baseline        # make this result the baseline
 npm run eval -- --runs 1 --baseline evals/results/<file>.json
 ```

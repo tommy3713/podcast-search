@@ -259,7 +259,7 @@ function inSummariesOrMentions(db: DB, terms: string[], episodeIds: number[] | n
 // than keyword search reads, so the model can be told the results may miss episodes.
 // `unmatched`: no term is in any transcript, summary point or mention of the scope, so
 // every hit came from the meaning-based rankings, which always return their nearest
-// chunks: asked about Rivian, which no episode names, they brought EP706's Tesla Roadster,
+// chunks: asked about Rivian, which no episode then named, they brought EP706's Tesla Roadster,
 // and the model answered with it as if it were Rivian.
 // `soundTerms`: terms no chunk has, found by their pinyin instead (keywordRanking), and
 // only those with a chunk among the hits, so the model isn't told of passages it can't see.
