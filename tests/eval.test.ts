@@ -58,6 +58,7 @@ describe('golden set', () => {
     expect(episodesNamed('在目前收錄的 EP652–EP713 裡找不到，EP700 有提到')).toEqual([700]);
     expect(episodesNamed('EP709-3')).toEqual([709]);
     expect(episodesNamed('EP712 到 2026 年底都在講')).toEqual([712]); // a year, not a range
+    expect(episodesNamed('我在收錄的 2025 集數裡找到這些，713 集也有')).toEqual([713]); // a year before 集, not EP2025
   });
 
   it('hashes what a run is scored on, not the notes', () => {
@@ -116,6 +117,9 @@ describe('rule checks', () => {
     // a heading line names the episode for the list under it
     expect(misCitations('EP708 提到：\n- 每天打網球 [1]\n- 苗栗那家 [2]', sources)).toEqual([{ n: 1, ep: 709, says: [708] }]);
     expect(misCitations('主委聊過：\n- 每天打網球 [1]', sources)).toEqual([]);
+    // unless the item cites the heading's episode itself: its label shows both
+    expect(misCitations('EP708 提到：\n- 每天打網球 [2][1]', sources)).toEqual([]);
+    expect(misCitations('EP708 提到：\n- EP709 每天打網球 [2][1]', sources)).toEqual([{ n: 2, ep: 708, says: [709] }]);
     // a label the model wrote itself is replaced on the page, so the eval leaves it out too
     expect(ruleChecks(question(), { ...facts, answer: '- EP708：每天打網球 [1]' }).misCited).toEqual([]);
     expect(ruleChecks(question(), { ...facts, answer: '- 跟 EP708 一樣每天打網球 [1]' }).misCited).toEqual([{ n: 1, ep: 709, says: [708] }]);
