@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { Paragraph } from '@/lib/format';
 import { offsetAt, type SeekModel, type SeekTable, seekModel, seekTarget } from '@/lib/seek';
 import { formatTimestamp, type Summary } from '@/lib/summary';
@@ -424,6 +424,25 @@ function splitMatches(text: string, q: string): { s: string; hit: boolean }[] {
   return out;
 }
 
+// How long typing has to pause before the transcript jumps to the first match
+const SEARCH_SETTLE_MS = 500;
+
+// Whether el is fully in the part of the screen the sticky header, the player and an on-screen
+// keyboard don't cover (the player sits under the header on wide screens and above the bottom
+// nav on narrow ones; a phone's keyboard shrinks the visual viewport but not innerHeight)
+function inView(el: Element): boolean {
+  const r = el.getBoundingClientRect();
+  const vv = window.visualViewport;
+  let top = Math.max(vv?.offsetTop ?? 0, document.querySelector('header.top')?.getBoundingClientRect().bottom ?? 0);
+  let bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  const player = document.querySelector('.player')?.getBoundingClientRect();
+  if (player) {
+    if (player.top < window.innerHeight / 2) top = Math.max(top, player.bottom);
+    else bottom = Math.min(bottom, player.top);
+  }
+  return r.top >= top && r.bottom <= bottom;
+}
+
 const TranscriptTab = memo(function TranscriptTab(props: {
   paragraphs: Paragraph[];
   chapters: Summary['chapters'];
@@ -439,11 +458,32 @@ const TranscriptTab = memo(function TranscriptTab(props: {
   const [q, setQ] = useState('');
   const [hit, setHit] = useState(0);
   const [follow, setFollow] = useState(true);
+  // The query the transcript may scroll to: set once typing pauses outside an IME composition,
+  // or by Enter / the arrows, and cleared by every keystroke, so typing never moves the page
+  const [settled, setSettled] = useState('');
+  const composing = useRef(false);
+  const composedAt = useRef(-Infinity);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const query = q.trim();
+  // Highlights follow the box at once, composition or not (Android keyboards compose English
+  // words too); rendering thousands of marks for a one-character query mustn't hold up typing
+  const shown = useDeferredValue(query);
   const current = paragraphs.length ? paragraphAt(paragraphs, t) : -1;
 
-  const parts = useMemo(() => paragraphs.map((p) => splitMatches(p.text, query)), [paragraphs, query]);
-  const hits = query ? parts.reduce((n, ps) => n + ps.filter((x) => x.hit).length, 0) : 0;
+  const parts = useMemo(() => paragraphs.map((p) => splitMatches(p.text, shown)), [paragraphs, shown]);
+  const hits = shown ? parts.reduce((n, ps) => n + ps.filter((x) => x.hit).length, 0) : 0;
+  // hit may be -1 (the last match, from ↑ before the count is known), so read it through this
+  const at = hits ? ((hit % hits) + hits) % hits : 0;
+
+  const unsettle = () => {
+    clearTimeout(timer.current);
+    setSettled('');
+  };
+  const settleLater = (value: string) => {
+    unsettle();
+    if (!composing.current) timer.current = setTimeout(() => setSettled(value.trim()), SEARCH_SETTLE_MS);
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   const scrollTo = (el: Element | null | undefined) => {
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -462,15 +502,29 @@ const TranscriptTab = memo(function TranscriptTab(props: {
     if (active && playing && follow && !query) scrollTo(box.current?.querySelector(`[data-i="${current}"]`));
   }, [active, current, playing, follow, query]);
 
+  // Waits for the highlights to catch up with the settled query, so it scrolls to the right mark
   useEffect(() => {
-    if (active && query) scrollTo(box.current?.querySelector(`mark[data-h="${hit}"]`));
-  }, [active, hit, query]);
+    if (!active || !settled || settled !== shown) return;
+    const el = box.current?.querySelector(`mark[data-h="${at}"]`);
+    if (el && !inView(el)) scrollTo(el);
+  }, [active, at, settled, shown]);
 
   if (!paragraphs.length) {
     return <div className="card placeholder"><p style={{ margin: 0 }}>這一集沒有逐字稿。</p></div>;
   }
 
-  const step = (d: number) => hits && setHit((h) => (h + d + hits) % hits);
+  // The first Enter or arrow after typing goes to the first match (↑: the last), the next ones
+  // move on; the first one doesn't need the count, which may still be the previous query's
+  const step = (d: number) => {
+    if (!query) return;
+    if (settled !== query) {
+      clearTimeout(timer.current);
+      setSettled(query);
+      setHit(d < 0 ? -1 : 0);
+    } else if (hits && shown === query) {
+      setHit((at + d + hits) % hits);
+    }
+  };
   let h = 0;
   let ci = 0;
   const rows: React.ReactNode[] = [];
@@ -493,7 +547,7 @@ const TranscriptTab = memo(function TranscriptTab(props: {
             if (!x.hit) return x.s;
             const n = h++;
             return (
-              <mark key={k} data-h={n} className={n === hit ? 'cur' : undefined}>
+              <mark key={k} data-h={n} className={n === at ? 'cur' : undefined}>
                 {x.s}
               </mark>
             );
@@ -512,9 +566,22 @@ const TranscriptTab = memo(function TranscriptTab(props: {
             onChange={(e) => {
               setQ(e.target.value);
               setHit(0);
+              settleLater(e.target.value);
+            }}
+            onCompositionStart={() => {
+              composing.current = true;
+              unsettle();
+            }}
+            onCompositionEnd={(e) => {
+              composing.current = false;
+              composedAt.current = e.timeStamp;
+              settleLater(e.currentTarget.value);
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) step(e.shiftKey ? -1 : 1);
+              // Safari sends the Enter that picks an IME candidate right after compositionend, as
+              // keyCode 229 (some Android keyboards send 229 for every Enter, so only just after one)
+              const picked = e.keyCode === 229 && e.timeStamp - composedAt.current < 100;
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && !picked) step(e.shiftKey ? -1 : 1);
             }}
             placeholder="搜尋這集逐字稿"
             aria-label="搜尋這集逐字稿"
@@ -522,7 +589,7 @@ const TranscriptTab = memo(function TranscriptTab(props: {
           />
         </div>
         <span className="hits" role="status">
-          {query ? (hits ? `${Math.min(hit, hits - 1) + 1} / ${hits} 處` : '沒有符合') : ''}
+          {shown ? (hits ? `${at + 1} / ${hits} 處` : '沒有符合') : ''}
         </span>
         <button className="btn" onClick={() => step(-1)} aria-label="上一個">↑</button>
         <button className="btn" onClick={() => step(1)} aria-label="下一個">↓</button>
