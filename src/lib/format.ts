@@ -80,13 +80,33 @@ export function placeParagraphs(segments: Segment[], minSeconds = 30): PlacedPar
   return paragraphs;
 }
 
+// Latin letters in lower case and nothing else, so positions in the result are positions in s
+// (toLowerCase makes İ two code units)
+export function foldCase(s: string): string {
+  return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+}
+
 // Where q occurs in text, ignoring case, without overlaps: what the transcript tab's search
 // marks, so the server can tell which of its marks a link points at
 export function matchStarts(text: string, q: string): number[] {
   if (!q) return [];
-  const lower = text.toLowerCase();
-  const lq = q.toLowerCase();
+  const lower = foldCase(text);
+  const lq = foldCase(q);
   const out: number[] = [];
   for (let j = lower.indexOf(lq); j !== -1; j = lower.indexOf(lq, j + lq.length)) out.push(j);
   return out;
+}
+
+// Whether the len characters at `at` aren't part of a longer Latin word or number: AI is not
+// in again, ON is not in iPhone. Only the ends that are Latin or digits are checked.
+const ALNUM = /[A-Za-z0-9]/;
+export function atWordEdges(text: string, at: number, len: number): boolean {
+  const first = text[at] ?? '';
+  const last = text[at + len - 1] ?? '';
+  return !(ALNUM.test(first) && ALNUM.test(text[at - 1] ?? '')) && !(ALNUM.test(last) && ALNUM.test(text[at + len] ?? ''));
+}
+
+// The first occurrence of words in text, case ignored and at word edges; -1 when there is none
+export function findExact(text: string, words: string): number {
+  return matchStarts(text, words).find((at) => atWordEdges(text, at, words.length)) ?? -1;
 }

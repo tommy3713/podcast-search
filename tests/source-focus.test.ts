@@ -65,6 +65,18 @@ describe('findFocus', () => {
     expect(findFocus(segs, 30, 'meta')).toEqual({ t: 40, text: 'meta', hit: 2 });
   });
 
+  it('skips a match inside a longer Latin word but still counts its mark', () => {
+    const segs = [seg(0, 'again 我們講 AI')];
+    expect(findFocus(segs, 0, 'ai')).toEqual({ t: 0, text: 'ai', hit: 1 });
+  });
+
+  it('looks for the longest piece when the words span two paragraphs', () => {
+    // 媽媽剪破衣服 ends one paragraph and 祝諾安哥 starts the next: pieces of equal length go
+    // in order, so it opens where the quote begins
+    expect(findFocus(segments, 2592, '剪破衣服，祝諾安哥')).toEqual({ t: 2640, text: '剪破衣服', hit: 0 });
+    expect(findFocus(segments, 2592, '衣服，祝諾安哥快快')).toEqual({ t: 2655.2, text: '祝諾安哥快快', hit: 0 });
+  });
+
   it('takes a match just before the time when none follows, and nothing far away', () => {
     // a mention's time can be a little late
     expect(findFocus(segments, 2662, '秋口')).toEqual({ t: 2658, text: '秋口', hit: 1 });
@@ -83,10 +95,22 @@ describe('quotesIn / findWords', () => {
   });
 
   it('finds a quote, or the longest piece of one the model shortened', () => {
-    expect(findWords(passage, '秋口繼續幹你娘')).toEqual({ at: passage.indexOf('秋口繼續'), text: '秋口繼續幹你娘' });
-    expect(findWords(passage, '長夾…秀氣一點')).toEqual({ at: passage.indexOf('秀氣一點'), text: '秀氣一點' });
-    expect(findWords('I love NVIDIA', 'nvidia')).toEqual({ at: 7, text: 'NVIDIA' });
+    expect(findWords(passage, '秋口繼續幹你娘')).toEqual({ at: passage.indexOf('秋口繼續'), text: '秋口繼續幹你娘', whole: true });
+    // 長夾 alone is too short a piece to trust
+    expect(findWords(passage, '長夾…秀氣一點')).toEqual({ at: passage.indexOf('秀氣一點'), text: '秀氣一點', whole: false });
+    expect(findWords('I love NVIDIA', 'nvidia')).toEqual({ at: 7, text: 'NVIDIA', whole: true });
     expect(findWords(passage, '沒有這句')).toBeNull();
+  });
+
+  it('matches Latin words whole, and keeps positions after characters toLowerCase lengthens', () => {
+    expect(findWords('again 講到 AI 伺服器', 'ai')).toMatchObject({ at: 9, text: 'AI' });
+    expect(findWords('İstanbul 的 NVIDIA', 'nvidia')).toMatchObject({ at: 11, text: 'NVIDIA' });
+    expect(findWords('iPhone', 'ON')).toBeNull();
+  });
+
+  it('reads a quote inside a quote', () => {
+    expect(quotesIn('他說「朋友說『可以試看看』」')).toEqual(['朋友說『可以試看看』', '可以試看看']);
+    expect(findWords('聽眾說可以試看看', '朋友說『可以試看看』')).toMatchObject({ text: '可以試看看', whole: false });
   });
 
   it('cuts long words to what a link takes', () => {
@@ -114,6 +138,21 @@ describe('sourceFocus', () => {
     const f = focusOf('他說「秋口繼續幹你娘」，也提到「秋口幹你娘」 [1][3]');
     expect(f.get(1)!.text).toBe('秋口幹你娘');
     expect(f.has(3)).toBe(false);
+  });
+
+  it('prefers a quote found whole over a short piece of another found earlier', () => {
+    // 我覺得 opens the passage, but it is only a piece of a quote the model changed
+    const s = { 1: source(1, '我覺得今天很冷。後來他說可以再試看看') };
+    const f = sourceFocus(parseAnswer('他說「我覺得…再試試」，也說「可以再試看看」 [1]', new Set([1])), s);
+    expect(f.get(1)!.text).toBe('可以再試看看');
+  });
+
+  it('gives each citation the quotes written before it', () => {
+    const s = { 1: source(1, '法說會之前，台積電的營收'), 2: source(2, '這次法說會講毛利率') };
+    const f = sourceFocus(parseAnswer('他說「台積電」[1]，也講到「法說會」[2]', new Set([1, 2])), s);
+    // 法說會 is earlier in [1]'s passage, but it is [2]'s quote
+    expect(f.get(1)!.text).toBe('台積電');
+    expect(f.get(2)!.text).toBe('法說會');
   });
 
   it('ignores a quote another line makes', () => {
