@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { answer, type AskEvent, MAX_TOOL_CALLS, newTrace, readCoverage, systemPrompt } from '@/lib/ask/agent';
+import { answer, type AskEvent, MAX_TOOL_CALLS, newTrace, readCoverage, systemPrompt, tradeNote } from '@/lib/ask/agent';
 import { logAsk, logQuotaRejection, refundQuota, remaining, SITE_DAILY_LIMIT, taipeiDate, takeQuota, USER_DAILY_LIMIT } from '@/lib/ask/quota';
 import { AnswerRecorder } from '@/lib/ask/record';
 import { citedOrder, episodeLabel, labelBlocks, labeledAnswer, parseAnswer, shownWithoutLabels, splitEvents } from '@/lib/ask/render';
@@ -391,6 +391,21 @@ describe('readCoverage', () => {
   });
 });
 
+describe('tradeNote', () => {
+  it('names the passages that talk about a trade, and only those', () => {
+    const note = tradeNote([
+      { n: 1, text: '如果你覺得真的會打，你可以做多美元跟黃金' },
+      { n: 2, text: '普丁的開戰檄文' },
+      { n: 3, text: '我上禮拜有減碼一點' },
+    ]);
+    expect(note).toContain('（[1][3]裡有買賣、做多做空、加減碼這類投資操作的話');
+    // everyday buying and selling isn't a trade
+    expect(tradeNote([{ n: 1, text: '我把舊車賣掉，那家拉麵可以去試看看' }])).toBe('');
+    expect(tradeNote([{ n: 1, text: '普丁的開戰檄文' }])).toBe('');
+    expect(tradeNote([])).toBe('');
+  });
+});
+
 describe('answer', () => {
   it('runs tools, numbers sources and streams the final text', async () => {
     const { client, requests } = fakeClient([
@@ -613,6 +628,26 @@ describe('answer', () => {
     expect(outputs[2]).toContain('「Rivian」「＜b＞」都沒有出現在任何一段逐字稿、摘要或提及裡');
     expect(outputs[3]).toContain('「網球」沒有出現在這個範圍的任何一段逐字稿、摘要或提及裡');
     expect(toolCalls.map((c) => c.unmatched)).toEqual([true, undefined, true, true]);
+  });
+
+  it('names the new passages that talk about a trade, after the results', async () => {
+    addEpisode(db, 711, '2026-11-04T07:00:00.000Z', ['如果你覺得會打，你可以做多美元跟黃金']);
+    const t = (query: string) => ({ name: 'search_transcript', args: { query, episode: null, since: null, until: null } });
+    const { client, requests } = fakeClient([{ calls: [t('做多美元'), t('做多美元')] }, { text: 'x' }]);
+    await run('q', client);
+    const outputs = requests[1].input.filter((x: any) => x.type === 'function_call_output').map((x: any) => x.output as string);
+    const n = outputs[0].match(/<transcript n="(\d+)"[^>]*>[^<]*做多美元/)?.[1];
+    expect(n).toBeDefined();
+    expect(outputs[0]).toMatch(new RegExp(`（(\\[\\d+\\])*\\[${n}\\](\\[\\d+\\])*裡有買賣`));
+    // the same passages again: already flagged
+    expect(outputs[1]).not.toContain('裡有買賣');
+    // after "it's in no episode", no note asking to quote the passages it brought by meaning
+    const none = fakeClient([{ calls: [t('Rivian')] }, { text: 'x' }]);
+    await run('q', none.client);
+    const out = none.requests[1].input.find((x: any) => x.type === 'function_call_output').output as string;
+    expect(out).toContain('做多美元');
+    expect(out).toContain('沒有出現在');
+    expect(out).not.toContain('裡有買賣');
   });
 
   it('tells the model when the mention list was cut at the limit', async () => {

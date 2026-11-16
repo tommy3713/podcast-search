@@ -154,7 +154,7 @@ export function systemPrompt(c: Coverage): string {
 - 搜不到問題問的東西，就只說在收錄的集數裡找不到，這句不標出處，也不要改講別的相近主題（別家公司、別的東西）來湊答案。不要猜，也不要用你自己的知識補充。
 - 問題說主委做過或講過某件事，但有細節跟節目對不上（例如說他訂了 A 車，節目裡訂的是 B 車），先說節目裡沒有這個說法，再說他實際講的是什麼、在哪一集，並標出處。不要把問題的說法當成真的。
 - 不提供投資建議，不判斷個股或市場多空，只轉述主持人在節目裡說過什麼。不要把他的話歸納成「正面、負面、看多、看空、樂觀、保守」這類態度標籤。問題問看多還是看空、能不能買時，節目裡沒談到就照前面的規則說找不到；有談到，整個回答只條列他說過的具體看法和做法，每條都標出處，讓聽眾自己判斷：第一行和最後一行也都是其中一條，不寫「總結來看」「整體而言」這類開場或收尾，也不寫任何形容他態度的句子（包括「不是看空」「還沒轉空」「偏向觀察」「更保留」「不是喊多或喊空」「沒有用多空二分法」）。
-- 他講到買、賣、加碼、攤平、停損、「可以試看看」這類操作的話，一律寫成「他說」加上用「」照抄的搜尋結果原話，保留原話的人稱（講自己就是「我」，對聽眾說就是「你」）。不要改寫成沒有引號、讀起來像你在建議提問者的句子（例如「可以再加一筆把均價拉低」），也不要自己加「這不是建議」「他是在講自己的操作」這類解讀。這類話不放在回答的第一句或最後一句，開頭也不寫「節目裡沒有直接講能不能買」這類句子。`;
+- 他講到買、賣、加碼、減碼、攤平、停損、做多、做空、「可以試看看」這類操作的話（股票、原油、黃金、美元都一樣），一律寫成「他說」加上用「」照抄的搜尋結果原話，保留原話的人稱（講自己就是「我」，對聽眾說就是「你」）。不要改寫成沒有引號、讀起來像你在建議提問者的句子（例如「可以再加一筆把均價拉低」），也不要自己加「這不是建議」「他是在講自己的操作」這類解讀。這類話不放在回答的第一句或最後一句，開頭也不寫「節目裡沒有直接講能不能買」這類句子。`;
 }
 
 // Opens each result's text: the number to cite and the episode it is from. In the tag's
@@ -163,6 +163,22 @@ export function systemPrompt(c: Coverage): string {
 // Dates are Taipei dates, like the site's and the prompt's `today`.
 const taipeiDay = (publishedAt: string) => taipeiDate(new Date(publishedAt));
 const head = (n: number, ep: number, publishedAt: string) => `[${n}] EP${ep} ${taipeiDay(publishedAt)}｜`;
+
+// Words of an investment trade: passages holding one get tradeNote. The prompt's last rule
+// already says to relay these only as 他說 plus his words in 「」, but on the Ukraine war
+// (EP222) the model still wrote 他說如果你真的覺得會打，可以做多美元跟黃金 in 2 of 3 runs:
+// right after the passages, naming which ones, it is followed more often. Everyday words
+// (賣掉 a car, 試看看 a restaurant) are left out so the note stays about investing; a
+// listener's message read on air can hold these words too, so the note doesn't say whose.
+// Only transcript passages: a mention's note is the summary's wording, not words to quote.
+// Pushed to quote, the model once wrote advice EP109 doesn't hold (他說「…你可以分批買，不要
+// 一次重壓。」), so the note says the words must be in the passage.
+const TRADE_WORDS = /做多|做空|放空|多單|空單|加碼|減碼|加倉|減倉|攤平|停損|停利|認賠|平倉|出清|抄底|買進|賣出/;
+export function tradeNote(hits: { n: number; text: string }[]): string {
+  const ns = hits.filter((h) => TRADE_WORDS.test(h.text)).map((h) => `[${h.n}]`);
+  if (!ns.length) return '';
+  return `\n（${ns.join('')}裡有買賣、做多做空、加減碼這類投資操作的話。主委講的，寫進回答時一律寫成 他說「…」，「」裡照抄段落原話，不要寫成沒有「」的「他說可以分批加碼」；這類操作的詞不能出現在「」外面。可以只引有操作詞的那一兩句，前後用…省略，但「」裡的字要是那一段裡的原字，不要自己補字或湊出他沒講過的話。聽眾來信或別人講的，不要寫成他說的）`;
+}
 
 // Mention names come from summaries of untrusted transcripts, so they can't hold a label either
 const attr = (s: string) => escapeSourceText(s).replace(/"/g, '＂');
@@ -263,8 +279,11 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
     const bySound = soundTerms.length
       ? `\n（${quote(soundTerms)}沒有逐字出現在${scoped ? '這個範圍的' : ''}逐字稿裡，上面有些段落是依發音找到的：語音辨識常把名稱寫成發音相同的別字（例如「蘋果」寫成「平果」）。段落裡有發音相同的寫法、講的又是問的那件事，就可以當成在講它）`
       : '';
+    // Passages new to this answer (an earlier search already flagged the others), and none
+    // when the note above said they're likely not about the question
+    const trade = noted ? '' : tradeNote(fresh);
     return {
-      output: (lines.join('\n') || noResults(deps, p.data, '沒有找到相關片段')) + cut + none + bySound,
+      output: (lines.join('\n') || noResults(deps, p.data, '沒有找到相關片段')) + cut + none + bySound + trade,
       log: {
         name,
         args: p.data,
