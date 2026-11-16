@@ -244,6 +244,18 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE ask_log ADD COLUMN sources_json TEXT;
   `,
+  // 擴大搜尋 on /ask: a question answered once more in broad mode, free for the listener and
+  // counted toward the site's daily cap. ask_retries holds the ask_log id it broadens (the
+  // primary key, so a second try at the same question fails even in parallel) and the Taipei
+  // day; no account id. Rows go with their question (purgeAskLog) and never into a backup or a
+  // snapshot, since ask_log ids start over when a restore begins with an empty log.
+  // retry_of: on the broad answer's own row, the question it broadened.
+  `
+  CREATE TABLE ask_retries (ask_id INTEGER PRIMARY KEY, date TEXT NOT NULL);
+  CREATE INDEX ask_retries_date ON ask_retries (date);
+  ALTER TABLE ask_log ADD COLUMN retry_of INTEGER;
+  CREATE INDEX ask_log_retry_of ON ask_log (retry_of) WHERE retry_of IS NOT NULL;
+  `,
 ];
 
 export function defaultDbPath(): string {

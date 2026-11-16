@@ -452,6 +452,13 @@ describe('judge', () => {
 });
 
 describe('runQuestion', () => {
+  it('with broad, scores the 擴大搜尋 answer made after a first one, and pays for both', async () => {
+    const { client } = fakeClient([searchTennis, { text: '第一次 [1]' }, searchTennis, { text: 'EP709 說每天打**網球** [1]' }], [true, true]);
+    const r = await runQuestion(question(), { db, client, coverage, broad: true });
+    expect(r).toMatchObject({ pass: true, answer: 'EP709 說每天打**網球** [1]', toolCalls: [{ name: 'search_mentions' }] });
+    expect(r.costUsd).toBeCloseTo((2 * (2000 * 0.75 + 200 * 4.5)) / 1e6);
+  });
+
   it('scores what the searches returned, what the answer cites and what the judge says', async () => {
     const { client } = fakeClient([searchTennis, { text: 'EP709 說每天打**網球** [1]' }], [true, true]);
     const r = await runQuestion(question(), { db, client, coverage });

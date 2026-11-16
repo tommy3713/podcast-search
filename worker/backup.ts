@@ -56,6 +56,8 @@ export function stripAskLog(file: string): void {
   try {
     db.pragma('journal_mode = OFF');
     db.exec('DELETE FROM ask_log');
+    // ask_log ids start over in a restore, so a kept row would block a new question's 擴大搜尋
+    if (db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'ask_retries'`).get()) db.exec('DELETE FROM ask_retries');
     // Nor who sent a typo report (kept ASK_LOG_DAYS on the live database, like a question)
     if (db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'typo_reports'`).get()) db.exec('UPDATE typo_reports SET user_id = NULL');
     db.exec('VACUUM');

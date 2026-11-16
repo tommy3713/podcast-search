@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Fragment, memo, useEffect, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { AskEvent, Source } from '@/lib/ask/agent';
 import { citedOrder, episodeLabel, groupBlocks, labelBlocks, type LabeledBlock, OTHER_SOURCES_SHOWN, otherSources, parseAnswer, splitEvents } from '@/lib/ask/render';
 import { previewParts, type SourceFocus, sourceFocus, sourceHref, termFocus } from '@/lib/ask/focus';
@@ -15,6 +15,9 @@ type Msg = {
   text: string;
   done: boolean;
   error: string | null;
+  logId?: number; // its ask_log id, which 擴大搜尋 sends back (absent on answers kept from before)
+  broadOf?: string; // 擴大搜尋: the message it broadened
+  broadened?: boolean; // 擴大搜尋 was asked for this one
 };
 
 type Props = { episodeCount: number; initialQuota: number; dailyLimit: number; logDays: number; examples: string[]; initialQuestion: string };
@@ -60,41 +63,70 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
   async function ask(question: string) {
     const text = question.trim();
     if (!text || busy || quota <= 0) return;
-    const id = `${Date.now()}`;
-    setMsgs((all) => [...all, { id, q: text, status: null, sources: {}, text: '', done: false, error: null }]);
     setQ('');
     // A question that came in ?q= is asked now: left in the URL, a reload would fill it in again
     if (window.location.search) window.history.replaceState(null, '', window.location.pathname);
+    await run({ q: text }, { question: text });
+  }
+
+  // 擴大搜尋: the same question once more, broader, as a new answer below; free, so not
+  // stopped by a used-up quota. Given back to try again unless the server says it was used.
+  async function broaden(of: Msg) {
+    if (busy || !of.logId || of.broadOf || of.broadened) return;
+    update(of.id, (m) => ({ ...m, broadened: true }));
+    const status = await run({ q: of.q, broadOf: of.id }, { retryOf: of.logId });
+    if (status !== null && status !== 409) update(of.id, (m) => ({ ...m, broadened: false }));
+  }
+
+  // Sends one request and streams its answer into a new message. Returns null when it
+  // answered, else the status it was refused with (0 for a dropped connection, -1 for an
+  // error the stream reported: the server gives a broadening back when nothing was answered).
+  async function run(msg: Pick<Msg, 'q' | 'broadOf'>, body: { question: string } | { retryOf: number }): Promise<number | null> {
+    const id = `${Date.now()}`;
+    setMsgs((all) => [...all, { id, ...msg, status: null, sources: {}, text: '', done: false, error: null }]);
     setBusy(true);
     requestAnimationFrame(() => document.getElementById(`msg-${id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
     try {
       const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: text }),
+        body: JSON.stringify(body),
       });
       if (!res.ok || !res.body) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        if (res.status === 429) setQuota(0);
-        update(id, (m) => ({ ...m, error: body.error ?? '發生錯誤，請稍後再試。', done: true }));
-        return;
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        // A broadened question is free: a full site is the only 429 it gets, and that isn't the user's quota
+        if (res.status === 429 && 'question' in body) setQuota(0);
+        update(id, (m) => ({ ...m, error: err.error ?? '發生錯誤，請稍後再試。', done: true }));
+        return res.status;
       }
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
       let buf = '';
+      let failed = false;
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
         const { events, rest } = splitEvents(buf + value);
         buf = rest;
-        for (const raw of events) apply(id, JSON.parse(raw) as AskEvent);
+        for (const raw of events) {
+          const e = JSON.parse(raw) as AskEvent;
+          if (e.type === 'error') failed = true;
+          apply(id, e);
+        }
       }
       update(id, (m) => ({ ...m, done: true }));
+      return failed ? -1 : null;
     } catch {
       update(id, (m) => ({ ...m, error: m.error ?? '連線中斷，請再試一次。', done: true }));
+      return 0;
     } finally {
       setBusy(false);
     }
   }
+
+  // Stable for the memoized messages, while calling the latest broaden (it reads busy)
+  const broadenRef = useRef(broaden);
+  broadenRef.current = broaden;
+  const onBroaden = useCallback((m: Msg) => broadenRef.current(m), []);
 
   function apply(id: string, e: AskEvent) {
     switch (e.type) {
@@ -112,6 +144,8 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
         return update(id, (m) => ({ ...m, done: true }));
       case 'error':
         return update(id, (m) => ({ ...m, error: e.message, done: true }));
+      case 'logged':
+        return update(id, (m) => ({ ...m, logId: e.id }));
     }
   }
 
@@ -149,7 +183,7 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
 
       <div style={{ display: 'grid', gap: 28 }}>
         {msgs.map((m) => (
-          <Message key={m.id} m={m} />
+          <Message key={m.id} m={m} busy={busy} onBroaden={onBroaden} />
         ))}
       </div>
 
@@ -185,7 +219,7 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
 }
 
 // Memoized: a streamed answer re-renders the list, and the finished ones above it haven't changed
-const Message = memo(function Message({ m }: { m: Msg }) {
+const Message = memo(function Message({ m, busy, onBroaden }: { m: Msg; busy: boolean; onBroaden: (m: Msg) => void }) {
   const epOf = new Map(Object.values(m.sources).map((s) => [s.n, s.ep]));
   const known = new Set(epOf.keys());
   const blocks = labelBlocks(parseAnswer(m.text, known, !m.done), epOf, !m.done);
@@ -199,6 +233,7 @@ const Message = memo(function Message({ m }: { m: Msg }) {
 
   return (
     <article className="msg" id={`msg-${m.id}`}>
+      {m.broadOf && <span className="pill info broad-tag">擴大搜尋</span>}
       <h2 className="q">{m.q}</h2>
       {!m.done && !m.text && (
         <div className="status" role="status">
@@ -233,7 +268,13 @@ const Message = memo(function Message({ m }: { m: Msg }) {
           AI 根據逐字稿產生，可能有誤，請點出處核對原節目；不是投資建議。
         </p>
       )}
-      {m.done && !m.error && <NotWhatYouWanted others={otherSources(m.sources, citedNs)} />}
+      {m.done && !m.error && (
+        <NotWhatYouWanted
+          others={otherSources(m.sources, citedNs)}
+          // Once per question, and not on a broad answer itself; answers kept from before have no id
+          broaden={m.logId && !m.broadOf ? { done: !!m.broadened, busy, go: () => onBroaden(m) } : null}
+        />
+      )}
     </article>
   );
 });
@@ -242,13 +283,21 @@ const Message = memo(function Message({ m }: { m: Msg }) {
 // to ask so the next search finds more. Closed until opened, even when the answer cites
 // nothing: then the passages are often ones found only by meaning, about something else
 // (asked about Rivian, EP706's Tesla Roadster), which the answer rightly didn't switch to.
-function NotWhatYouWanted({ others }: { others: Source[] }) {
+function NotWhatYouWanted({ others, broaden }: { others: Source[]; broaden: { done: boolean; busy: boolean; go: () => void } | null }) {
   const [all, setAll] = useState(false);
   const shown = all ? others : others.slice(0, OTHER_SOURCES_SHOWN);
   return (
     <details className="ask-more">
       <summary>不是你要找的？</summary>
       <div className="ask-more-body">
+        {broaden && (
+          <div className="broaden">
+            <button type="button" className="btn primary" onClick={broaden.go} disabled={broaden.done || broaden.busy}>
+              {broaden.done ? '已擴大搜尋' : '擴大搜尋'}
+            </button>
+            <span className="fine">不限日期、換別的說法再找一次，不扣今天的次數。每題一次。</span>
+          </div>
+        )}
         {others.length > 0 && (
           <>
             <div className="eyebrow">搜尋也找到這 {others.length} 段，回答沒有用到</div>

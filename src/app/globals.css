@@ -266,6 +266,8 @@ mark.cur { background: var(--warn); color: var(--surface); }
 .ask-more summary { cursor: pointer; color: var(--muted); width: fit-content; }
 .ask-more summary:hover { color: var(--accent); }
 .more-all { justify-self: start; font-size: 13px; }
+.broaden { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.broad-tag { justify-self: start; }
 .more-srcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 /* One column of 8 cards would push the tips below the composer: a row like the cited ones */
 @media (max-width: 640px) { .more-srcs { display: flex; overflow-x: auto; padding-bottom: 4px; } .more-srcs .src { flex: 0 0 220px; } }

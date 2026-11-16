@@ -23,6 +23,7 @@ npm run eval                          # every question 3 times through answer(),
 npm run eval -- --only safety,nf-07   # some types or ids; saved, but never used as the baseline
 npm run eval -- --set-baseline        # make this result the baseline
 npm run eval -- --runs 1 --baseline evals/results/<file>.json
+npm run eval -- --broad --only detail-28   # score the 擴大搜尋 answer: each run answers once, then broadens it (about twice the cost)
 ```
 
 It reads `DB_PATH` (default `data/prod.db`) read-only and never touches the quota or the Q&A log. Keep the snapshot a baseline was run on (`data/baseline-<episodes>.db`), since `npm run db:pull` overwrites `data/prod.db`. Search also ranks through the summary points, which a snapshot from before they existed lacks: `DB_PATH=data/baseline-<episodes>.db npm run worker -- index-summaries` adds them (a full run stops or warns when they are missing). Code from before summary search ignores them, so both sides of a comparison can use the same filled snapshot.

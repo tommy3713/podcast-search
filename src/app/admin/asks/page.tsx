@@ -20,7 +20,7 @@ import { AskFacts, OutcomePill } from '@/components/admin/AskParts';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-const FLAG_LABEL = { ...NOTE_LABEL, slow: `超過 ${SLOW_MS / 1000} 秒` } as const;
+const FLAG_LABEL = { ...NOTE_LABEL, slow: `超過 ${SLOW_MS / 1000} 秒`, broad: '擴大搜尋的回答' } as const;
 
 // The list's query string with some keys changed (undefined drops one)
 function href(f: AskFilter, change: Partial<Record<keyof AskFilter | 'before', string | number | undefined>> = {}): string {
@@ -71,6 +71,14 @@ function Totals({ title, s, f }: { title: string; s: AskStats; f: AskFilter }) {
             <span className="pre">秒</span>
           </dd>
         </div>
+        {s.broad !== undefined && (
+          <div>
+            <dt>擴大搜尋</dt>
+            <dd>
+              <Link href={href({ since: f.since, flag: 'broad' })}>{s.broad}</Link>
+            </dd>
+          </div>
+        )}
         <div>
           <dt>花費</dt>
           <dd>
@@ -191,6 +199,16 @@ export default async function AdminAsks({ searchParams }: Props) {
                     {FLAG_LABEL[x]}
                   </span>
                 ))}
+                {r.retryOf !== null && (
+                  <Link className="pill info" href={`/admin/asks/${r.retryOf}`} title="擴大搜尋的是這一題">
+                    擴大搜尋 #{r.retryOf}
+                  </Link>
+                )}
+                {r.broadenedBy !== null && (
+                  <Link className="pill warn" href={`/admin/asks/${r.broadenedBy}`} title="聽眾覺得不是他要的，按了擴大搜尋">
+                    被擴大搜尋 → #{r.broadenedBy}
+                  </Link>
+                )}
                 <AskFacts cited={r.cited} ms={r.ms} costUsd={r.costUsd} />
               </div>
               <Link className="admin-ask-q" href={`/admin/asks/${r.id}`}>

@@ -18,6 +18,9 @@ ssh -i "$KEY" "$HOST" 'set -e
   if [ -n "$(sqlite3 "$f" "SELECT 1 FROM sqlite_master WHERE name = '\''typo_reports'\''")" ]; then
     sqlite3 "$f" "UPDATE typo_reports SET user_id = NULL;"
   fi
+  if [ -n "$(sqlite3 "$f" "SELECT 1 FROM sqlite_master WHERE name = '\''ask_retries'\''")" ]; then
+    sqlite3 "$f" "DELETE FROM ask_retries;"
+  fi
   sqlite3 "$f" "VACUUM;"
   gzip -c "$f"' | gunzip > "$OUT.tmp"
 mv "$OUT.tmp" "$OUT"

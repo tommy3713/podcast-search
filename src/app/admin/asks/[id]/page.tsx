@@ -48,6 +48,16 @@ export default async function AdminAsk({ params }: Props) {
         <AskFacts cited={a.cited} ms={a.ms} costUsd={a.costUsd} />
         {a.hits !== null && <span className="muted">搜到 {a.hits} 筆</span>}
         {tokens && <span className="muted">{tokens}</span>}
+        {a.retryOf !== null && (
+          <Link className="pill info" href={`/admin/asks/${a.retryOf}`}>
+            擴大搜尋 #{a.retryOf} 的結果
+          </Link>
+        )}
+        {a.broadenedBy !== null && (
+          <Link className="pill warn" href={`/admin/asks/${a.broadenedBy}`} title="聽眾覺得不是他要的，按了擴大搜尋">
+            被擴大搜尋 → #{a.broadenedBy}
+          </Link>
+        )}
       </div>
 
       <article className="msg admin-ask-body">

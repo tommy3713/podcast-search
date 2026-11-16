@@ -6,6 +6,10 @@ import type { TaipeiTime } from './schedule.ts';
 export function purgeAskLog(db: DB): number {
   const r = db.prepare(`DELETE FROM ask_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)`).run(`-${ASK_LOG_DAYS} days`);
   db.prepare(`DELETE FROM ask_usage WHERE date < date('now', '-7 days')`).run();
+  // Broadened questions go with the questions (absent before the release that added it)
+  if (db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'ask_retries'`).get()) {
+    db.prepare('DELETE FROM ask_retries WHERE ask_id NOT IN (SELECT id FROM ask_log)').run();
+  }
   return r.changes;
 }
 
@@ -72,6 +76,8 @@ export function formatStats(title: string, s: AskStats, questions: { day: string
     `📊 ${title}`,
     `共 ${s.asks} 題・${s.users} 人`,
     `✅ 有出處 ${s.answered}・❓ 沒出處 ${s.no_source}・🚫 不當內容 ${s.moderated}・⛔ 配額已滿 ${s.quota}・❌ 失敗 ${s.failed}`,
+    // 擴大搜尋 answers are among the questions counted above
+    ...(s.broad ? [`🔁 擴大搜尋 ${s.broad}（聽眾覺得第一次的回答不是他要的）`] : []),
     `成本 US$${s.cost_usd.toFixed(2)}${s.avg_ms !== null ? `・平均 ${(s.avg_ms / 1000).toFixed(1)} 秒` : ''}`,
   ];
   if (questions.length) {

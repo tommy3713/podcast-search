@@ -42,8 +42,11 @@ const { values: opt } = parseArgs({
     only: { type: 'string' },
     baseline: { type: 'string' },
     concurrency: { type: 'string', default: '4' },
+    // Score the 擴大搜尋 answers instead: each run answers once, then broadens that answer
+    broad: { type: 'boolean', default: false },
   },
 });
+if (opt.broad && (opt['set-baseline'] || opt['retrieval-only'])) throw new Error('--broad is compared with the baseline, never one, and needs the model');
 const runs = Number(opt.runs);
 const concurrency = Number(opt.concurrency);
 if (!Number.isInteger(runs) || runs < 1 || !Number.isInteger(concurrency) || concurrency < 1) throw new Error('--runs and --concurrency take a whole number, 1 or more');
@@ -94,16 +97,16 @@ if (kind === 'retrieval') {
   console.log(reportRetrieval(result, golden, before && { run: before.data as RetrievalRun, name: before.name }));
 } else {
   const client = new OpenAI();
-  console.log(`${picked.length} 題 × ${runs} 次，資料 ${path.relative(ROOT, dbPath)}，一次跑 ${concurrency} 題…`);
+  console.log(`${picked.length} 題 × ${runs} 次${opt.broad ? '（擴大搜尋：每次先答一次，再擴大）' : ''}，資料 ${path.relative(ROOT, dbPath)}，一次跑 ${concurrency} 題…`);
   let done = 0;
   const questions = await pool(picked, concurrency, async (q): Promise<QuestionResult> => {
     const results = [];
-    for (let i = 0; i < runs; i++) results.push(await runQuestion(q, { db, client, coverage }));
+    for (let i = 0; i < runs; i++) results.push(await runQuestion(q, { db, client, coverage, broad: opt.broad }));
     const status = statusOf(results.map((r) => r.pass));
     console.log(`  ${String(++done).padStart(3)}/${picked.length}  ${q.id.padEnd(11)} ${status}`);
     return { id: q.id, type: q.type, hash: questionHash(q), status, runs: results };
   });
-  result = { meta: { startedAt, sha, db: dbInfo, askModel: ASK_MODEL, judgeModel: JUDGE_MODEL, supportModel: SUPPORT_MODEL, runs, partial }, questions };
+  result = { meta: { startedAt, sha, db: dbInfo, askModel: ASK_MODEL, judgeModel: JUDGE_MODEL, supportModel: SUPPORT_MODEL, runs, partial, ...(opt.broad ? { broad: true } : {}) }, questions };
   const summary = summarize(result);
   clean = summary.errors === 0;
   console.log(`\n${reportEval(result, golden)}`);
@@ -116,7 +119,7 @@ if (kind === 'retrieval') {
 }
 db.close();
 
-const file = path.join(RESULTS, `${startedAt.replace(':', '')}-${sha}${kind === 'retrieval' ? '-retrieval' : ''}${partial ? '-partial' : ''}.json`);
+const file = path.join(RESULTS, `${startedAt.replace(':', '')}-${sha}${kind === 'retrieval' ? '-retrieval' : ''}${opt.broad ? '-broad' : ''}${partial ? '-partial' : ''}.json`);
 const json = `${JSON.stringify(result, null, 1)}\n`;
 fs.mkdirSync(RESULTS, { recursive: true });
 fs.writeFileSync(file, json);
