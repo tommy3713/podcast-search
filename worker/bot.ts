@@ -15,7 +15,8 @@ import { estimateCost } from './config.ts';
 import { retryButtons, STEP_LABEL, usd } from './pipeline.ts';
 import { type EpisodeRow, getEpisode, recentEpisodes } from './repo.ts';
 import { fetchFeed, parseFeed } from './rss.ts';
-import { askStats, formatAsk, formatQuestions, formatStats, recentQuestions, unanswered } from './stats.ts';
+import { askStats } from '@/lib/ask/log.ts';
+import { formatAsk, formatQuestions, formatStats, recentQuestions, unanswered } from './stats.ts';
 import {
   answerCallback,
   type Button,
