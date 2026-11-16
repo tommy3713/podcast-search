@@ -26,7 +26,9 @@ export type AdChapter = {
 // within one text the brand named first wins, so a pitch for one brand that mentions another
 // in passing (Saily is made by NordVPN's company) stays with its own. Latin names need word
 // ends. Add a line when a backfill batch brings a new spelling.
-export const SPONSOR_ALIASES: { name: string; slug: string; patterns: RegExp[] }[] = [
+// `nameOnly`: tried only on the title and on the X of 本集由 X 贊助, never on a bullet, for
+// names that are everyday words (簡單) or that other ads mention in passing (三星, Elden Ring)
+export const SPONSOR_ALIASES: { name: string; slug: string; patterns: RegExp[]; nameOnly?: boolean }[] = [
   { name: 'NordVPN', slug: 'nordvpn', patterns: [/nord ?vpn/i] },
   { name: 'Saily', slug: 'saily', patterns: [/\bsaily\b/i, /\bsally\b/i, /\bseti\b/i] },
   { name: '善存', slug: 'centrum', patterns: [/善存/, /\bcentrum\b/i] },
@@ -56,16 +58,14 @@ export const SPONSOR_ALIASES: { name: string; slug: string; patterns: RegExp[] }
   // 本集由 Pressplay Academy 贊助 is too long a name, so the title (英文課業配) won. Not
   // Pressplay alone: other sellers' courses are on that platform too
   { name: 'Pressplay Academy', slug: 'pressplay', patterns: [/\bpress ?play academy\b/i] },
-  // Brands from EP1–199, each spelled several ways. Names that are also everyday words
-  // (簡單, 三星, Sony) or that other ads mention only count at the start of a title or a
-  // bullet, or in 本集由 X 贊助
+  // Brands from EP1–199, each spelled several ways
   { name: '森歐黎漾', slug: 'senorian-saholia', patterns: [/森歐[黎里][漾昂亞]/, /\bsenori?y?an\b/i, /\bsahol(e|i)?a\b/i] },
   { name: 'A-Lux 亞立詩', slug: 'a-lux', patterns: [/\ba-?lux\b/i, /\balox\b/i, /亞[立歷]詩|亞歷斯/] },
   { name: 'OVO', slug: 'ovo', patterns: [/\bovo\b/i] },
   { name: 'Vtex', slug: 'vtex', patterns: [/\bvte[xc]\b/i] },
   // Other ads (Shopback) mention Kobo in passing
-  { name: '樂天 Kobo', slug: 'kobo', patterns: [/^樂天 ?kobo/i, /本[集期]由樂天 ?kobo/i] },
-  { name: '簡單', slug: 'simple-skincare', patterns: [/^簡單(保養)?(業配)?$/, /品牌「?簡單」?/, /本[集期]由簡單贊助/] },
+  { name: '樂天 Kobo', slug: 'kobo', patterns: [/^樂天 ?kobo/i], nameOnly: true },
+  { name: '簡單', slug: 'simple-skincare', patterns: [/^簡單(保養)?$/, /品牌「?簡單」?$/], nameOnly: true },
   { name: 'BFAC', slug: 'bfac', patterns: [/\bbfac/i] },
   { name: '麥格瑞', slug: 'mackmyra', patterns: [/麥格瑞/, /\bmackmyra\b/i] },
   { name: '給我五分鐘', slug: 'give-me-five', patterns: [/給我五分鐘/] },
@@ -80,8 +80,8 @@ export const SPONSOR_ALIASES: { name: string; slug: string; patterns: RegExp[] }
   { name: '綠藤生機', slug: 'greenvines', patterns: [/綠藤生[機技]/] },
   { name: '寶拉珍選', slug: 'paulas-choice', patterns: [/[寶保]拉[珍甄]選/, /paula'?s choice/i, /^寶拉(業配)?$/] },
   { name: 'Zenyam 戰亞', slug: 'zenyam', patterns: [/戰亞/, /\bzenyam\b/i] },
-  { name: '花旗', slug: 'citi', patterns: [/^花旗/] },
-  { name: '巴黎萊雅', slug: 'loreal-paris', patterns: [/^(巴黎)?萊雅(業配)?$/, /本[集期]由巴黎萊雅/] },
+  { name: '花旗', slug: 'citi', patterns: [/^花旗/], nameOnly: true },
+  { name: '巴黎萊雅', slug: 'loreal-paris', patterns: [/^(巴黎)?萊雅$/], nameOnly: true },
   // 豐存股 and 大戶投 are its products; 永豐大戶 is the bank's account, a separate sponsor
   { name: '永豐金證券', slug: 'sinopac-securities', patterns: [/永豐金證券|豐存股/] },
   { name: '白蘭氏', slug: 'brands', patterns: [/白蘭氏/] },
@@ -93,19 +93,19 @@ export const SPONSOR_ALIASES: { name: string; slug: string; patterns: RegExp[] }
   { name: '田中義和', slug: 'tanaka', patterns: [/田中義和/] },
   { name: '橘子工坊', slug: 'orange-house', patterns: [/橘子工坊/] },
   // 賞心樂事 gives away Electrolux mixers in its own ads
-  { name: '伊萊克斯', slug: 'electrolux', patterns: [/^伊萊克斯/, /本[集期]由伊萊克斯/, /^electrolux/i] },
+  { name: '伊萊克斯', slug: 'electrolux', patterns: [/^伊萊克斯/, /^electrolux/i] },
   { name: '亞新集團', slug: 'yahsin', patterns: [/亞新(集團|天會|森會)/] },
   { name: 'Moft', slug: 'moft', patterns: [/\bmoft\b/i] },
   { name: 'WOKI', slug: 'woki', patterns: [/\bwoki\b/i] },
   { name: 'Walkie', slug: 'walkie', patterns: [/\bwalkie\b/i] },
   { name: 'Vana', slug: 'vana', patterns: [/\bvana\b/i] },
-  { name: '阿斗', slug: 'adou', patterns: [/^阿斗/] },
+  { name: '阿斗', slug: 'adou', patterns: [/^阿斗/], nameOnly: true },
   { name: 'MULA', slug: 'mula', patterns: [/\bmula\b/i] },
-  { name: 'HP 印表機', slug: 'hp', patterns: [/^hp ?印表機/i] },
-  { name: '艾爾登法環', slug: 'elden-ring', patterns: [/^(艾爾登)?法環(業配)?$/, /elden ring/i] },
-  { name: 'PlayStation', slug: 'playstation', patterns: [/^playstation/i] },
-  { name: 'Sony', slug: 'sony', patterns: [/^sony/i] },
-  { name: '三星', slug: 'samsung', patterns: [/^(三星|samsung)/i] },
+  { name: 'HP 印表機', slug: 'hp', patterns: [/^hp ?印表機/i], nameOnly: true },
+  { name: '艾爾登法環', slug: 'elden-ring', patterns: [/^(艾爾登)?法環$|^elden ring$/i], nameOnly: true },
+  { name: 'PlayStation', slug: 'playstation', patterns: [/^playstation/i], nameOnly: true },
+  { name: 'Sony', slug: 'sony', patterns: [/^sony/i], nameOnly: true },
+  { name: '三星', slug: 'samsung', patterns: [/^(三星|samsung)/i], nameOnly: true },
   { name: '原始實驗室', slug: 'primal-lab', patterns: [/原[始石](實驗室|凍乾)/] },
 ];
 
@@ -121,10 +121,12 @@ export const SPONSOR_INDEX_MIN_EPISODES = 2;
 export type SponsorMatch = { name: string; slug: string; known: boolean };
 
 // The brand a text names first, if any
-function aliasIn(text: string): (typeof SPONSOR_ALIASES)[number] | null {
+// `asName`: the text is a title or a sponsor's name, so `nameOnly` aliases count too
+function aliasIn(text: string, asName = false): (typeof SPONSOR_ALIASES)[number] | null {
   let best: (typeof SPONSOR_ALIASES)[number] | null = null;
   let at = Infinity;
   for (const s of SPONSOR_ALIASES) {
+    if (s.nameOnly && !asName) continue;
     for (const p of s.patterns) {
       const i = text.search(p);
       if (i !== -1 && i < at) [best, at] = [s, i];
@@ -135,18 +137,19 @@ function aliasIn(text: string): (typeof SPONSOR_ALIASES)[number] | null {
 
 // Who paid for a chapter, or null when nothing says
 export function sponsorOf(ch: Pick<AdChapter, 'title' | 'bullets'>): SponsorMatch | null {
-  for (const text of [ch.title, ...ch.bullets.map((b) => b.text)]) {
-    const s = aliasIn(text);
-    if (s) return { name: s.name, slug: s.slug, known: true };
-  }
+  const known = (s: (typeof SPONSOR_ALIASES)[number]): SponsorMatch => ({ name: s.name, slug: s.slug, known: true });
+  const title = ch.title.replace(AD_WORDS, ' ').trim();
+  const byAll = ch.bullets.map((b) => SPONSORED_BY.exec(b.text)?.[1]?.trim()).filter((x): x is string => !!x);
+  // The title, then who 本集由 X names, then any bullet; within one text the brand named first
+  const s = aliasIn(ch.title, true) ?? aliasIn(title, true) ?? byAll.map((x) => aliasIn(x, true)).find(Boolean) ?? ch.bullets.map((b) => aliasIn(b.text)).find(Boolean);
+  if (s) return known(s);
   // A long 本集由 X is usually the brand with its product and company; the title is shorter
-  const by = ch.bullets.map((b) => SPONSORED_BY.exec(b.text)?.[1]?.trim()).find((x) => x && x.length <= MAX_NAME);
-  const name = (by ?? ch.title.replace(AD_WORDS, ' ')).trim();
+  const name = (byAll.find((x) => x.length <= MAX_NAME) ?? title).trim();
   const slug = slugOf(name);
   if (!name || !slug || name.length > MAX_NAME) return null;
   // An English name that is an alias's slug ("Centrum") is that brand
-  const alias = SPONSOR_ALIASES.find((s) => s.slug === slug);
-  return alias ? { name: alias.name, slug, known: true } : { name, slug, known: false };
+  const alias = SPONSOR_ALIASES.find((a) => a.slug === slug);
+  return alias ? known(alias) : { name, slug, known: false };
 }
 
 export type SponsorEpisode = {
@@ -243,7 +246,7 @@ export function spanPosition(iso: string, from: string, to: string): number {
 // By its slug, its name, or any spelling an alias knows (/sponsor/米紅生醫 from before the alias
 // took the brand's own name)
 export function findSponsor(index: SponsorIndex, segment: string): Sponsor | null {
-  const alias = aliasIn(segment);
+  const alias = aliasIn(segment, true);
   return (
     index.bySlug.get(segment) ??
     index.bySlug.get(slugOf(segment)) ??

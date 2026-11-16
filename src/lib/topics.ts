@@ -163,7 +163,7 @@ export const TOPIC_ALIASES: Record<string, Alias[]> = {
     { name: '洛杉磯', slug: 'los-angeles', patterns: [/^(洛杉磯|la)$/i] },
     { name: 'The Hyundai Seoul', slug: 'the-hyundai-seoul', patterns: [/hyundai seoul/i] },
     { name: 'Terme di Saturnia', slug: 'saturnia', patterns: [/saturnia/i] },
-    { name: 'Bergen', slug: 'bergen', patterns: [/bergen|^伯根/i] },
+    { name: 'Bergen', slug: 'bergen', patterns: [/^bergen$|^伯根/i] },
     { name: '斯德哥爾摩', slug: 'stockholm', patterns: [/斯德哥爾摩$/] },
     { name: '羅馬機場', slug: 'fiumicino', patterns: [/fiumicino|李奧納多達文西機場/i] },
     { name: '中華航空', slug: 'china-airlines', patterns: [/^(華航|中華航空)$/] },
@@ -248,7 +248,8 @@ export const TOPIC_ALIASES: Record<string, Alias[]> = {
     { name: 'Pan Piano', slug: 'pan-piano', patterns: [/^pan ?piano$/i] },
     { name: 'J.K. Rowling', slug: 'jk-rowling', patterns: [/^j\.? ?k\.? rowling$/i] },
     { name: '從前，有個好萊塢', slug: 'once-upon-a-time-in-hollywood', patterns: [/^從前，?有個好萊塢$/] },
-    { name: '黑天鵝效應', slug: 'the-black-swan', patterns: [/^黑天鵝(效應)?$/] },
+    // Taleb's book; 黑天鵝 alone may be the film
+    { name: '黑天鵝效應', slug: 'the-black-swan', patterns: [/^黑天鵝效應$/] },
     { name: '曼達洛人', slug: 'the-mandalorian', patterns: [/mandalorian|曼達洛人/i] },
     { name: '當幸福來敲門', slug: 'pursuit-of-happyness', patterns: [/^當?幸福來敲門$/] },
     { name: '靈魂急轉彎', slug: 'soul', patterns: [/^(soul|靈魂急轉彎)$/i] },
@@ -271,15 +272,15 @@ export const TOPIC_ALIASES: Record<string, Alias[]> = {
     { name: '十四代', slug: 'juyondai', patterns: [/^十四代/] },
     { name: '新政', slug: 'aramasa', patterns: [/^新政/] },
     { name: '7-11', slug: '7-11', patterns: [/^7-?11/] },
-    { name: 'Churros', slug: 'churros', patterns: [/churros/i] },
+    { name: 'Churros', slug: 'churros', patterns: [/churros|吉拿棒/i] },
     { name: '多力多滋', slug: 'doritos', patterns: [/多[力利]多[滋茲]|^doritos/i] },
     { name: 'In-N-Out', slug: 'in-n-out', patterns: [/^in-n-out/i] },
     { name: 'Smith & Wollensky', slug: 'smith-and-wollensky', patterns: [/^smith & wol?l?[ea]nsky$/i] },
     { name: 'Odari Jip', slug: 'odari-jip', patterns: [/^odari ?j(ee|i)p$/i] },
-    { name: '香圓', slug: 'xiangyuan', patterns: [/香[圓園]/] },
+    { name: '香圓', slug: 'xiangyuan', patterns: [/^(苗栗)?香[圓園](客家小館)?$/] },
     { name: '水上人家', slug: 'shuishang-renjia', patterns: [/^水上人家/] },
-    { name: '真味醬蟹', slug: 'zhenwei-crab', patterns: [/醬蟹$|真味食堂/] },
-    { name: '炸醬麵', slug: 'zhajiangmian', patterns: [/^[威唯]力炸醬麵$/] },
+    { name: '真味醬蟹', slug: 'zhenwei-crab', patterns: [/^(真味)?醬蟹$|^真味(食堂|醬蟹)/] },
+    { name: '威力炸醬麵', slug: 'weili-zhajiangmian', patterns: [/^[威唯]力炸醬麵$/] },
     { name: '五十嵐', slug: '50lan', patterns: [/^(五十嵐|50嵐)$/] },
     { name: '加分豆花', slug: 'jiafen-douhua', patterns: [/加分豆花/] },
     { name: '金莎', slug: 'ferrero-rocher', patterns: [/^金[莎沙](巧克力)?$/] },
@@ -406,11 +407,17 @@ export function baseName(category: string, raw: string): string {
   const keep = (from: string, to: string) => (to.trim().length >= 2 ? to.trim() : from);
   let n = bareName(raw);
   n = keep(n, n.replace(/\s*[（(][^（）()]+[）)]$/, ''));
-  n = keep(n, bareName(n.split('／')[0]!));
+  // Two names of one thing: ／ unless both sides are short (AC／DC), / only between scripts
+  const [a, b] = n.split(/\s*[／/]\s*/);
+  const cjk = (x: string) => /[㐀-鿿]/.test(x);
+  if (b !== undefined && (n.includes('／') ? a!.length > 2 || b.length > 2 : cjk(a!) !== cjk(b))) n = keep(n, bareName(a!));
   if (category === '書影音') {
     n = keep(n, n.replace(/\s*〈[^〈〉]+〉$/, ''));
-    n = keep(n, n.replace(/\s*(的\s*)?(新專輯|podcast|節目|脫口秀|stand[- ]?up|'s podcast)$/i, '').replace(/'s$/, ''));
-    n = keep(n, n.replace(/\s*(日本|東京|台北|高雄)?\s*(場|演唱會|演奏會)$/, (m, city: string | undefined, kind: string) => (kind === '場' && !city ? m : '')));
+    n = keep(n, n.replace(/\s*(的\s*)?(新專輯|節目|脫口秀|stand[- ]?up)$/i, ''));
+    n = keep(n, n.replace(/(['’]s)?\s*(的\s*)?podcast$/i, ''));
+    // A concert by someone: the name is three characters or Latin (張學友, Coldplay), not 跨年
+    const concert = n.match(/^(.+?)\s*(日本|東京|台北|高雄)?\s*(演唱會|演奏會|場)$/);
+    if (concert && (concert[3] !== '場' || concert[2]) && (concert[1]!.length >= 3 || /[a-z]/i.test(concert[1]!))) n = concert[1]!;
   }
   return n;
 }
@@ -420,8 +427,10 @@ export function topicOf(category: string, raw: string): { slug: string; name: st
   const name = bareName(raw);
   const base = baseName(category, raw);
   const aliases = TOPIC_ALIASES[category] ?? [];
-  for (const n of name === base ? [name] : [name, base])
-    for (const a of aliases) if (a.patterns.some((p) => p.test(n))) return { slug: a.slug, name: a.name, base: a.name };
+  for (const a of aliases) if (a.patterns.some((p) => p.test(base))) return { slug: a.slug, name: a.name, base: a.name };
+  // Then the whole name, from its start only (Apple Podcast, not Apple), so a note in （） or a
+  // second name can't take the mention elsewhere
+  if (name !== base) for (const a of aliases) if (a.patterns.some((p) => name.search(p) === 0)) return { slug: a.slug, name: a.name, base: a.name };
   const slug = slugOf(base);
   if (!slug) return null;
   // A name that is an alias's slug (Mario for 瑪利歐) is that alias
@@ -448,7 +457,7 @@ export function buildTopicIndex(rows: TopicRow[], lines: Map<number, string> = n
     const items = index.get(cat.slug)!;
     let item = items.get(m.slug);
     if (!item) items.set(m.slug, (item = { category: cat, slug: m.slug, name: m.base, episodes: [] }));
-    // Without an alias, the name most of its mentions use
+    // The name most of its mentions go by
     let names = groups.get(item);
     if (!names) groups.set(item, (names = new Map()));
     names.set(m.base, (names.get(m.base) ?? 0) + 1);
@@ -467,9 +476,8 @@ export function buildTopicIndex(rows: TopicRow[], lines: Map<number, string> = n
     if (!ep.notes.some((n) => n.t === note.t && n.text === note.text)) ep.notes.push(note);
   }
   for (const [item, names] of groups) {
-    const isAlias = (TOPIC_ALIASES[item.category.category] ?? []).some((a) => a.slug === item.slug);
-    if (isAlias) item.name = TOPIC_ALIASES[item.category.category]!.find((a) => a.slug === item.slug)!.name;
-    else item.name = [...names].sort((a, b) => b[1] - a[1])[0]![0];
+    // An alias item's rows all give the alias's name
+    item.name = [...names].sort((a, b) => b[1] - a[1])[0]![0];
     item.episodes.sort(newestFirst);
     for (const e of item.episodes) e.notes.sort((a, b) => a.t - b.t);
   }

@@ -73,6 +73,15 @@ describe('topicOf', () => {
     expect(topicOf('書影音', '夢劇場')?.slug).toBe('夢劇場');
     expect(topicOf('書影音', 'Apple Podcast')?.slug).toBe('apple-podcasts');
     expect(topicOf('旅遊', '東京場')?.slug).toBe('東京場');
+    for (const n of ['跨年演唱會', '鋼琴演奏會']) expect(topicOf('書影音', n)?.base).toBe(n);
+    expect(topicOf('書影音', "Andrew Huberman’s podcast")?.slug).toBe(topicOf('書影音', "Andrew Huberman's podcast")?.slug);
+    expect(topicOf('遊戲', 'Fortnite/要塞英雄')?.slug).toBe('fortnite');
+    expect(topicOf('書影音', 'AC／DC')?.base).toBe('AC／DC');
+    // What the （） adds can't take the mention to another item
+    expect(topicOf('書影音', '某電影（周杰倫配樂）')?.slug).toBe('某電影');
+    expect(topicOf('美食', '韓式醬蟹')?.slug).toBe('韓式醬蟹');
+    expect(topicOf('美食', '茶香園')?.slug).toBe('茶香園');
+    expect(topicOf('旅遊', 'Heidelbergen')?.slug).toBe('heidelbergen');
     // The song stays beside the note, since it says more than the item
     const index = buildTopicIndex([row(1, '書影音', 'Pink Floyd〈Time〉', '那首歌'), row(2, '書影音', 'Pink Floyd')]);
     const pf = findTopic(index, 'media', 'pink-floyd')!;
