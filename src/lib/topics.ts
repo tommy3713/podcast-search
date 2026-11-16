@@ -88,8 +88,9 @@ export const TOPIC_ALIASES: Record<string, Alias[]> = {
     { name: '33號遠征隊', slug: 'expedition-33', patterns: [/(33|三三)號?遠征隊/] },
     { name: 'Bloodborne', slug: 'bloodborne', patterns: [/bloodborne|血源詛咒/i] },
     { name: 'Cyberpunk 2077', slug: 'cyberpunk-2077', patterns: [/^cyberpunk/i] },
-    { name: '瑪利歐', slug: 'mario', patterns: [/馬力歐|瑪利歐/] },
+    { name: '瑪利歐', slug: 'mario', patterns: [/[馬瑪][力利]歐/] },
     { name: '巫師', slug: 'the-witcher', patterns: [/^巫師|the witcher/i] },
+    { name: '世紀帝國', slug: 'age-of-empires', patterns: [/世紀帝國|帝國時代|^世紀 ?[1-4一二三四]$|age of empires/i] },
     { name: 'PlayStation', slug: 'playstation', patterns: [/^(playstation|ps5)$/i] },
     { name: 'Nintendo Switch', slug: 'nintendo-switch', patterns: [/^(nintendo )?switch( 2)?$/i, /^ns2$/i] },
     { name: '楓之谷', slug: 'maplestory', patterns: [/楓之谷/] },
@@ -124,6 +125,12 @@ export const TOPIC_ALIASES: Record<string, Alias[]> = {
     { name: '灰階思考', slug: 'grey-thinking', patterns: [/灰[階街]思考/] },
     { name: '巴哈姆特動畫瘋', slug: 'ani-gamer', patterns: [/動畫瘋/] },
     { name: '絕命律師', slug: 'better-call-saul', patterns: [/絕命律師|better call saul/i] },
+    { name: '會計思考', slug: 'accounting-thinking', patterns: [/^會計的?思考$/] },
+    // The Netflix series; the game is 巫師 under 遊戲
+    { name: '獵魔士', slug: 'the-witcher-series', patterns: [/獵魔士|^巫師|the witcher/i] },
+    { name: "Don't Look Up", slug: 'dont-look-up', patterns: [/^don.t look up$|千萬別抬頭/i] },
+    { name: '敏迪', slug: 'mindy', patterns: [/^敏迪/] },
+    { name: '捍衛戰士', slug: 'top-gun', patterns: [/^top gun|^捍衛戰士/i] },
   ],
   美食: [
     { name: '皮諾可可', slug: 'pinococo', patterns: [/皮諾可可|pino ?coco|pinocc?o|^皮諾$/i] },
@@ -183,6 +190,10 @@ export const TOPIC_ALIASES: Record<string, Alias[]> = {
     { name: 'Windy', slug: 'windy', patterns: [/^windy/i] },
     { name: 'Facebook', slug: 'facebook', patterns: [/^facebook/i] },
     { name: 'YouTube', slug: 'youtube', patterns: [/^youtube/i] },
+    { name: 'Instagram', slug: 'instagram', patterns: [/^(instagram|ig)$/i] },
+    // Named X since 2023; mentions from before say Twitter or 推特
+    { name: 'X', slug: 'x', patterns: [/^(x|x ?平台|twitter|推特|x ?[／/(（] ?twitter[)）]?)$/i] },
+    { name: 'Google 地圖', slug: 'google-maps', patterns: [/^google ?(maps?|地圖)$/i] },
   ],
 };
 
@@ -224,9 +235,16 @@ export type TopicItem = {
 export type TopicIndex = Map<string, Map<string, TopicItem>>;
 
 // The item a mention belongs to, or null when its name gives no URL
-export function topicOf(category: string, name: string): { slug: string; name: string | null } | null {
+// A name as the item compares it: a title the summary put wholly in 《》 is the bare title
+// (《反脆弱》, 反脆弱)
+export function bareName(name: string): string {
+  return name.trim().replace(/^《\s*([^《》]+?)\s*》$/, '$1');
+}
+
+export function topicOf(category: string, raw: string): { slug: string; name: string | null } | null {
+  const name = bareName(raw);
   const aliases = TOPIC_ALIASES[category] ?? [];
-  for (const a of aliases) if (a.patterns.some((p) => p.test(name.trim()))) return { slug: a.slug, name: a.name };
+  for (const a of aliases) if (a.patterns.some((p) => p.test(name))) return { slug: a.slug, name: a.name };
   const slug = slugOf(name);
   if (!slug) return null;
   // A name that is an alias's slug (Mario for 瑪利歐) is that alias
@@ -252,11 +270,11 @@ export function buildTopicIndex(rows: TopicRow[], lines: Map<number, string> = n
     if (!cat || !m) continue;
     const items = index.get(cat.slug)!;
     let item = items.get(m.slug);
-    if (!item) items.set(m.slug, (item = { category: cat, slug: m.slug, name: m.name ?? r.name.trim(), episodes: [] }));
+    if (!item) items.set(m.slug, (item = { category: cat, slug: m.slug, name: m.name ?? bareName(r.name), episodes: [] }));
     // Without an alias, the name most of its mentions use
     let names = groups.get(item);
     if (!names) groups.set(item, (names = new Map()));
-    names.set(r.name.trim(), (names.get(r.name.trim()) ?? 0) + 1);
+    names.set(bareName(r.name), (names.get(bareName(r.name)) ?? 0) + 1);
     let eps = episodesOf.get(item);
     if (!eps) episodesOf.set(item, (eps = new Map()));
     let ep = eps.get(r.episodeNo);
@@ -265,7 +283,7 @@ export function buildTopicIndex(rows: TopicRow[], lines: Map<number, string> = n
       item.episodes.push(ep);
     }
     const quote = (r.quote ?? '').trim();
-    const name = r.name.trim();
+    const name = bareName(r.name);
     // The name as written, when it says more than the item's and the quote doesn't have it
     const as = m.name !== null && name !== m.name && !quote.includes(name) ? name : undefined;
     const note: TopicNote = quote ? { t: r.startSec, text: quote, quoted: true, ...(as ? { as } : {}) } : { t: r.startSec, text: name, quoted: false };
