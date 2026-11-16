@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { AskEvent, Source } from '@/lib/ask/agent';
-import { citedOrder, episodeLabel, groupBlocks, labelBlocks, type LabeledBlock, parseAnswer, splitEvents } from '@/lib/ask/render';
-import { previewParts, type SourceFocus, sourceFocus, sourceHref } from '@/lib/ask/focus';
+import { citedOrder, episodeLabel, groupBlocks, labelBlocks, type LabeledBlock, otherSources, parseAnswer, splitEvents } from '@/lib/ask/render';
+import { previewParts, type SourceFocus, sourceFocus, sourceHref, termFocus } from '@/lib/ask/focus';
 import { formatTimestamp } from '@/lib/summary';
 
 type Msg = {
@@ -139,6 +139,9 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
           {/* Here rather than in the sticky composer: seen before the first question, without
               taking screen space for good (and it comes and goes with the examples) */}
           <p className="fine" style={{ margin: 0 }}>
+            找某一集時，寫你記得的原話、人名或英文最好找；不確定是什麼時候，就不用寫時間。
+          </p>
+          <p className="fine" style={{ margin: 0 }}>
             問題會傳給 OpenAI 產生回答，問答會連同帳號保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
           </p>
         </div>
@@ -185,7 +188,8 @@ function Message({ m }: { m: Msg }) {
   const epOf = new Map(Object.values(m.sources).map((s) => [s.n, s.ep]));
   const known = new Set(epOf.keys());
   const blocks = labelBlocks(parseAnswer(m.text, known, !m.done), epOf, !m.done);
-  const cited = citedOrder(blocks)
+  const citedNs = citedOrder(blocks);
+  const cited = citedNs
     .map((n) => m.sources[n])
     .filter((s): s is Source => !!s);
   const found = Object.keys(m.sources).length;
@@ -228,7 +232,46 @@ function Message({ m }: { m: Msg }) {
           AI 根據逐字稿產生，可能有誤，請點出處核對原節目；不是投資建議。
         </p>
       )}
+      {m.done && !m.error && <NotWhatYouWanted others={otherSources(m.sources, citedNs)} open={citedNs.length === 0} />}
     </article>
+  );
+}
+
+// Below every finished answer: what the searches found that the answer left out, and how
+// to ask so the next search finds more. Open when the answer cites nothing but the
+// searches found something, since then the right passage may be among them.
+function NotWhatYouWanted({ others, open }: { others: Source[]; open: boolean }) {
+  return (
+    <details className="ask-more" open={open && others.length > 0}>
+      <summary>不是你要找的？</summary>
+      {others.length > 0 && (
+        <>
+          <div className="eyebrow">搜尋也找到這些段落，回答沒有用到</div>
+          <div className="more-srcs">
+            {others.map((s) => {
+              const f = termFocus(s);
+              return (
+                <Link key={s.n} className="src" href={sourceHref(s, f)}>
+                  <span className="h">
+                    EP{s.ep}
+                    <span className="mono muted" style={{ fontWeight: 400 }}>
+                      {formatTimestamp(s.t)}
+                    </span>
+                  </span>
+                  <Preview s={s} f={f} />
+                </Link>
+              );
+            })}
+          </div>
+        </>
+      )}
+      <div className="eyebrow">換個問法再試</div>
+      <ul className="tips">
+        <li>寫你記得的原話、人名或英文：節目裡說過的詞最容易找到。</li>
+        <li>不確定是什麼時候，就不要寫時間：記錯的時間會讓搜尋漏掉那一集。</li>
+        <li>一次問一件事。</li>
+      </ul>
+    </details>
   );
 }
 

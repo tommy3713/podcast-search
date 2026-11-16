@@ -76,11 +76,20 @@ export function sourceFocus(blocks: Block[], sources: Record<number, Source>): M
     const tiers = [found(own.get(n) ?? []), found(line.get(n) ?? [])];
     const whole = tiers.map((fs) => fs.filter((f) => f.whole).sort((a, b) => a.at - b.at)[0]).find(Boolean);
     const piece = tiers.map((fs) => fs.sort((a, b) => b.text.length - a.text.length || a.at - b.at)[0]).find(Boolean);
-    const term = found(s.terms ?? []).sort((a, b) => a.at - b.at)[0];
-    const f = whole ?? piece ?? term;
+    const f = whole ?? piece ?? termFocus(s);
     if (f) out.set(n, { at: f.at, text: f.text });
   }
   return out;
+}
+
+// The first of the search's words the passage holds: where to point a passage the answer
+// doesn't quote from, or doesn't cite at all
+export function termFocus(s: Source): SourceFocus | undefined {
+  const f = (s.terms ?? [])
+    .map((w) => findWords(s.text, w))
+    .filter((x) => x !== null)
+    .sort((a, b) => a.at - b.at)[0];
+  return f ? { at: f.at, text: f.text } : undefined;
 }
 
 export function sourceHref(s: Source, f: SourceFocus | undefined): string {

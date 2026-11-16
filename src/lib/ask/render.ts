@@ -2,6 +2,8 @@
 // lines starting "- " (list items), **bold**, and [n] citations of server sources.
 // Everything else is rendered as text, so the model can't produce links or HTML.
 
+import type { Source } from './agent.ts';
+
 export type Inline = { kind: 'text'; text: string } | { kind: 'bold'; text: string } | { kind: 'cite'; n: number };
 export type Block = { kind: 'p' | 'li'; parts: Inline[] };
 
@@ -58,6 +60,17 @@ export function citedOrder(blocks: Block[]): number[] {
   const seen: number[] = [];
   for (const b of blocks) for (const p of b.parts) if (p.kind === 'cite' && !seen.includes(p.n)) seen.push(p.n);
   return seen;
+}
+
+// What the searches found that the answer doesn't cite, in the order they were found
+// (each search's best first), for a listener who didn't get what they were after
+export const OTHER_SOURCES_SHOWN = 8;
+export function otherSources(sources: Record<number, Source>, cited: number[]): Source[] {
+  const used = new Set(cited);
+  return Object.values(sources)
+    .filter((s) => !used.has(s.n))
+    .sort((a, b) => a.n - b.n)
+    .slice(0, OTHER_SOURCES_SHOWN);
 }
 
 // SSE: complete "data: ..." events in buf, plus the unfinished remainder
