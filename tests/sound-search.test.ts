@@ -199,7 +199,7 @@ describe('answer', () => {
     };
     const trace = newTrace();
     const events: AskEvent[] = [];
-    await answer('q', { db, client: client as any, coverage: { count: 2, oldest: 708, newest: 709, today: '2026-10-29' }, emit: (e) => events.push(e), trace });
+    await answer('q', { db, client: client as any, coverage: { count: 2, oldest: 708, newest: 709, oldestDate: '2026-10-24', newestDate: '2026-10-28', today: '2026-10-29' }, emit: (e) => events.push(e), trace });
     const outputs = requests[1].input.filter((x: any) => x.type === 'function_call_output').map((x: any) => x.output as string);
     expect(outputs[0]).toContain('交言肥腸');
     expect(outputs[0]).toContain('「椒鹽肥腸」沒有逐字出現在逐字稿裡，上面有些段落是依發音找到的');

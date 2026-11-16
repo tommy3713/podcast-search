@@ -112,14 +112,21 @@ const TOOLS: OpenAI.Responses.Tool[] = [
   },
 ];
 
-export type Coverage = { count: number; oldest: number; newest: number; today: string };
+// `oldestDate` / `newestDate`: Taipei release days of the oldest and newest live episodes,
+// so the model knows which years the archive spans when a question names one
+export type Coverage = { count: number; oldest: number; newest: number; oldestDate: string | null; newestDate: string | null; today: string };
 
 // What is live right now, for the system prompt. `today` is a Taipei date (taipeiDate()).
 export function readCoverage(db: DB, today: string): Coverage {
   const row = db
     .prepare(`SELECT COUNT(*) AS count, MIN(episode_no) AS oldest, MAX(episode_no) AS newest FROM episodes WHERE status = 'done'`)
-    .get() as Omit<Coverage, 'today'>;
-  return { ...row, today };
+    .get() as Pick<Coverage, 'count' | 'oldest' | 'newest'>;
+  const released = db.prepare(`SELECT published_at FROM episodes WHERE status = 'done' AND episode_no = ?`).pluck();
+  const day = (ep: number | null) => {
+    const at = ep === null ? undefined : (released.get(ep) as string | undefined);
+    return at ? taipeiDate(new Date(at)) : null;
+  };
+  return { ...row, oldestDate: day(row.oldest), newestDate: day(row.newest), today };
 }
 
 // Server text for the one retry after an empty turn
@@ -128,10 +135,11 @@ const EMPTY_RETRY = '上一輪沒有寫出回答。請直接用目前的搜尋�
 // Rules only. Coverage and date are server facts; the question never goes in here.
 export function systemPrompt(c: Coverage): string {
   return `你是「股癌搜尋」的問答助理，回答聽眾關於 Podcast《股癌 Gooaye》節目內容的問題。主持人是謝孟恭，聽眾稱他「主委」。
-目前收錄 EP${c.oldest}–EP${c.newest}，共 ${c.count} 集，中間可能有缺集。今天是 ${c.today}。
+目前收錄 EP${c.oldest}（${c.oldestDate}）–EP${c.newest}（${c.newestDate}），共 ${c.count} 集，中間可能有缺集。今天是 ${c.today}。
 
 做法：
 - 先用工具搜尋再回答，最多搜 ${MAX_TOOL_CALLS} 次。「有哪些、推薦過、最近」這類清單問題先用 search_mentions；細節、原話、看法用 search_transcript。問某一集或某段時間，兩個工具都可以用 episode、since、until 縮小範圍。搜不到可以換個說法再搜。
+- 只有問題寫了集數、年、月、日期，或今年、去年、上個月這類換算得出日期的時間，才用 episode、since、until；換成日期時，until 多留事件之後一兩週，因為節目常在事件之後才談。「早期」「以前」「很久以前」「前幾年」這類模糊的說法不要換成日期範圍：聽眾記的時間常常不準，猜錯範圍會把要找的那集排除在外。
 - 逐字稿是語音辨識，名稱可能有錯字；搜尋時用節目裡可能出現的說法。<mention> 的 name 已經校正過，回答時名稱以它為準。
 - 回答用台灣繁體中文，簡潔，先給結論（問多空、能不能買的除外，見最後一條），細節用「- 」開頭條列，可以用 **粗體** 標重點。不要用其他 Markdown。
 - 問他怎麼看、怎麼解讀某件事時，搜尋結果裡他對這件事講到的不同看法都要寫進條列，每點連同他給的理由、數字或例子；不要只挑一兩點，也不要只寫結論。跟問題無關的段落不用寫。
@@ -238,7 +246,7 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
     const cut = cutTerms.length
       ? `\n（${quote(cutTerms)}符合的段落超過 ${TERM_MATCH_LIMIT} 段，關鍵字搜尋只讀了最新的 ${TERM_MATCH_LIMIT} 段，較舊的集數可能沒搜到；${
           scoped ? '這個範圍還是太大，' : ''
-        }要找特定集數或時間，用 episode、since、until 縮小範圍，或換更具體的詞）`
+        }問題有寫集數或時間的話，用 episode、since、until 縮小範圍，沒有就換更具體的詞）`
       : '';
     // The meaning-based rankings always return their nearest chunks, which look like an
     // answer: the prompt's "say it isn't there" rule didn't stop the model from presenting
