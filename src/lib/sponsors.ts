@@ -46,7 +46,7 @@ export const SPONSOR_ALIASES: { name: string; slug: string; patterns: RegExp[] }
   { name: 'OSEN 體脂計', slug: 'osen', patterns: [/\bosen\b/i] },
   { name: '如意堂', slug: 'ruyitang', patterns: [/如意堂/] },
   { name: '優活', slug: 'youhuo', patterns: [/優活/] },
-  { name: '棉豆腐', slug: 'cotton-tofu', patterns: [/棉豆腐/] },
+  { name: '棉豆腐', slug: 'cotton-tofu', patterns: [/[棉綿]豆腐/] },
   { name: 'MakeEasy', slug: 'makeeasy', patterns: [/make ?easy/i] },
   // Bayer's vitamin tablets: 拜維佳, also written 拜維加, with or without 台灣拜耳 / 拜爾
   { name: '拜維佳', slug: 'berocca', patterns: [/拜維[佳加]/, /\bberocca\b/i] },
@@ -56,6 +56,57 @@ export const SPONSOR_ALIASES: { name: string; slug: string; patterns: RegExp[] }
   // 本集由 Pressplay Academy 贊助 is too long a name, so the title (英文課業配) won. Not
   // Pressplay alone: other sellers' courses are on that platform too
   { name: 'Pressplay Academy', slug: 'pressplay', patterns: [/\bpress ?play academy\b/i] },
+  // Brands from EP1–199, each spelled several ways. Names that are also everyday words
+  // (簡單, 三星, Sony) or that other ads mention only count at the start of a title or a
+  // bullet, or in 本集由 X 贊助
+  { name: '森歐黎漾', slug: 'senorian-saholia', patterns: [/森歐[黎里][漾昂亞]/, /\bsenori?y?an\b/i, /\bsahol(e|i)?a\b/i] },
+  { name: 'A-Lux 亞立詩', slug: 'a-lux', patterns: [/\ba-?lux\b/i, /\balox\b/i, /亞[立歷]詩|亞歷斯/] },
+  { name: 'OVO', slug: 'ovo', patterns: [/\bovo\b/i] },
+  { name: 'Vtex', slug: 'vtex', patterns: [/\bvte[xc]\b/i] },
+  // Other ads (Shopback) mention Kobo in passing
+  { name: '樂天 Kobo', slug: 'kobo', patterns: [/^樂天 ?kobo/i, /本[集期]由樂天 ?kobo/i] },
+  { name: '簡單', slug: 'simple-skincare', patterns: [/^簡單(保養)?(業配)?$/, /品牌「?簡單」?/, /本[集期]由簡單贊助/] },
+  { name: 'BFAC', slug: 'bfac', patterns: [/\bbfac/i] },
+  { name: '麥格瑞', slug: 'mackmyra', patterns: [/麥格瑞/, /\bmackmyra\b/i] },
+  { name: '給我五分鐘', slug: 'give-me-five', patterns: [/給我五分鐘/] },
+  // 營養師輕食, heard as 青石 and 親實
+  { name: '營養師輕食', slug: 'dietitian-light', patterns: [/營養師(輕食|青石|親實)/, /青石益生菌/] },
+  { name: '茄子輕旅', slug: 'eggplant-hostel', patterns: [/茄子(輕旅|情侶)/] },
+  { name: '雅曼菲', slug: 'yamanfei', patterns: [/[雅亞]曼菲/] },
+  { name: 'GroupM', slug: 'groupm', patterns: [/\bgroup ?m\b/i] },
+  { name: 'SBD', slug: 'sbd', patterns: [/\bsbd\b/i] },
+  { name: 'Backbone', slug: 'backbone', patterns: [/\bbackbone\b/i] },
+  { name: 'Bioniq', slug: 'bioniq', patterns: [/\bbioni[cq]\b/i] },
+  { name: '綠藤生機', slug: 'greenvines', patterns: [/綠藤生[機技]/] },
+  { name: '寶拉珍選', slug: 'paulas-choice', patterns: [/[寶保]拉[珍甄]選/, /paula'?s choice/i, /^寶拉(業配)?$/] },
+  { name: 'Zenyam 戰亞', slug: 'zenyam', patterns: [/戰亞/, /\bzenyam\b/i] },
+  { name: '花旗', slug: 'citi', patterns: [/^花旗/] },
+  { name: '巴黎萊雅', slug: 'loreal-paris', patterns: [/^(巴黎)?萊雅(業配)?$/, /本[集期]由巴黎萊雅/] },
+  // 豐存股 and 大戶投 are its products; 永豐大戶 is the bank's account, a separate sponsor
+  { name: '永豐金證券', slug: 'sinopac-securities', patterns: [/永豐金證券|豐存股/] },
+  { name: '白蘭氏', slug: 'brands', patterns: [/白蘭氏/] },
+  { name: '知識衛星', slug: 'knowledge-satellite', patterns: [/知識衛星/] },
+  { name: 'TravelBlue', slug: 'travelblue', patterns: [/travel ?blue/i] },
+  { name: '蝦皮書城', slug: 'shopee-books', patterns: [/蝦皮(書城|閱讀節)/] },
+  { name: '水果豬', slug: 'fruit-pig', patterns: [/水果[豬出]高級進口水果店/, /^水果豬/] },
+  { name: '蔻蘿蘭', slug: 'klorane', patterns: [/蔻蘿蘭/, /\bcolor?an\b/i, /\bklorane\b/i] },
+  { name: '田中義和', slug: 'tanaka', patterns: [/田中義和/] },
+  { name: '橘子工坊', slug: 'orange-house', patterns: [/橘子工坊/] },
+  // 賞心樂事 gives away Electrolux mixers in its own ads
+  { name: '伊萊克斯', slug: 'electrolux', patterns: [/^伊萊克斯/, /本[集期]由伊萊克斯/, /^electrolux/i] },
+  { name: '亞新集團', slug: 'yahsin', patterns: [/亞新(集團|天會|森會)/] },
+  { name: 'Moft', slug: 'moft', patterns: [/\bmoft\b/i] },
+  { name: 'WOKI', slug: 'woki', patterns: [/\bwoki\b/i] },
+  { name: 'Walkie', slug: 'walkie', patterns: [/\bwalkie\b/i] },
+  { name: 'Vana', slug: 'vana', patterns: [/\bvana\b/i] },
+  { name: '阿斗', slug: 'adou', patterns: [/^阿斗/] },
+  { name: 'MULA', slug: 'mula', patterns: [/\bmula\b/i] },
+  { name: 'HP 印表機', slug: 'hp', patterns: [/^hp ?印表機/i] },
+  { name: '艾爾登法環', slug: 'elden-ring', patterns: [/^(艾爾登)?法環(業配)?$/, /elden ring/i] },
+  { name: 'PlayStation', slug: 'playstation', patterns: [/^playstation/i] },
+  { name: 'Sony', slug: 'sony', patterns: [/^sony/i] },
+  { name: '三星', slug: 'samsung', patterns: [/^(三星|samsung)/i] },
+  { name: '原始實驗室', slug: 'primal-lab', patterns: [/原[始石](實驗室|凍乾)/] },
 ];
 
 // The phrase that most chapters open with: 本集由 X 贊助 / 本期由 X 贊助

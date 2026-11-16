@@ -43,9 +43,41 @@ describe('topicOf', () => {
     for (const n of ['敏迪', '敏迪開箱']) expect(topicOf('書影音', n)?.slug).toBe('mindy');
     for (const n of ['Top Gun', '捍衛戰士：獨行俠']) expect(topicOf('書影音', n)?.slug).toBe('top-gun');
     for (const n of ['Instagram', 'IG']) expect(topicOf('科技產品', n)?.slug).toBe('instagram');
-    for (const n of ['X', 'Twitter', '推特', 'X／Twitter', 'X（Twitter）', 'X平台']) expect(topicOf('科技產品', n)).toEqual({ slug: 'x', name: 'X' });
+    for (const n of ['X', 'Twitter', '推特', 'X／Twitter', 'X（Twitter）', 'X平台']) expect(topicOf('科技產品', n)).toMatchObject({ slug: 'x', name: 'X' });
     for (const n of ['獵魔士', '巫師', 'The Witcher']) expect(topicOf('書影音', n)?.slug).toBe('the-witcher-series');
     for (const n of ['Google地圖', 'Google Maps']) expect(topicOf('科技產品', n)?.slug).toBe('google-maps');
+  });
+
+  it('joins the spellings that came with the episodes before EP200', () => {
+    for (const n of ['薩爾達', '薩爾達傳說時之笛', '曠野之息', 'Zelda']) expect(topicOf('遊戲', n)?.slug).toBe('zelda');
+    for (const n of ['碧血狂殺2', 'Red Dead Redemption（碧血狂殺）', 'RDR2']) expect(topicOf('遊戲', n)?.slug).toBe('red-dead-redemption');
+    for (const n of ['暗黑破壞神2', '暗黑4', 'Diablo 2重製']) expect(topicOf('遊戲', n)?.slug).toBe('diablo');
+    for (const n of ['NieR:Automata 2B', '2B公仔', '尼爾：自動人形']) expect(topicOf('遊戲', n)?.slug).toBe('nier-automata');
+    for (const n of ['百靈果', '白靈果', '白靈果的KK秀']) expect(topicOf('書影音', n)?.slug).toBe('bailingguo');
+    for (const n of ['臉書', 'Facebook']) expect(topicOf('科技產品', n)?.slug).toBe('facebook');
+    for (const n of ['秋葛', '丘口', 'Choco／秋葵']) expect(topicOf('家庭', n)?.slug).toBe('choco');
+    for (const n of ['大魯閣', '大魯閣新莊館', '大魯閣打擊場']) expect(topicOf('運動', n)?.slug).toBe('taroko-batting');
+    for (const n of ['多力多滋', '多利多茲美式辣起司']) expect(topicOf('美食', n)?.slug).toBe('doritos');
+    for (const n of ['華航', '中華航空']) expect(topicOf('旅遊', n)?.slug).toBe('china-airlines');
+  });
+
+  it('takes the item a name adds to: a note in （）, a second name after ／, a song, a show', () => {
+    expect(topicOf('運動', 'Dwight Howard（魔獸）')?.slug).toBe('dwight-howard');
+    expect(topicOf('旅遊', '桃園豪華露營（Glamping）')?.slug).toBe(topicOf('旅遊', '桃園豪華露營')?.slug);
+    expect(topicOf('遊戲', 'Fortnite／要塞英雄')?.slug).toBe('fortnite');
+    expect(topicOf('書影音', '《HER》／《雲端情人》')?.slug).toBe(topicOf('書影音', 'Her')?.slug);
+    expect(topicOf('書影音', 'Pink Floyd〈Time〉')).toMatchObject({ slug: 'pink-floyd', base: 'Pink Floyd' });
+    for (const n of ['Taylor Swift 演唱會', 'Taylor Swift日本演唱會', 'Taylor Swift 日本場']) expect(topicOf('書影音', n)?.slug).toBe('taylor-swift');
+    for (const n of ['財報狗 Podcast', '吳淡如的節目', 'Bill Burr 脫口秀']) expect(topicOf('書影音', n)?.base).toMatch(/^(財報狗|吳淡如|Bill Burr)$/);
+    // Only in 書影音, and never a 場 that is part of the name
+    expect(topicOf('書影音', '夢劇場')?.slug).toBe('夢劇場');
+    expect(topicOf('書影音', 'Apple Podcast')?.slug).toBe('apple-podcasts');
+    expect(topicOf('旅遊', '東京場')?.slug).toBe('東京場');
+    // The song stays beside the note, since it says more than the item
+    const index = buildTopicIndex([row(1, '書影音', 'Pink Floyd〈Time〉', '那首歌'), row(2, '書影音', 'Pink Floyd')]);
+    const pf = findTopic(index, 'media', 'pink-floyd')!;
+    expect(pf.name).toBe('Pink Floyd');
+    expect(pf.episodes.find((e) => e.no === 1)!.notes[0]!.as).toBe('Pink Floyd〈Time〉');
   });
 
   it('takes a title in 《》 for the bare title', () => {
@@ -83,7 +115,7 @@ describe('topicOf', () => {
   });
 
   it('names a name that is an alias’s slug by the alias', () => {
-    expect(topicOf('遊戲', 'Mario')).toEqual({ slug: 'mario', name: '瑪利歐' });
+    expect(topicOf('遊戲', 'Mario')).toMatchObject({ slug: 'mario', name: '瑪利歐' });
     const index = buildTopicIndex([row(713, '遊戲', 'Mario'), row(712, '遊戲', '瑪利歐')]);
     expect(findTopic(index, 'games', 'mario')!.name).toBe('瑪利歐');
   });
@@ -106,8 +138,8 @@ describe('topicOf', () => {
   });
 
   it('pages anything else by its name, and gives no page to a name a URL can’t carry', () => {
-    expect(topicOf('運動', '網球')).toEqual({ slug: '網球', name: null });
-    expect(topicOf('運動', 'Pickle Ball')).toEqual({ slug: 'pickle-ball', name: null });
+    expect(topicOf('運動', '網球')).toMatchObject({ slug: '網球', name: null });
+    expect(topicOf('運動', 'Pickle Ball')).toMatchObject({ slug: 'pickle-ball', name: null });
     expect(topicOf('旅遊', '///')).toBeNull();
     // An alias of one category is not used in another
     expect(topicOf('運動', '妮姬')?.slug).toBe('妮姬');

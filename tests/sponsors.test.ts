@@ -40,6 +40,14 @@ describe('sponsorOf', () => {
     expect(sponsorOf(ad(1, '開場業配', ['本集由Mihon生醫贊助']))?.slug).toBe('mihong');
     for (const t of ['拜爾利杜森業配', '拜爾力度伸業配', '台灣拜耳力度生業配', '利杜森業配']) expect(sponsorOf(ad(1, t, []))?.slug).toBe('redoxon');
     for (const t of ['修利可業配', 'Duck的情趣業配', 'Duckt情趣業配', '喬治永業配', '喬治用業配']) expect(sponsorOf(ad(1, t, []))?.known).toBe(true);
+    for (const t of ['SENORIAN SAHOLIA 業配', '森歐里昂業配', '森歐黎漾、灑歐莉亞業配']) expect(sponsorOf(ad(1, t, []))?.slug).toBe('senorian-saholia');
+    for (const t of ['OVO 異世界電視業配', 'Vtex防水鞋業配', 'VTEC 超技能防水休閒鞋業配', 'Alox 亞歷斯業配', '茄子情侶業配']) expect(sponsorOf(ad(1, t, []))?.known).toBe(true);
+    expect(sponsorOf(ad(1, '青石益生菌業配', []))?.name).toBe('營養師輕食');
+    // Brands other ads mention in passing stay with the ad's own sponsor
+    expect(sponsorOf(ad(1, 'Shopback業配', ['本集由 Shopback 贊助', '可搭配週末樂天閱讀器與電子書折扣', '配合樂天 Kobo 推出現金回饋']))?.name).toBe('Shopback');
+    expect(sponsorOf(ad(1, '寶寶米餅業配', ['本集由賞心樂事贊助', '活動加碼抽伊萊克斯手持式攪拌組']))?.name).toBe('賞心樂事');
+    expect(sponsorOf(ad(1, '簡單保養業配', ['本集由簡單贊助']))?.slug).toBe('simple-skincare');
+    expect(sponsorOf(ad(1, '咖啡業配', ['簡單來講就是好喝']))?.slug).not.toBe('simple-skincare');
     // A course on the Pressplay platform from someone else keeps its own name
     expect(sponsorOf(ad(1, '課程業配', ['本集由財經皓角贊助，課程在 PressPlay 上']))?.name).toBe('財經皓角');
   });
