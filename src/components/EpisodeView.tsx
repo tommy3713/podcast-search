@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import type { Paragraph } from '@/lib/format';
+import { matchStarts, type Paragraph } from '@/lib/format';
 import { offsetAt, type SeekModel, type SeekTable, seekModel, seekTarget } from '@/lib/seek';
 import { formatTimestamp, type Summary } from '@/lib/summary';
 import { TypoReporter } from './report/TypoReporter';
@@ -22,6 +22,9 @@ type Props = {
   paragraphs: Paragraph[];
   initialTab: Tab;
   initialT: number | null;
+  // From a ?hl= link (src/lib/transcript-focus.ts): the transcript opens searching for these
+  // words, on the match the link means
+  focus: { text: string; hit: number } | null;
   seek: SeekTable | null;
   // For typo reports (TypoReporter)
   episode: number;
@@ -40,6 +43,7 @@ export function EpisodeView({
   paragraphs,
   initialTab,
   initialT,
+  focus,
   seek: table,
   episode,
   signedIn,
@@ -124,6 +128,7 @@ export function EpisodeView({
     setTab(next);
     const url = new URL(window.location.href);
     url.searchParams.delete('t');
+    url.searchParams.delete('hl');
     if (next === 'tx') url.searchParams.set('tab', 'tx');
     else url.searchParams.delete('tab');
     window.history.replaceState(null, '', url);
@@ -212,6 +217,7 @@ export function EpisodeView({
           playing={tab === 'tx' && playing}
           active={tab === 'tx'}
           flashAt={initialT}
+          focus={focus}
           onSeek={seek}
         />
       </div>
@@ -412,10 +418,8 @@ function paragraphAt(paragraphs: Paragraph[], t: number): number {
 function splitMatches(text: string, q: string): { s: string; hit: boolean }[] {
   if (!q) return [{ s: text, hit: false }];
   const out: { s: string; hit: boolean }[] = [];
-  const lower = text.toLowerCase();
-  const lq = q.toLowerCase();
   let i = 0;
-  for (let j = lower.indexOf(lq); j !== -1; j = lower.indexOf(lq, j + lq.length)) {
+  for (const j of matchStarts(text, q)) {
     if (j > i) out.push({ s: text.slice(i, j), hit: false });
     out.push({ s: text.slice(j, j + q.length), hit: true });
     i = j + q.length;
@@ -451,16 +455,18 @@ const TranscriptTab = memo(function TranscriptTab(props: {
   // Hidden panels don't scroll the page or flash paragraphs
   active: boolean;
   flashAt: number | null;
+  focus: { text: string; hit: number } | null;
   onSeek: (t: number) => void;
 }) {
-  const { paragraphs, chapters, t, playing, active, flashAt, onSeek } = props;
+  const { paragraphs, chapters, t, playing, active, flashAt, focus, onSeek } = props;
   const box = useRef<HTMLDivElement>(null);
-  const [q, setQ] = useState('');
-  const [hit, setHit] = useState(0);
+  const [q, setQ] = useState(focus?.text ?? '');
+  const [hit, setHit] = useState(focus?.hit ?? 0);
   const [follow, setFollow] = useState(true);
   // The query the transcript may scroll to: set once typing pauses outside an IME composition,
-  // or by Enter / the arrows, and cleared by every keystroke, so typing never moves the page
-  const [settled, setSettled] = useState('');
+  // or by Enter / the arrows, and cleared by every keystroke, so typing never moves the page.
+  // The words a ?hl= link opened with count as settled, so the page opens on the match it means
+  const [settled, setSettled] = useState((focus?.text ?? '').trim());
   const composing = useRef(false);
   const composedAt = useRef(-Infinity);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -498,9 +504,11 @@ const TranscriptTab = memo(function TranscriptTab(props: {
     el?.scrollIntoView({ block: 'center' });
   }, [active, flashAt, paragraphs]);
 
+  // A search the listener typed holds the view on its marks; the words a link opened with don't
+  const searching = query !== '' && query !== focus?.text;
   useEffect(() => {
-    if (active && playing && follow && !query) scrollTo(box.current?.querySelector(`[data-i="${current}"]`));
-  }, [active, current, playing, follow, query]);
+    if (active && playing && follow && !searching) scrollTo(box.current?.querySelector(`[data-i="${current}"]`));
+  }, [active, current, playing, follow, searching]);
 
   // Waits for the highlights to catch up with the settled query, so it scrolls to the right mark
   useEffect(() => {

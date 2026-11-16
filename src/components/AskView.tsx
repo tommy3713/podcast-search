@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { AskEvent, Source } from '@/lib/ask/agent';
 import { citedOrder, episodeLabel, groupBlocks, labelBlocks, type LabeledBlock, parseAnswer, splitEvents } from '@/lib/ask/render';
+import { previewParts, type SourceFocus, sourceFocus, sourceHref } from '@/lib/ask/focus';
 import { formatTimestamp } from '@/lib/summary';
 
 type Msg = {
@@ -188,6 +189,8 @@ function Message({ m }: { m: Msg }) {
     .map((n) => m.sources[n])
     .filter((s): s is Source => !!s);
   const found = Object.keys(m.sources).length;
+  // Where in each cited passage the answer's words are: the card shows them, the link opens there
+  const focus = sourceFocus(blocks, m.sources);
 
   return (
     <article className="msg" id={`msg-${m.id}`}>
@@ -201,21 +204,21 @@ function Message({ m }: { m: Msg }) {
       {cited.length > 0 && (
         <div className="srcs">
           {cited.map((s) => (
-            <Link key={s.n} className="src" href={`/ep/${s.ep}?t=${s.t}`}>
+            <Link key={s.n} className="src" href={sourceHref(s, focus.get(s.n))}>
               <span className="h">
                 <span className="n">{s.n}</span>EP{s.ep}
                 <span className="mono muted" style={{ fontWeight: 400 }}>
                   {formatTimestamp(s.t)}
                 </span>
               </span>
-              <span className="x">{s.label ? `${s.label}：${s.text}` : s.text}</span>
+              <Preview s={s} f={focus.get(s.n)} />
             </Link>
           ))}
         </div>
       )}
       {(m.text || m.done) && !(m.error && !m.text) && (
         <div className="card ans">
-          <AnswerBlocks blocks={blocks} sources={m.sources} />
+          <AnswerBlocks blocks={blocks} sources={m.sources} focus={focus} />
           {!m.done && <span className="caret" />}
         </div>
       )}
@@ -229,7 +232,19 @@ function Message({ m }: { m: Msg }) {
   );
 }
 
-function AnswerBlocks({ blocks, sources }: { blocks: LabeledBlock[]; sources: Record<number, Source> }) {
+function Preview({ s, f }: { s: Source; f: SourceFocus | undefined }) {
+  const p = previewParts(s.text, f);
+  return (
+    <span className="x">
+      {s.label && `${s.label}：`}
+      {p.before}
+      {p.words && <mark>{p.words}</mark>}
+      {p.after}
+    </span>
+  );
+}
+
+function AnswerBlocks({ blocks, sources, focus }: { blocks: LabeledBlock[]; sources: Record<number, Source>; focus: Map<number, SourceFocus> }) {
   const groups = groupBlocks(blocks);
   // Each line that cites something opens with its sources' episodes (labelBlocks)
   const parts = (b: LabeledBlock) => [
@@ -243,7 +258,7 @@ function AnswerBlocks({ blocks, sources }: { blocks: LabeledBlock[]; sources: Re
       if (p.kind === 'bold') return <b key={i}>{p.text}</b>;
       const s = sources[p.n]!;
       return (
-        <Link key={i} className="cite" href={`/ep/${s.ep}?t=${s.t}`} aria-label={`出處 ${p.n}：EP${s.ep} ${formatTimestamp(s.t)}`}>
+        <Link key={i} className="cite" href={sourceHref(s, focus.get(p.n))} aria-label={`出處 ${p.n}：EP${s.ep} ${formatTimestamp(s.t)}`}>
           {p.n}
         </Link>
       );
