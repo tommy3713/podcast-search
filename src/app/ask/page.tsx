@@ -11,7 +11,7 @@ import { readDb } from '@/lib/server-db';
 // Answers need a login and differ per question; nothing here belongs in search results
 export const metadata: Metadata = { title: 'AI問答', robots: { index: false, follow: true } };
 
-const EXAMPLES = ['孟恭最近喜歡做的運動是什麼？', '主委推薦過哪些電影或影集？', '主委對 Anthropic IPO 的看法？'];
+const EXAMPLES = ['孟恭最近喜歡做的運動是什麼？', '主委推薦過哪些電影或影集？', '主委對 Anthropic IPO 的看法？', '主委去新加坡環球影城是哪一集？'];
 
 // ?q= fills in the question box (a stock's page links here with one). It is never sent by
 // itself: a question costs one of the day's.

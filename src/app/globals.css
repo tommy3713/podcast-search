@@ -259,6 +259,17 @@ mark.cur { background: var(--warn); color: var(--surface); }
 .notice.warn { background: var(--warn-soft); color: var(--warn); }
 /* links rather than buttons in the real app */
 .src { color: inherit; text-decoration: none; }
+/* The grid is on a div inside: older Safari ignores display on <details>. min-width 0 and
+   a minmax column, or on a phone the row of cards widens the answer and the page */
+.ask-more { border-top: 1px solid var(--line); padding-top: 10px; font-size: 14px; min-width: 0; }
+.ask-more-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 10px; }
+.ask-more summary { cursor: pointer; color: var(--muted); width: fit-content; }
+.ask-more summary:hover { color: var(--accent); }
+.more-all { justify-self: start; font-size: 13px; }
+.more-srcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+/* One column of 8 cards would push the tips below the composer: a row like the cited ones */
+@media (max-width: 640px) { .more-srcs { display: flex; overflow-x: auto; padding-bottom: 4px; } .more-srcs .src { flex: 0 0 220px; } }
+.ask-more .tips { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 2px; }
 a.cite { display: inline-block; text-decoration: none; }
 .examples button:disabled { opacity: .5; cursor: not-allowed; }
 
