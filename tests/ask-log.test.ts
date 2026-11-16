@@ -108,6 +108,29 @@ describe('getAsk', () => {
     expect(getAsk(db, 999_999)).toBeNull();
   });
 
+  it('reads the cited sources, and none from an old row, a broken value or a snapshot without the column', () => {
+    const sources = [{ n: 2, ep: 709, t: 125.5, text: '台積電法說會', label: null }];
+    const withSources = log({ at: '2026-11-03T02:00:00Z' });
+    db.prepare('UPDATE ask_log SET sources_json = ? WHERE id = ?').run(JSON.stringify(sources), withSources);
+    const broken = log({ at: '2026-11-03T02:01:00Z' });
+    db.prepare(`UPDATE ask_log SET sources_json = '[{"n":"x"}]' WHERE id = ?`).run(broken);
+    const old = log({ at: '2026-11-03T02:02:00Z' });
+    expect(getAsk(db, withSources)).toMatchObject({ sources, sourcesBroken: false });
+    expect(getAsk(db, broken)).toMatchObject({ sources: null, sourcesBroken: true });
+    expect(getAsk(db, old)).toMatchObject({ sources: null, sourcesBroken: false });
+
+    const snapshot = openDb(':memory:');
+    snapshot.exec('ALTER TABLE ask_log DROP COLUMN sources_json');
+    snapshot.prepare(`INSERT INTO ask_log (user_id, question) VALUES ('u', 'q')`).run();
+    expect(getAsk(snapshot, 1)).toMatchObject({ question: 'q', sources: null });
+
+    // Read again once the column is there: a web process started before the deploy's
+    // migration sees it without restarting
+    snapshot.exec('ALTER TABLE ask_log ADD COLUMN sources_json TEXT');
+    snapshot.prepare('UPDATE ask_log SET sources_json = ? WHERE id = 1').run(JSON.stringify(sources));
+    expect(getAsk(snapshot, 1)!.sources).toEqual(sources);
+  });
+
   it('reads tool calls that are missing or not a list as no searches', () => {
     expect(searchSteps(null)).toEqual([]);
     expect(searchSteps('{"a":1}')).toEqual([]);
@@ -153,6 +176,18 @@ describe('goldenDraft', () => {
       must_not: [],
       refuse: false,
     });
+    expect(d.partial).toBe(false);
+  });
+
+  it('takes every cited episode from the sources when the row kept them', () => {
+    const d = goldenDraft({
+      outcome: 'answered',
+      question: '問',
+      answer: '- EP700・EP701・EP702 等 5 集｜很多集都提過 [1][2][3][4][5]',
+      steps,
+      sources: [700, 701, 702, 703, 701, 698].map((ep, i) => ({ n: i + 1, ep, t: 0, text: 'x', label: null })),
+    })!;
+    expect(JSON.parse(d.line).expect_eps).toEqual([703, 702, 701, 700, 698]);
     expect(d.partial).toBe(false);
   });
 

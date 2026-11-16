@@ -1,5 +1,11 @@
-import type { AskEvent } from './agent.ts';
+import type { AskEvent, Source } from './agent.ts';
 import { citedOrder, labeledAnswer, parseAnswer } from './render.ts';
+
+// A cited source as ask_log keeps it (sources_json): the whole passage the model read, to
+// tell whether it says what the line citing it says. A chunk is about 600 characters; the
+// site's questions cite a few each, so 30 days of them are a few MB (about 200 MB at the
+// site-wide cap of 500 a day every day).
+export type LoggedSource = Source;
 
 // Follows the events sent to the browser, so the log holds what the user actually saw:
 // the final answer (text before a `reset` was a draft) and the sources it cites, counted
@@ -8,12 +14,14 @@ export class AnswerRecorder {
   text = '';
   private episodes = new Map<number, number>(); // source number → episode
   private known = new Set<number>();
+  private sources = new Map<number, Source>();
 
   see(e: AskEvent): void {
     if (e.type === 'sources') {
       for (const s of e.sources) {
         this.episodes.set(s.n, s.ep);
         this.known.add(s.n);
+        this.sources.set(s.n, s);
       }
     }
     else if (e.type === 'delta') this.text += e.text;
@@ -27,6 +35,14 @@ export class AnswerRecorder {
 
   cited(): number {
     return this.citedNumbers().length;
+  }
+
+  // The sources the final answer cites, in the order it first cites them, for ask_log
+  citedSources(): LoggedSource[] {
+    return this.citedNumbers().flatMap((n) => {
+      const s = this.sources.get(n);
+      return s ? [s] : [];
+    });
   }
 
   // The answer with each line's episode label, as the page shows it

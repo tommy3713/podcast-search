@@ -587,6 +587,11 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
 .admin-ask-steps li > * { margin-right: 8px; }
 .admin-ask-what { overflow-wrap: anywhere; }
 .admin-ask-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-ask-sources { list-style: none; padding: 0; margin: 0 0 24px; display: grid; gap: 10px; }
+.admin-ask-sources li { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; scroll-margin-top: 80px; }
+.admin-ask-sources li:target { outline: 2px solid var(--accent); }
+.admin-ask-sources p { margin: 6px 0 0; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.admin-ask-src-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; }
 .admin-golden { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12.5px; background: var(--bg); border-radius: 8px; padding: 10px 12px; margin: 0; }
 @media (max-width: 640px) {
   .admin-segments li { grid-template-columns: 48px minmax(0, 1fr); }

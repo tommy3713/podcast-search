@@ -1,4 +1,4 @@
-import type { DB } from './db.ts';
+import { type DB, hasColumn } from './db.ts';
 import { appendSegment, monthKey } from './format.ts';
 import { addHolidays, HOLIDAY_TERMS, type HolidayEpisode } from './holidays.ts';
 import { parseSeekTable, type PlayPoint, playPoint, type SeekTable } from './seek.ts';
@@ -80,21 +80,10 @@ export function excerptAt(db: DB, episodeNo: number, t: number): Excerpt | null 
 // about again, since the worker fills seek_json in later without touching updated_at.
 const seekTables = new Map<number, SeekTable>();
 
-// The web never migrates, so a snapshot from before seek_json still has to open
-const seekColumn = new WeakMap<DB, boolean>();
-function hasSeekColumn(db: DB): boolean {
-  let has = seekColumn.get(db);
-  if (has === undefined) {
-    has = (db.prepare('PRAGMA table_info(episodes)').all() as { name: string }[]).some((c) => c.name === 'seek_json');
-    seekColumn.set(db, has);
-  }
-  return has;
-}
-
 // null: nothing to correct, or not worked out yet
 function seekTablesOf(db: DB, episodeNos: number[]): Map<number, SeekTable | null> {
   const tables = new Map<number, SeekTable | null>();
-  const read = hasSeekColumn(db) ? db.prepare(`SELECT seek_json FROM episodes WHERE episode_no = ? AND status = 'done'`) : null;
+  const read = hasColumn(db, 'episodes', 'seek_json') ? db.prepare(`SELECT seek_json FROM episodes WHERE episode_no = ? AND status = 'done'`) : null;
   for (const no of episodeNos) {
     let table = seekTables.get(no) ?? null;
     if (!table && read) {

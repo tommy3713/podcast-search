@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { AskAnswer } from '@/components/admin/AskAnswer';
+import { AskAnswer, AskSources } from '@/components/admin/AskAnswer';
 import { AskFacts, OutcomePill } from '@/components/admin/AskParts';
 import { taipeiTime } from '@/components/admin/EditStatus';
 import { getAsk, goldenDraft, NOTE_LABEL, type SearchStep } from '@/lib/ask/log';
@@ -54,12 +54,27 @@ export default async function AdminAsk({ params }: Props) {
         <h2 className="q">{a.question}</h2>
         {a.answer ? (
           <div className="card ans">
-            <AskAnswer text={a.answer} />
+            <AskAnswer text={a.answer} sources={a.sources} />
           </div>
         ) : (
           <p className="muted">（沒有回答）</p>
         )}
       </article>
+
+      {a.sources ? (
+        <>
+          <h2>引用的段落</h2>
+          <p className="muted">回答引用的出處，依第一次引用的順序，是模型讀到的完整段落。點 EP 開在那個時間。</p>
+          <AskSources sources={a.sources} />
+          {a.sourcesBroken && <p className="muted">有些出處資料讀不出來，沒有列出。</p>}
+        </>
+      ) : (
+        (a.sourcesBroken || !!a.cited) && (
+          <p className="muted">
+            {a.sourcesBroken ? '這題的出處資料讀不出來' : '這題記錄時還沒有保存出處（或這份資料庫沒有這個欄位）'}，[n] 只能看編號。
+          </p>
+        )
+      )}
 
       <h2>搜尋過程</h2>
       {a.steps.length === 0 ? (
