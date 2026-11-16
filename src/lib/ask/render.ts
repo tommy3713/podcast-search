@@ -5,7 +5,9 @@
 export type Inline = { kind: 'text'; text: string } | { kind: 'bold'; text: string } | { kind: 'cite'; n: number };
 export type Block = { kind: 'p' | 'li'; parts: Inline[] };
 
-export function parseAnswer(raw: string, known: ReadonlySet<number>, streaming = false): Block[] {
+// known: the source numbers the server sent; 'all' keeps every [n] (a logged answer, whose
+// sources aren't kept)
+export function parseAnswer(raw: string, known: ReadonlySet<number> | 'all', streaming = false): Block[] {
   let text = raw;
   if (streaming) {
     // Hide a citation or bold marker that is still being typed
@@ -22,7 +24,7 @@ export function parseAnswer(raw: string, known: ReadonlySet<number>, streaming =
   return blocks;
 }
 
-function inline(s: string, known: ReadonlySet<number>): Inline[] {
+function inline(s: string, known: ReadonlySet<number> | 'all'): Inline[] {
   const parts: Inline[] = [];
   const re = /\*\*(.+?)\*\*|\[(\d{1,3}(?:\s*[,，]\s*\d{1,3})*)\]/g;
   let last = 0;
@@ -31,12 +33,24 @@ function inline(s: string, known: ReadonlySet<number>): Inline[] {
     if (m[1] !== undefined) parts.push({ kind: 'bold', text: m[1] });
     else {
       // [1, 3] → two citations; numbers the server never sent are dropped
-      for (const n of m[2]!.split(/[,，]/).map((x) => Number(x.trim()))) if (known.has(n)) parts.push({ kind: 'cite', n });
+      for (const n of m[2]!.split(/[,，]/).map((x) => Number(x.trim()))) if (known === 'all' || known.has(n)) parts.push({ kind: 'cite', n });
     }
     last = m.index + m[0].length;
   }
   if (last < s.length) parts.push({ kind: 'text', text: s.slice(last) });
   return parts;
+}
+
+// Consecutive list items as one list, for rendering
+export function groupBlocks<B extends Block>(blocks: B[]): { kind: 'p' | 'ul'; items: B[] }[] {
+  const groups: { kind: 'p' | 'ul'; items: B[] }[] = [];
+  for (const b of blocks) {
+    const kind = b.kind === 'li' ? 'ul' : 'p';
+    const last = groups.at(-1);
+    if (kind === 'ul' && last?.kind === 'ul') last.items.push(b);
+    else groups.push({ kind, items: [b] });
+  }
+  return groups;
 }
 
 // Sources in the order the answer first cites them

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { AskEvent, Source } from '@/lib/ask/agent';
-import { citedOrder, episodeLabel, labelBlocks, type LabeledBlock, parseAnswer, splitEvents } from '@/lib/ask/render';
+import { citedOrder, episodeLabel, groupBlocks, labelBlocks, type LabeledBlock, parseAnswer, splitEvents } from '@/lib/ask/render';
 import { formatTimestamp } from '@/lib/summary';
 
 type Msg = {
@@ -230,14 +230,7 @@ function Message({ m }: { m: Msg }) {
 }
 
 function AnswerBlocks({ blocks, sources }: { blocks: LabeledBlock[]; sources: Record<number, Source> }) {
-  // Group consecutive list items into one <ul>
-  const groups: { kind: 'p' | 'ul'; items: LabeledBlock[] }[] = [];
-  for (const b of blocks) {
-    const kind = b.kind === 'li' ? 'ul' : 'p';
-    const last = groups.at(-1);
-    if (kind === 'ul' && last?.kind === 'ul') last.items.push(b);
-    else groups.push({ kind, items: [b] });
-  }
+  const groups = groupBlocks(blocks);
   // Each line that cites something opens with its sources' episodes (labelBlocks)
   const parts = (b: LabeledBlock) => [
     b.eps.length > 0 && (

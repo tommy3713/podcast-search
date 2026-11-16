@@ -18,7 +18,8 @@ import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } f
 import { indexPinyin } from './pinyin-index.ts';
 import { indexSummaries } from './summary-index.ts';
 import { indexSeekTables, startSeekIndex } from './seek-index.ts';
-import { askStats, compactDb, digestDue, formatStats, purgeAskLog, rollupAskDaily, unanswered } from './stats.ts';
+import { askStats } from '@/lib/ask/log.ts';
+import { compactDb, digestDue, formatStats, purgeAskLog, rollupAskDaily, unanswered } from './stats.ts';
 
 const USAGE = `usage: worker <command>
   run                 scheduler (poll RSS Wed/Sat 10:00–23:30 Taipei every 30 min, nightly

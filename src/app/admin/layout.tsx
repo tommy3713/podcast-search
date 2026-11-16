@@ -20,6 +20,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </Link>
         <Link href="/admin/rules">錯字規則</Link>
         <Link href="/admin/whisper">Whisper 提示詞</Link>
+        <Link href="/admin/asks">問答紀錄</Link>
       </nav>
       {children}
     </div>

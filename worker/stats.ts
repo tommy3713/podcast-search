@@ -1,5 +1,5 @@
+import { type AskStats, NOTE_LABEL, RECORDED, searchSteps, shortUser, TOTALS } from '@/lib/ask/log.ts';
 import { ASK_LOG_DAYS, taipeiDayStart } from '@/lib/ask/quota.ts';
-import { describeMentionSearch, describeTranscriptSearch } from '@/lib/ask/search.ts';
 import { type DB, toDbTime } from '@/lib/db.ts';
 import type { TaipeiTime } from './schedule.ts';
 
@@ -28,37 +28,6 @@ export function compactDb(db: DB, purged: number): string | null {
 // filters compare created_at with UTC bounds, so the ask_log_created index applies.
 const TAIPEI_DAY = `date(created_at, '+8 hours')`;
 const taipeiMidnight = (day: string) => toDbTime(taipeiDayStart(day));
-
-// Rows from before outcomes were recorded have no outcome, cost or timing; counting
-// them would show days with questions but no results
-const RECORDED = `outcome IS NOT NULL`;
-
-const TOTALS = `
-  COUNT(*)                                                    AS asks,
-  COUNT(DISTINCT user_id)                                     AS users,
-  COALESCE(SUM(outcome = 'answered'), 0)                      AS answered,
-  COALESCE(SUM(outcome = 'no_source'), 0)                     AS no_source,
-  COALESCE(SUM(outcome = 'moderated'), 0)                     AS moderated,
-  COALESCE(SUM(outcome = 'quota'), 0)                         AS quota,
-  COALESCE(SUM(outcome IN ('timeout', 'aborted', 'error')), 0) AS failed,
-  COALESCE(SUM(cost_usd), 0)                                  AS cost_usd,
-  CAST(AVG(CASE WHEN outcome IN ('answered', 'no_source') THEN ms END) AS INTEGER) AS avg_ms`;
-
-export type AskStats = {
-  asks: number;
-  users: number;
-  answered: number;
-  no_source: number;
-  moderated: number;
-  quota: number;
-  failed: number;
-  cost_usd: number;
-  avg_ms: number | null;
-};
-
-export function askStats(db: DB, since: Date): AskStats {
-  return db.prepare(`SELECT ${TOTALS} FROM ask_log WHERE created_at >= ? AND ${RECORDED}`).get(toDbTime(since)) as AskStats;
-}
 
 // Questions answered without citing any source: what listeners ask that the show
 // (or the search) doesn't cover
@@ -121,8 +90,6 @@ const OUTCOME_ICON: Record<string, string> = {
   error: '❌',
 };
 const icon = (outcome: string | null) => (outcome ? (OUTCOME_ICON[outcome] ?? '·') : '·');
-// Users are a Google account id; the first characters are enough to tell them apart
-const who = (userId: string) => userId.slice(0, 6);
 const taipeiMinute = (createdAt: string) => new Date(Date.parse(createdAt) + 8 * 3600_000).toISOString().slice(5, 16).replace('T', ' ');
 
 export type QuestionRow = { id: number; created_at: string; user_id: string; outcome: string | null; question: string };
@@ -135,7 +102,7 @@ export function formatQuestions(rows: QuestionRow[]): string {
   if (!rows.length) return `還沒有人問過問題（紀錄保留 ${ASK_LOG_DAYS} 天）`;
   return [
     `💬 最近 ${rows.length} 題（✅ 有出處 ❓ 沒出處 🚫 不當內容 ⛔ 配額已滿 ❌ 失敗）`,
-    ...rows.map((r) => `#${r.id} ${taipeiMinute(r.created_at)} ${who(r.user_id)} ${icon(r.outcome)} ${r.question.slice(0, 60)}`),
+    ...rows.map((r) => `#${r.id} ${taipeiMinute(r.created_at)} ${shortUser(r.user_id)} ${icon(r.outcome)} ${r.question.slice(0, 60)}`),
     '',
     '點下面的編號看完整回答',
   ].join('\n');
@@ -156,16 +123,8 @@ export function formatAsk(db: DB, id: number): string {
     .prepare('SELECT id, created_at, user_id, outcome, question, answer, cited, ms, cost_usd, tool_calls_json FROM ask_log WHERE id = ?')
     .get(id) as AskRow | undefined;
   if (!r) return `找不到 #${id}（紀錄保留 ${ASK_LOG_DAYS} 天）`;
-  const calls = JSON.parse(r.tool_calls_json ?? '[]') as { name?: string; args?: Record<string, unknown> | string; results?: number; cut?: string[]; unmatched?: boolean; sound?: string[] }[];
-  const describe: Record<string, (a: Record<string, unknown>) => string> = {
-    search_mentions: describeMentionSearch,
-    search_transcript: describeTranscriptSearch,
-  };
-  // args is the raw string when the model's JSON didn't parse
-  const what = ({ name, args }: (typeof calls)[number]) =>
-    typeof args === 'string' ? args : args && name && describe[name] ? describe[name]!(args) : Object.values(args ?? {}).filter(Boolean).join(' ');
-  const searches = calls
-    .map((c) => `${what(c)}（${c.results ?? 0} 筆${c.cut?.length ? `，${c.cut.map((t) => `「${t}」`).join('')}超過讀取上限` : ''}${c.unmatched ? '，關鍵字都沒對到' : ''}${c.sound?.length ? `，${c.sound.map((t) => `「${t}」`).join('')}靠發音找到` : ''}）`)
+  const searches = searchSteps(r.tool_calls_json)
+    .map((c) => `${c.what}（${c.results} 筆${c.cut.length ? `，${c.cut.map((t) => `「${t}」`).join('')}${NOTE_LABEL.cut}` : ''}${c.unmatched ? `，${NOTE_LABEL.unmatched}` : ''}${c.sound.length ? `，${c.sound.map((t) => `「${t}」`).join('')}${NOTE_LABEL.sound}` : ''}）`)
     .join('、');
   const facts = [
     `${icon(r.outcome)} ${r.outcome ?? '—'}`,
@@ -173,7 +132,7 @@ export function formatAsk(db: DB, id: number): string {
     r.ms !== null ? `${(r.ms / 1000).toFixed(1)} 秒` : null,
     r.cost_usd !== null ? `US$${r.cost_usd.toFixed(4)}` : null,
   ].filter(Boolean);
-  const head = [`#${r.id} ${taipeiMinute(r.created_at)} ${who(r.user_id)}`, `問：${r.question}`, facts.join('・'), searches ? `搜尋：${searches}` : null]
+  const head = [`#${r.id} ${taipeiMinute(r.created_at)} ${shortUser(r.user_id)}`, `問：${r.question}`, facts.join('・'), searches ? `搜尋：${searches}` : null]
     .filter(Boolean)
     .join('\n');
   const answer = r.answer ?? '（沒有回答）';
