@@ -1,5 +1,6 @@
-import { type DB, toDbTime } from '../db.ts';
+import { type DB, hasColumn, toDbTime } from '../db.ts';
 import type { ToolCallLog } from './agent.ts';
+import type { LoggedSource } from './record.ts';
 
 export const USER_DAILY_LIMIT = 20;
 export const SITE_DAILY_LIMIT = 500;
@@ -64,29 +65,31 @@ export type AskLogEntry = {
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
+  sources?: LoggedSource[]; // the ones the answer cites
 };
 
 // Never throws: a logging failure must not fail the answer (and the web may write here
-// moments before the worker's migration adds the columns)
+// moments before the worker's migration adds the columns: without sources_json the row is
+// written without its sources rather than lost)
 export function logAsk(db: DB, e: AskLogEntry): void {
   try {
     const calls = e.toolCalls ?? [];
-    db.prepare(
-      `INSERT INTO ask_log (user_id, question, tool_calls_json, outcome, answer, cited, hits, ms, input_tokens, output_tokens, cost_usd)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      e.userId,
-      e.question,
-      JSON.stringify(calls),
-      e.outcome,
-      e.answer || null,
-      e.cited ?? null,
-      calls.reduce((n, c) => n + c.results, 0),
-      e.ms ?? null,
-      e.inputTokens ?? null,
-      e.outputTokens ?? null,
-      e.costUsd ?? null,
-    );
+    const values: Record<string, unknown> = {
+      user_id: e.userId,
+      question: e.question,
+      tool_calls_json: JSON.stringify(calls),
+      outcome: e.outcome,
+      answer: e.answer || null,
+      cited: e.cited ?? null,
+      hits: calls.reduce((n, c) => n + c.results, 0),
+      ms: e.ms ?? null,
+      input_tokens: e.inputTokens ?? null,
+      output_tokens: e.outputTokens ?? null,
+      cost_usd: e.costUsd ?? null,
+    };
+    if (hasColumn(db, 'ask_log', 'sources_json')) values.sources_json = e.sources?.length ? JSON.stringify(e.sources) : null;
+    const columns = Object.keys(values);
+    db.prepare(`INSERT INTO ask_log (${columns.join(', ')}) VALUES (${columns.map((c) => `@${c}`).join(', ')})`).run(values);
   } catch (err) {
     console.error('[ask_log]', err instanceof Error ? err.message : err);
   }

@@ -217,6 +217,22 @@ describe('quota', () => {
     ]);
   });
 
+  it('keeps the cited sources, and logs the row without them on a database without the column', () => {
+    const sources = [{ n: 2, ep: 709, t: 125.5, text: '台積電法說會', label: null }];
+    logAsk(db, { userId: 'u1', question: '有出處', outcome: 'answered', answer: 'EP709｜說了 [2]', cited: 1, sources });
+    logAsk(db, { userId: 'u1', question: '沒出處', outcome: 'no_source', answer: '找不到', cited: 0, sources: [] });
+    expect(db.prepare('SELECT question, sources_json FROM ask_log ORDER BY id').all()).toEqual([
+      { question: '有出處', sources_json: JSON.stringify(sources) },
+      { question: '沒出處', sources_json: null },
+    ]);
+
+    // The web can write moments before the worker's migration adds the column
+    const old = openDb(':memory:');
+    old.exec('ALTER TABLE ask_log DROP COLUMN sources_json');
+    logAsk(old, { userId: 'u1', question: '舊表', outcome: 'answered', answer: 'x [2]', cited: 1, sources });
+    expect(old.prepare('SELECT question, cited FROM ask_log').all()).toEqual([{ question: '舊表', cited: 1 }]);
+  });
+
   it('never throws when logging fails', () => {
     const broken = openDb(':memory:');
     broken.exec('DROP TABLE ask_log');
@@ -615,5 +631,26 @@ describe('AnswerRecorder', () => {
     r.see({ type: 'sources', sources: [{ n: 1, ep: 708, t: 0, text: 'x', label: null }] });
     r.see({ type: 'delta', text: '在收錄的集數裡找不到相關內容。' });
     expect(r.cited()).toBe(0);
+    expect(r.citedSources()).toEqual([]);
+  });
+
+  it('keeps the sources the final answer cites, whole, in the order first cited', () => {
+    const r = new AnswerRecorder();
+    const long = '長'.repeat(700);
+    r.see({
+      type: 'sources',
+      sources: [
+        { n: 1, ep: 708, t: 0, text: '沒被引用', label: null },
+        { n: 2, ep: 709, t: 600, text: long, label: null },
+      ],
+    });
+    r.see({ type: 'delta', text: '草稿 [1]' });
+    r.see({ type: 'reset' });
+    r.see({ type: 'sources', sources: [{ n: 3, ep: 710, t: 30, text: '提及', label: '美食・拉麵' }] });
+    r.see({ type: 'delta', text: '先 [3]，再 [2][3]，還有 [9]' });
+    expect(r.citedSources()).toEqual([
+      { n: 3, ep: 710, t: 30, text: '提及', label: '美食・拉麵' },
+      { n: 2, ep: 709, t: 600, text: long, label: null },
+    ]);
   });
 });

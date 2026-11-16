@@ -2,9 +2,10 @@
 // page (/admin/asks) both come through here, so they count and describe questions alike.
 // Rows are purged after ASK_LOG_DAYS; nothing here keeps anything longer.
 import { createHash } from 'node:crypto';
-import { type DB, toDbTime } from '../db.ts';
+import { type DB, hasColumn, toDbTime } from '../db.ts';
 import { likePattern } from '../fts.ts';
 import { taipeiDate, taipeiDayStart } from './quota.ts';
+import type { LoggedSource } from './record.ts';
 import { describeMentionSearch, describeTranscriptSearch } from './search.ts';
 
 // ── Totals ────────────────────────────────────────────────────────────────────────────
@@ -282,18 +283,49 @@ export type AskDetail = {
   outputTokens: number | null;
   costUsd: number | null;
   steps: SearchStep[];
+  // The sources the answer cites, in the order first cited; null when the row has none
+  // (logged before they were kept, never answered, or a snapshot without the column)
+  sources: LoggedSource[] | null;
+  sourcesBroken: boolean; // sources_json held entries that don't read as sources
   newer: number | null; // the neighbouring questions, for paging through them one by one
   older: number | null;
 };
 
+// What sources_json held: the sources, nothing (a row from before it, or never answered),
+// or a value that doesn't read as sources
+function parseSources(json: string | null): { sources: LoggedSource[] | null; broken: boolean } {
+  if (!json) return { sources: null, broken: false };
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return { sources: null, broken: true };
+    const ok = parsed.filter(
+      (s): s is LoggedSource =>
+        !!s && typeof s === 'object' && Number.isInteger(s.n) && Number.isInteger(s.ep) && typeof s.t === 'number' && typeof s.text === 'string',
+    );
+    return {
+      sources: ok.length ? ok.map((s) => ({ ...s, label: typeof s.label === 'string' ? s.label : null })) : null,
+      broken: ok.length < parsed.length,
+    };
+  } catch {
+    return { sources: null, broken: true };
+  }
+}
+
 export function getAsk(db: DB, id: number): AskDetail | null {
   const r = db
     .prepare(
-      `SELECT id, created_at, user_id, outcome, question, answer, cited, hits, ms, input_tokens, output_tokens, cost_usd, tool_calls_json
+      `SELECT id, created_at, user_id, outcome, question, answer, cited, hits, ms, input_tokens, output_tokens, cost_usd, tool_calls_json,
+              ${hasColumn(db, 'ask_log', 'sources_json') ? 'sources_json' : 'NULL AS sources_json'}
        FROM ask_log WHERE id = ?`,
     )
     .get(id) as
-    | (ListSqlRow & { answer: string | null; hits: number | null; input_tokens: number | null; output_tokens: number | null })
+    | (ListSqlRow & {
+        answer: string | null;
+        hits: number | null;
+        input_tokens: number | null;
+        output_tokens: number | null;
+        sources_json: string | null;
+      })
     | undefined;
   if (!r) return null;
   const newer = db.prepare('SELECT min(id) AS id FROM ask_log WHERE id > ?').get(id) as { id: number | null };
@@ -312,6 +344,7 @@ export function getAsk(db: DB, id: number): AskDetail | null {
     outputTokens: r.output_tokens,
     costUsd: r.cost_usd,
     steps: searchSteps(r.tool_calls_json),
+    ...((p) => ({ sources: p.sources, sourcesBroken: p.broken }))(parseSources(r.sources_json)),
     newer: newer.id,
     older: older.id,
   };
@@ -325,18 +358,22 @@ const LINE_LABEL = /^(?:- )?((?:EP\d{1,4}・)*EP\d{1,4})(?: 等 \d+ 集)?｜/gm;
 
 // A starting point for evals/golden.jsonl, or null when the question wasn't answered either
 // way (timeout, error, moderated, quota: nothing to say what a right answer is). The episodes
-// are the ones the labels name; `partial` when a label left some out. The question is a
-// listener's words, kept ASK_LOG_DAYS like the rest of the log, so it goes into the repo only
-// reworded.
-export function goldenDraft(a: Pick<AskDetail, 'outcome' | 'question' | 'answer' | 'steps'>): { line: string; partial: boolean } | null {
+// are those of the cited sources when the row kept them, else the ones the labels name, and
+// then `partial` when a label left some out. The question is a listener's words, kept
+// ASK_LOG_DAYS like the rest of the log, so it goes into the repo only reworded.
+export function goldenDraft(
+  a: Pick<AskDetail, 'outcome' | 'question' | 'answer' | 'steps'> & { sources?: LoggedSource[] | null },
+): { line: string; partial: boolean } | null {
   if (a.outcome !== 'answered' && a.outcome !== 'no_source') return null;
   const refuse = a.outcome === 'no_source';
   const eps = new Set<number>();
   let partial = false;
-  for (const m of (a.answer ?? '').matchAll(LINE_LABEL)) {
-    for (const ep of m[1]!.split('・')) eps.add(Number(ep.slice(2)));
-    if (m[0].includes(' 等 ')) partial = true;
-  }
+  if (a.sources?.length) for (const s of a.sources) eps.add(s.ep);
+  else
+    for (const m of (a.answer ?? '').matchAll(LINE_LABEL)) {
+      for (const ep of m[1]!.split('・')) eps.add(Number(ep.slice(2)));
+      if (m[0].includes(' 等 ')) partial = true;
+    }
   const queries = [...new Set(a.steps.map((s) => s.query).filter((q): q is string => !!q))];
   const line = JSON.stringify({
     id: refuse ? 'nf-XX' : 'detail-XX',

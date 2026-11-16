@@ -87,6 +87,7 @@ export async function POST(req: Request) {
           outcome,
           answer: recorder.labeled(), // as the page showed it, episode labels included
           cited: recorder.cited(),
+          sources: recorder.citedSources(),
           ms: Date.now() - started,
           toolCalls: trace.toolCalls,
           inputTokens: trace.inputTokens,

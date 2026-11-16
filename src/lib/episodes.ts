@@ -1,5 +1,5 @@
 import { cache } from 'react';
-import { countLiveEpisodes } from './db.ts';
+import { countLiveEpisodes, hasColumn } from './db.ts';
 import type { Segment } from './segments.ts';
 import { parseSeekTable, type SeekTable } from './seek.ts';
 import { readDb } from './server-db.ts';
@@ -58,23 +58,13 @@ export async function listEpisodes(limit: number, offset: number): Promise<Episo
   return rows.map(toListItem);
 }
 
-// The web never migrates, so a local snapshot from before seek_json still has to open
-const seekColumn = new WeakMap<object, boolean>();
-function hasSeekColumn(d: Awaited<ReturnType<typeof readDb>>): boolean {
-  let has = seekColumn.get(d);
-  if (has === undefined) {
-    has = (d.prepare('PRAGMA table_info(episodes)').all() as { name: string }[]).some((c) => c.name === 'seek_json');
-    seekColumn.set(d, has);
-  }
-  return has;
-}
 
 // cache(): generateMetadata and the page both ask for the same episode in one request
 export const getEpisode = cache(async (no: number): Promise<EpisodeDetail | null> => {
   const d = await readDb();
   const r = d
     .prepare(
-      `SELECT ${LIST_COLUMNS}, audio_url, summary_json, segments_json, ${hasSeekColumn(d) ? 'seek_json' : 'NULL AS seek_json'}
+      `SELECT ${LIST_COLUMNS}, audio_url, summary_json, segments_json, ${hasColumn(d, 'episodes', 'seek_json') ? 'seek_json' : 'NULL AS seek_json'}
        FROM episodes WHERE status = 'done' AND episode_no = ?`,
     )
     .get(no) as (ListRow & { audio_url: string; summary_json: string; segments_json: string | null; seek_json: string | null }) | undefined;

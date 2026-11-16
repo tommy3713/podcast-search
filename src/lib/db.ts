@@ -238,6 +238,12 @@ const MIGRATIONS: string[] = [
   ALTER TABLE transcript_edits ADD COLUMN fix_id INTEGER; -- the rule it came from, if any
   ALTER TABLE summary_edits ADD COLUMN fix_id INTEGER;
   `,
+  // The sources an answer cites, so /admin/asks can link its [n] and show the passages:
+  // JSON [{ n, ep, t, text, label }] in the order first cited (LoggedSource). Purged with the
+  // row after ASK_LOG_DAYS; NULL on rows from before this and on questions never answered.
+  `
+  ALTER TABLE ask_log ADD COLUMN sources_json TEXT;
+  `,
 ];
 
 export function defaultDbPath(): string {
@@ -247,6 +253,14 @@ export function defaultDbPath(): string {
 // The format of the created_at / updated_at columns, for comparing against them
 export function toDbTime(d: Date): string {
   return `${d.toISOString().slice(0, 19)}Z`;
+}
+
+// Whether a column exists. The web never migrates, so it reads a column a newer migration
+// added only when it's there: a local snapshot from before it still opens, and a process that
+// started before the deploy's migration sees it once it runs (not cached, for that; it's a
+// lookup in the schema, microseconds).
+export function hasColumn(db: DB, table: string, column: string): boolean {
+  return db.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?').get(table, column) !== undefined;
 }
 
 // Episodes visible on the site. Shared by the web and the worker's backup checks so

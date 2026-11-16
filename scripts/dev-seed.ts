@@ -64,18 +64,36 @@ const asks: [number, string, string, string, string | null, number | null, objec
   [3000, 'demo4444444', 'quota', '今天還能問嗎', null, null, []],
 ];
 const insertAsk = db.prepare(
-  `INSERT INTO ask_log (user_id, question, created_at, outcome, answer, cited, hits, ms, input_tokens, output_tokens, cost_usd, tool_calls_json)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  `INSERT INTO ask_log (user_id, question, created_at, outcome, answer, cited, hits, ms, input_tokens, output_tokens, cost_usd, tool_calls_json, sources_json)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
+// The sources a demo answer cites, on the episodes its line's label names, in turn
+const demoSources = (answer: string) =>
+  answer.split('\n').flatMap((line) => {
+    const label = /^(?:- )?((?:EP\d+・)*EP\d+)｜/.exec(line);
+    const eps = label ? label[1]!.split('・').map((e) => Number(e.slice(2))) : [];
+    if (!eps.length) return [];
+    return [...line.matchAll(/\[(\d+)\]/g)].map((m, i) => {
+      const ep = eps[i % eps.length]!;
+      return {
+        n: Number(m[1]),
+        ep,
+        t: Number(m[1]) * 95,
+        text: `（示範段落）EP${ep} 第 ${m[1]} 段逐字稿：實際資料是模型讀到的完整段落，大約 600 字。`,
+        label: null,
+      };
+    });
+  });
 const insertDay = db.prepare(
   `INSERT INTO ask_daily (date, asks, users, answered, no_source, moderated, quota, failed, cost_usd, avg_ms) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
 );
 db.transaction(() => {
   for (const [ago, user, outcome, question, answer, ms, calls] of asks.toReversed()) { // oldest first, as the site logs them
-    const cited = answer ? (answer.match(/\[\d+\]/g) ?? []).length : null;
+    const sources = outcome === 'answered' && answer ? demoSources(answer) : [];
+    const cited = answer ? sources.length : null;
     const spent = calls.length ? 0.002 * calls.length : null;
     insertAsk.run(user, question, minutesAgo(ago), outcome, answer, cited, calls.length * 8, ms, calls.length * 1500, answer ? 250 : null, spent,
-      JSON.stringify(calls));
+      JSON.stringify(calls), sources.length ? JSON.stringify(sources) : null);
   }
   for (let d = 40; d >= 1; d--) {
     const date = new Date(Date.now() - d * 86_400_000).toISOString().slice(0, 10);
