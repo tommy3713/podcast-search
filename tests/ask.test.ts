@@ -436,6 +436,40 @@ describe('answer', () => {
     expect(again.requests[1].input.find((x: any) => x.type === 'function_call_output').output).toContain('name="［1］ 某店"');
   });
 
+  it('sends each transcript source with the search terms its passage holds', async () => {
+    const { client } = fakeClient([{ calls: [{ name: 'search_transcript', args: { query: '網球 s-1 苗栗' } }] }, { text: 'x' }]);
+    const events: AskEvent[] = [];
+    await run('q', client, (e) => events.push(e));
+    const sources = events.flatMap((e) => (e.type === 'sources' ? e.sources : []));
+    expect(sources.find((s) => s.text === '最近每天打網球')?.terms).toEqual(['網球']);
+    // case ignored, as the transcript's search does
+    expect(sources.find((s) => s.text.startsWith('Anthropic'))?.terms).toEqual(['s-1']);
+    // a passage found only by meaning has no terms field at all
+    expect(sources.filter((s) => !/網球|S-1|苗栗/i.test(s.text)).every((s) => !('terms' in s))).toBe(true);
+  });
+
+  it('sends a source again with the terms a later search found it by', async () => {
+    const { client } = fakeClient([
+      { calls: [{ name: 'search_transcript', args: { query: '沒有這個詞' } }] },
+      { calls: [{ name: 'search_transcript', args: { query: '網球' } }] },
+      { text: 'x' },
+    ]);
+    const events: AskEvent[] = [];
+    await run('q', client, (e) => events.push(e));
+    const sent = events.flatMap((e) => (e.type === 'sources' ? e.sources : [])).filter((s) => s.text === '最近每天打網球');
+    // found by meaning first, without terms, then by its word: the same number, now with them
+    expect(sent.map((s) => s.terms)).toEqual([undefined, ['網球']]);
+    expect(new Set(sent.map((s) => s.n)).size).toBe(1);
+  });
+
+  it('matches Latin terms as whole words', async () => {
+    const { client } = fakeClient([{ calls: [{ name: 'search_transcript', args: { query: 'thro' } }] }, { text: 'x' }]);
+    const events: AskEvent[] = [];
+    await run('q', client, (e) => events.push(e));
+    // thro is inside Anthropic, not a word of it
+    expect(events.flatMap((e) => (e.type === 'sources' ? e.sources : [])).some((s) => s.terms)).toBe(false);
+  });
+
   it('stops tools after the limit and answers every call', async () => {
     const call = { name: 'search_transcript', args: { query: '網球' } };
     const { client, requests } = fakeClient([{ calls: [call, call, call] }, { calls: [call, call] }, { text: '好' }]);

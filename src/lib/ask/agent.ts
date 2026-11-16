@@ -3,6 +3,7 @@ import type { ResponseInputItem } from 'openai/resources/responses/responses';
 import { z } from 'zod';
 import type { AskUsage } from '../cost.ts';
 import type { DB } from '../db.ts';
+import { findExact } from '../format.ts';
 import { formatTimestamp, MENTION_CATEGORIES, STOCK_CATEGORY } from '../summary.ts';
 import { escapeSourceText, escapeTags } from '../tags.ts';
 import { taipeiDate } from './quota.ts';
@@ -27,8 +28,10 @@ const MAX_OUTPUT_TOKENS = 2500; // includes reasoning; the visible answer is ~80
 const CATEGORIES = [...MENTION_CATEGORIES, STOCK_CATEGORY] as const;
 
 // Everything the client receives. Sources are numbered by the server; the model can
-// only refer to them as [n], and the client builds links from ep + t.
-export type Source = { n: number; ep: number; t: number; text: string; label: string | null };
+// only refer to them as [n], and the client builds links from ep + t. `terms`: the search's
+// words that a transcript passage holds, which the client can point the link at when the
+// answer quotes nothing from it (src/lib/ask/focus.ts).
+export type Source = { n: number; ep: number; t: number; text: string; label: string | null; terms?: string[] };
 export type AskEvent =
   | { type: 'quota'; remaining: number }
   | { type: 'status'; text: string }
@@ -170,12 +173,21 @@ class SourceTable {
   list(): Source[] {
     return [...this.byKey.values()];
   }
-  add(key: string, s: Omit<Source, 'n'>): { source: Source; isNew: boolean } {
+  // `changed`: the client hasn't got the source as it now is, because it is new, or a later
+  // search found it with terms it lacked (found by meaning first, by its words next)
+  add(key: string, s: Omit<Source, 'n'>): { source: Source; changed: boolean } {
     const found = this.byKey.get(key);
-    if (found) return { source: found, isNew: false };
+    if (found) {
+      const extra = (s.terms ?? []).filter((t) => !found.terms?.includes(t));
+      if (!extra.length) return { source: found, changed: false };
+      // A new object: the one already sent may still be held by whoever it was sent to
+      const source = { ...found, terms: [...(found.terms ?? []), ...extra] };
+      this.byKey.set(key, source);
+      return { source, changed: true };
+    }
     const source = { ...s, n: this.byKey.size + 1 };
     this.byKey.set(key, source);
-    return { source, isNew: true };
+    return { source, changed: true };
   }
 }
 
@@ -197,7 +209,8 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
   const fresh: Source[] = [];
   const keep = (key: string, s: Omit<Source, 'n'>) => {
     const r = sources.add(key, s);
-    if (r.isNew) fresh.push(r.source);
+    // Sent again when changed: the page and the log keep the latest copy of each number
+    if (r.changed) fresh.push(r.source);
     return r.source;
   };
 
@@ -212,7 +225,9 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
     deps.trace.embeddingTokens += emb.usage?.total_tokens ?? 0;
     const { hits, terms, cutTerms, soundTerms, unmatched } = searchTranscript(deps.db, p.data.query, emb.data[0]?.embedding ?? null, p.data);
     const lines = hits.map((h) => {
-      const s = keep(`t:${h.episodeNo}:${h.startSec}`, { ep: h.episodeNo, t: h.startSec, text: h.text, label: null });
+      // As whole words where they are Latin: AI is not in again
+      const found = terms.filter((w) => [...w].length >= 2 && findExact(h.text, w) !== -1);
+      const s = keep(`t:${h.episodeNo}:${h.startSec}`, { ep: h.episodeNo, t: h.startSec, text: h.text, label: null, ...(found.length ? { terms: found } : {}) });
       return `<transcript n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${taipeiDay(h.publishedAt)}">${head(s.n, h.episodeNo, h.publishedAt)}${escapeSourceText(h.text)}</transcript>`;
     });
     if (fresh.length) deps.emit({ type: 'sources', sources: fresh });
