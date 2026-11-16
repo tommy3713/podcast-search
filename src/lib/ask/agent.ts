@@ -27,8 +27,10 @@ const MAX_OUTPUT_TOKENS = 2500; // includes reasoning; the visible answer is ~80
 const CATEGORIES = [...MENTION_CATEGORIES, STOCK_CATEGORY] as const;
 
 // Everything the client receives. Sources are numbered by the server; the model can
-// only refer to them as [n], and the client builds links from ep + t.
-export type Source = { n: number; ep: number; t: number; text: string; label: string | null };
+// only refer to them as [n], and the client builds links from ep + t. `terms`: the search's
+// words that a transcript passage holds, which the client can point the link at when the
+// answer quotes nothing from it (src/lib/ask/focus.ts).
+export type Source = { n: number; ep: number; t: number; text: string; label: string | null; terms?: string[] };
 export type AskEvent =
   | { type: 'quota'; remaining: number }
   | { type: 'status'; text: string }
@@ -212,7 +214,9 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
     deps.trace.embeddingTokens += emb.usage?.total_tokens ?? 0;
     const { hits, terms, cutTerms, soundTerms, unmatched } = searchTranscript(deps.db, p.data.query, emb.data[0]?.embedding ?? null, p.data);
     const lines = hits.map((h) => {
-      const s = keep(`t:${h.episodeNo}:${h.startSec}`, { ep: h.episodeNo, t: h.startSec, text: h.text, label: null });
+      const lower = h.text.toLowerCase();
+      const found = terms.filter((w) => [...w].length >= 2 && lower.includes(w.toLowerCase()));
+      const s = keep(`t:${h.episodeNo}:${h.startSec}`, { ep: h.episodeNo, t: h.startSec, text: h.text, label: null, ...(found.length ? { terms: found } : {}) });
       return `<transcript n="${s.n}" ep="${h.episodeNo}" t="${formatTimestamp(h.startSec)}" date="${taipeiDay(h.publishedAt)}">${head(s.n, h.episodeNo, h.publishedAt)}${escapeSourceText(h.text)}</transcript>`;
     });
     if (fresh.length) deps.emit({ type: 'sources', sources: fresh });

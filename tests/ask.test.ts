@@ -436,6 +436,18 @@ describe('answer', () => {
     expect(again.requests[1].input.find((x: any) => x.type === 'function_call_output').output).toContain('name="［1］ 某店"');
   });
 
+  it('sends each transcript source with the search terms its passage holds', async () => {
+    const { client } = fakeClient([{ calls: [{ name: 'search_transcript', args: { query: '網球 s-1 苗栗' } }] }, { text: 'x' }]);
+    const events: AskEvent[] = [];
+    await run('q', client, (e) => events.push(e));
+    const sources = events.flatMap((e) => (e.type === 'sources' ? e.sources : []));
+    expect(sources.find((s) => s.text === '最近每天打網球')?.terms).toEqual(['網球']);
+    // case ignored, as the transcript's search does
+    expect(sources.find((s) => s.text.startsWith('Anthropic'))?.terms).toEqual(['s-1']);
+    // a passage found only by meaning has no terms field at all
+    expect(sources.filter((s) => !/網球|S-1|苗栗/i.test(s.text)).every((s) => !('terms' in s))).toBe(true);
+  });
+
   it('stops tools after the limit and answers every call', async () => {
     const call = { name: 'search_transcript', args: { query: '網球' } };
     const { client, requests } = fakeClient([{ calls: [call, call, call] }, { calls: [call, call] }, { text: '好' }]);

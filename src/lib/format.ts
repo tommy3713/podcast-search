@@ -60,12 +60,33 @@ export function paragraphStarts(segments: Segment[], minSeconds = 30): number[] 
 // Whisper segments are only a few seconds long; merge them into paragraphs of at
 // least `minSeconds` so the transcript reads as prose with a timestamp per paragraph.
 export function groupParagraphs(segments: Segment[], minSeconds = 30): Paragraph[] {
-  const paragraphs: Paragraph[] = [];
+  return placeParagraphs(segments, minSeconds).map(({ start, text }) => ({ start, text }));
+}
+
+// The paragraphs groupParagraphs makes, with where each of their segments begins in the
+// paragraph's text (`at`) and when it starts
+export type PlacedParagraph = Paragraph & { segs: { at: number; start: number }[] };
+
+export function placeParagraphs(segments: Segment[], minSeconds = 30): PlacedParagraph[] {
+  const paragraphs: PlacedParagraph[] = [];
   const starts = paragraphStarts(segments, minSeconds);
   segments.forEach((seg, i) => {
     const last = paragraphs.at(-1);
-    if (last && last.start === starts[i]) last.text = appendSegment(last.text, seg.text);
-    else paragraphs.push({ start: starts[i]!, text: seg.text });
+    if (last && last.start === starts[i]) {
+      last.text = appendSegment(last.text, seg.text);
+      last.segs.push({ at: last.text.length - seg.text.length, start: seg.start });
+    } else paragraphs.push({ start: starts[i]!, text: seg.text, segs: [{ at: 0, start: seg.start }] });
   });
   return paragraphs;
+}
+
+// Where q occurs in text, ignoring case, without overlaps: what the transcript tab's search
+// marks, so the server can tell which of its marks a link points at
+export function matchStarts(text: string, q: string): number[] {
+  if (!q) return [];
+  const lower = text.toLowerCase();
+  const lq = q.toLowerCase();
+  const out: number[] = [];
+  for (let j = lower.indexOf(lq); j !== -1; j = lower.indexOf(lq, j + lq.length)) out.push(j);
+  return out;
 }

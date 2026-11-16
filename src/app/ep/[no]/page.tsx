@@ -12,10 +12,11 @@ import { stockIndex } from '@/lib/stock-pages';
 import { sponsorHref, sponsorOf } from '@/lib/sponsors';
 import { TOPIC_CATEGORIES, topicHref, topicOf } from '@/lib/topics';
 import { stockFor, stockHref } from '@/lib/stocks';
+import { findFocus, parseHighlight } from '@/lib/transcript-focus';
 
 type Props = {
   params: Promise<{ no: string }>;
-  searchParams: Promise<{ t?: string; tab?: string }>;
+  searchParams: Promise<{ t?: string; tab?: string; hl?: string }>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -24,7 +25,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!ep) return { title: '找不到這一集' };
   const title = episodeTitle(ep.no, ep.summary.line);
   const description = episodeDescription(ep.summary);
-  // ?t= and ?tab= show the same episode, so all of them point at the plain URL
+  // ?t=, ?tab= and ?hl= show the same episode, so all of them point at the plain URL
   const url = `/ep/${ep.no}`;
   return {
     title: { absolute: title },
@@ -52,6 +53,9 @@ export default async function EpisodePage({ params, searchParams }: Props) {
 
   const sp = await searchParams;
   const t = sp.t !== undefined && /^\d{1,5}$/.test(sp.t) ? Math.min(Number(sp.t), ep.duration ?? Infinity) : null;
+  // A source's link names the words it is about: open at them rather than where its passage starts
+  const hl = parseHighlight(sp.hl);
+  const focus = t !== null && hl !== null ? findFocus(ep.segments, t, hl) : null;
   // Back to the list page this episode appears on
   const back = pageHref(pageOfIndex(await episodeIndex(ep.no)));
   // Each stock's page with every episode that talks about it; null for the few without one
@@ -101,7 +105,8 @@ export default async function EpisodePage({ params, searchParams }: Props) {
         mentionHrefs={mentionHrefs}
         paragraphs={groupParagraphs(ep.segments)}
         initialTab={sp.tab === 'tx' || t !== null ? 'tx' : 'summary'}
-        initialT={t}
+        initialT={focus?.t ?? t}
+        focus={focus && { text: focus.text, hit: focus.hit }}
         seek={ep.seek}
         episode={ep.no}
         // The root layout reads the session for the header already
