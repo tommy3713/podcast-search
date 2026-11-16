@@ -430,7 +430,7 @@ function fakeClient(turns: Turn[], verdicts: boolean[] | Error = [], support?: (
   return { client: client as any, judged, checked };
 }
 
-const coverage = { count: 2, oldest: 708, newest: 709, today: '2026-10-29' };
+const coverage = { count: 2, oldest: 708, newest: 709, oldestDate: '2026-10-24', newestDate: '2026-10-28', today: '2026-10-29' };
 const searchTennis = { calls: [{ name: 'search_mentions', args: { category: '運動', keyword: null, since: null } }] };
 
 describe('judge', () => {

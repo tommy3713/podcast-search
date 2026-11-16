@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { answer, type AskEvent, MAX_TOOL_CALLS, newTrace, systemPrompt } from '@/lib/ask/agent';
+import { answer, type AskEvent, MAX_TOOL_CALLS, newTrace, readCoverage, systemPrompt } from '@/lib/ask/agent';
 import { logAsk, logQuotaRejection, refundQuota, remaining, SITE_DAILY_LIMIT, taipeiDate, takeQuota, USER_DAILY_LIMIT } from '@/lib/ask/quota';
 import { AnswerRecorder } from '@/lib/ask/record';
 import { citedOrder, episodeLabel, labelBlocks, labeledAnswer, parseAnswer, shownWithoutLabels, splitEvents } from '@/lib/ask/render';
@@ -368,13 +368,28 @@ function fakeClient(turns: Turn[]) {
   return { client: client as any, requests };
 }
 
-const coverage = { count: 2, oldest: 708, newest: 709, today: '2026-10-29' };
+const coverage = { count: 2, oldest: 708, newest: 709, oldestDate: '2026-10-24', newestDate: '2026-10-28', today: '2026-10-29' };
 
 async function run(question: string, client: any, emit: (e: AskEvent) => void = () => {}) {
   const trace = newTrace();
   await answer(question, { db, client, coverage, emit, trace });
   return trace;
 }
+
+describe('readCoverage', () => {
+  it('gives the Taipei release days of the oldest and newest live episodes', () => {
+    // released 01:00 Taipei on the 23rd; a pending older episode isn't live
+    addEpisode(db, 707, '2026-10-22T17:00:00.000Z', ['x']);
+    insertDiscovered(db, { guid: 'g650', episodeNo: 650, title: '⭐', publishedAt: '2026-03-01T07:00:00.000Z', audioUrl: 'https://x', duration: 1 });
+    const c = readCoverage(db, '2026-10-29');
+    expect(c).toEqual({ count: 3, oldest: 707, newest: 709, oldestDate: '2026-10-23', newestDate: '2026-10-28', today: '2026-10-29' });
+    expect(systemPrompt(c)).toContain('EP707（2026-10-23）–EP709（2026-10-28）');
+  });
+
+  it('has no dates on an empty archive', () => {
+    expect(readCoverage(openDb(':memory:'), '2026-10-29')).toMatchObject({ count: 0, oldestDate: null, newestDate: null });
+  });
+});
 
 describe('answer', () => {
   it('runs tools, numbers sources and streams the final text', async () => {
