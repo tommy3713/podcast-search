@@ -8,7 +8,7 @@ import { logAsk, refundRetry, remaining, SITE_DAILY_LIMIT, taipeiDate, takeQuota
 import { type DB, EMBEDDING_DIM, openDb } from '@/lib/db';
 import { stripAskLog } from '../worker/backup.ts';
 import { insertDiscovered, publishEpisode, saveSegments } from '../worker/repo.ts';
-import { formatStats, purgeAskLog } from '../worker/stats.ts';
+import { formatStats, purgeAskLog, rollupAskDaily, unanswered } from '../worker/stats.ts';
 
 // 擴大搜尋: a question answered once more, broader, free for the listener
 let db: DB;
@@ -106,8 +106,18 @@ describe('the Q&A log', () => {
     expect(getAsk(db, broad)).toMatchObject({ retryOf: first, broadenedBy: null });
     expect(listAsks(db, { flag: 'broad' }).rows.map((r) => r.id)).toEqual([broad]);
     const stats = askStats(db, new Date('2020-01-01'));
-    expect(stats).toMatchObject({ asks: 2, broad: 1 });
+    expect(stats).toMatchObject({ asks: 1, broad: 1 });
     expect(formatStats('t', stats)).toContain('擴大搜尋 1');
+  });
+
+  it("doesn't count a broad answer as a question, an outcome or a user, but counts what it cost", () => {
+    const first = logAsk(db, { userId: 'u1', question: 'q', outcome: 'no_source', ms: 4000, costUsd: 0.01 })!;
+    logAsk(db, { userId: 'u2', question: 'q', outcome: 'no_source', ms: 9000, costUsd: 0.02, retryOf: first });
+    expect(askStats(db, new Date('2020-01-01'))).toMatchObject({ asks: 1, users: 1, no_source: 1, avg_ms: 4000, cost_usd: 0.03, broad: 1 });
+    expect(unanswered(db, new Date('2020-01-01'))).toHaveLength(1);
+    db.prepare(`UPDATE ask_log SET created_at = '2026-11-10T04:00:00Z'`).run();
+    rollupAskDaily(db, '2026-11-16');
+    expect(db.prepare('SELECT asks, no_source, cost_usd FROM ask_daily').get()).toEqual({ asks: 1, no_source: 1, cost_usd: 0.03 });
   });
 });
 
@@ -163,6 +173,10 @@ describe('answer() in broad mode', () => {
     expect(trace.toolCalls[0]).toMatchObject({ args: { since: null, until: null }, results: 1 });
     const [sys, user] = requests[0].input;
     expect(sys.content).toBe(systemPrompt(coverage, broaden));
+    // nothing offers a date range it can't have: not the tools, not the prompt
+    for (const t of requests[0].tools) expect(Object.keys(t.parameters.properties)).not.toContain('since');
+    expect(JSON.stringify(requests[0].tools)).not.toContain('since、until');
+    expect(sys.content).not.toContain('episode、since、until');
     expect(sys.content).toContain(`最多搜 ${BROAD_TOOL_CALLS} 次`);
     expect(sys.content).toContain('EP654');
     expect(sys.content).not.toContain('企業家');
@@ -177,5 +191,6 @@ describe('answer() in broad mode', () => {
     expect(trace.toolCalls[0]).toMatchObject({ args: { since: '2020-01-01' }, results: 0 });
     expect(requests[0].input[0].content).toBe(systemPrompt(coverage));
     expect(requests[0].input[0].content).not.toContain('擴大搜尋');
+    expect(requests[0].tools[0].parameters.required).toContain('since');
   });
 });

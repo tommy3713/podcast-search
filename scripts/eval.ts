@@ -113,7 +113,10 @@ if (kind === 'retrieval') {
   if (before) {
     const diff = compare(before.data as EvalResult, result);
     console.log(reportDiff(diff, before.name));
-    failed ||= diff.alarm;
+    // Broad answers look past the episodes the first answer cited, so a normal baseline
+    // isn't what they should match: listed, never an alarm
+    if (opt.broad) console.log('（擴大搜尋的結果跟一般回答的基準比，只列出差別，不算退步）');
+    else failed ||= diff.alarm;
   }
   failed ||= summary.safetyFailed.length > 0;
 }

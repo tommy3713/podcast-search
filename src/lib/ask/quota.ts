@@ -1,4 +1,4 @@
-import { type DB, hasColumn, toDbTime } from '../db.ts';
+import { type DB, hasColumn, hasTable, toDbTime } from '../db.ts';
 import type { ToolCallLog } from './agent.ts';
 import type { LoggedSource } from './record.ts';
 
@@ -47,7 +47,7 @@ export function takeQuota(db: DB, userId: string, now = new Date()): QuotaResult
 function siteUsed(db: DB, date: string): number {
   const asked = (db.prepare('SELECT COALESCE(SUM(count), 0) AS n FROM ask_usage WHERE date = ?').get(date) as { n: number }).n;
   // Absent until the release that added 擴大搜尋 has migrated (a local snapshot, or mid-deploy)
-  if (!db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'ask_retries'`).get()) return asked;
+  if (!hasTable(db, 'ask_retries')) return asked;
   return asked + (db.prepare('SELECT COUNT(*) AS n FROM ask_retries WHERE date = ?').get(date) as { n: number }).n;
 }
 
@@ -62,7 +62,7 @@ export type RetryResult =
 // row is taken before any model is called, in the same transaction as the checks, so two
 // clicks at once get one answer. `missing`: not this account's question (or purged).
 export function takeRetry(db: DB, userId: string, askId: number, now = new Date()): RetryResult {
-  if (!db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'ask_retries'`).get() || !hasColumn(db, 'ask_log', 'retry_of')) {
+  if (!hasTable(db, 'ask_retries') || !hasColumn(db, 'ask_log', 'retry_of')) {
     return { ok: false, reason: 'unavailable' };
   }
   const date = taipeiDate(now);

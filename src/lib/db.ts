@@ -275,6 +275,12 @@ export function hasColumn(db: DB, table: string, column: string): boolean {
   return db.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?').get(table, column) !== undefined;
 }
 
+// For a table a later release adds: the previous release, and a local snapshot opened
+// readonly (never migrated), may not have it
+export function hasTable(db: DB, name: string): boolean {
+  return db.prepare('SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?').get('table', name) !== undefined;
+}
+
 // Episodes visible on the site. Shared by the web and the worker's backup checks so
 // "live" means the same thing everywhere.
 export function countLiveEpisodes(db: DB): number {

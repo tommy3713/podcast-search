@@ -70,12 +70,20 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
   }
 
   // 擴大搜尋: the same question once more, broader, as a new answer below; free, so not
-  // stopped by a used-up quota. Given back to try again unless the server says it was used.
+  // stopped by a used-up quota. Marked at once, and saved at once (the list is only saved
+  // while nothing streams), so leaving mid-answer doesn't bring the button back. Offered
+  // again only where the server gave the try back: a cut-off answer (it says so), a dropped
+  // connection, a full site or a migration not yet run; not a question it can't find (404)
+  // or one already broadened (409).
   async function broaden(of: Msg) {
     if (busy || !of.logId || of.broadOf || of.broadened) return;
-    update(of.id, (m) => ({ ...m, broadened: true }));
+    setMsgs((all) => {
+      const next = all.map((m) => (m.id === of.id ? { ...m, broadened: true } : m));
+      save(next);
+      return next;
+    });
     const status = await run({ q: of.q, broadOf: of.id }, { retryOf: of.logId });
-    if (status !== null && status !== 409) update(of.id, (m) => ({ ...m, broadened: false }));
+    if (status !== null && status !== 404 && status !== 409) update(of.id, (m) => ({ ...m, broadened: false }));
   }
 
   // Sends one request and streams its answer into a new message. Returns null when it
@@ -182,8 +190,9 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
       )}
 
       <div style={{ display: 'grid', gap: 28 }}>
+        {/* busy only where the button is, so the other answers keep their memo */}
         {msgs.map((m) => (
-          <Message key={m.id} m={m} busy={busy} onBroaden={onBroaden} />
+          <Message key={m.id} m={m} busy={m.logId && !m.broadOf && !m.broadened ? busy : false} onBroaden={onBroaden} />
         ))}
       </div>
 

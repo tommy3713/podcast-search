@@ -14,16 +14,22 @@ import { describeMentionSearch, describeTranscriptSearch } from './search.ts';
 // them would show days with questions but no results
 export const RECORDED = `outcome IS NOT NULL`;
 
-export const TOTALS = `
-  COUNT(*)                                                    AS asks,
-  COUNT(DISTINCT user_id)                                     AS users,
-  COALESCE(SUM(outcome = 'answered'), 0)                      AS answered,
-  COALESCE(SUM(outcome = 'no_source'), 0)                     AS no_source,
-  COALESCE(SUM(outcome = 'moderated'), 0)                     AS moderated,
-  COALESCE(SUM(outcome = 'quota'), 0)                         AS quota,
-  COALESCE(SUM(outcome IN ('timeout', 'aborted', 'error')), 0) AS failed,
-  COALESCE(SUM(cost_usd), 0)                                  AS cost_usd,
-  CAST(AVG(CASE WHEN outcome IN ('answered', 'no_source') THEN ms END) AS INTEGER) AS avg_ms`;
+// A 擴大搜尋 answer is a second answer to a question already counted, so it isn't a question,
+// a user, an outcome or a time here (counted on its own as `broad`), but what it cost is
+// spent all the same. Rows of a database without the column are all first answers.
+export function totals(db: DB): string {
+  const first = hasColumn(db, 'ask_log', 'retry_of') ? 'retry_of IS NULL' : '1';
+  return `
+  COALESCE(SUM(${first}), 0)                                              AS asks,
+  COUNT(DISTINCT CASE WHEN ${first} THEN user_id END)                     AS users,
+  COALESCE(SUM(${first} AND outcome = 'answered'), 0)                     AS answered,
+  COALESCE(SUM(${first} AND outcome = 'no_source'), 0)                    AS no_source,
+  COALESCE(SUM(${first} AND outcome = 'moderated'), 0)                    AS moderated,
+  COALESCE(SUM(${first} AND outcome = 'quota'), 0)                        AS quota,
+  COALESCE(SUM(${first} AND outcome IN ('timeout', 'aborted', 'error')), 0) AS failed,
+  COALESCE(SUM(cost_usd), 0)                                              AS cost_usd,
+  CAST(AVG(CASE WHEN ${first} AND outcome IN ('answered', 'no_source') THEN ms END) AS INTEGER) AS avg_ms`;
+}
 
 export type AskStats = {
   asks: number;
@@ -35,11 +41,11 @@ export type AskStats = {
   failed: number;
   cost_usd: number;
   avg_ms: number | null;
-  broad?: number; // 擴大搜尋 answers among `asks` (absent where the column isn't)
+  broad?: number; // 擴大搜尋 answers, not among `asks` (absent where the column isn't); their cost is in cost_usd
 };
 
 export function askStats(db: DB, since: Date): AskStats {
-  const s = db.prepare(`SELECT ${TOTALS} FROM ask_log WHERE created_at >= ? AND ${RECORDED}`).get(toDbTime(since)) as AskStats;
+  const s = db.prepare(`SELECT ${totals(db)} FROM ask_log WHERE created_at >= ? AND ${RECORDED}`).get(toDbTime(since)) as AskStats;
   if (!hasColumn(db, 'ask_log', 'retry_of')) return s;
   const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ask_log WHERE created_at >= ? AND ${RECORDED} AND retry_of IS NOT NULL`).get(toDbTime(since)) as { n: number };
   return { ...s, broad: n };

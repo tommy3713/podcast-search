@@ -108,14 +108,16 @@ export async function POST(req: Request) {
         emit({ type: 'done' });
       } catch (err) {
         console.error('[ask]', err instanceof Error ? err.message : err);
-        if (!answered) {
-          if (broaden) refundRetry(wdb, broaden.of);
-          else refundQuota(wdb, user.id);
-        }
+        // 擴大搜尋 is free and allowed once, so a broad answer cut off (timeout, error, the
+        // listener leaving) is given back even after it began streaming: cut off more easily
+        // than a first answer (half again as many searches in half again the time), it would
+        // otherwise use up the question's one try
+        if (broaden) refundRetry(wdb, broaden.of);
+        else if (!answered) refundQuota(wdb, user.id);
         const timedOut = signal.aborted && !req.signal.aborted;
         outcome = timedOut ? 'timeout' : req.signal.aborted ? 'aborted' : 'error';
         const what = timedOut ? `回答超過 ${timeoutMs / 1000} 秒，已中斷。` : '回答時發生錯誤。';
-        emit({ type: 'error', message: answered ? what : `${what}這次不扣次數，請稍後再試。` });
+        emit({ type: 'error', message: broaden ? `${what}可以再按一次擴大搜尋。` : answered ? what : `${what}這次不扣次數，請稍後再試。` });
       } finally {
         const id = logAsk(wdb, {
           userId: user.id,

@@ -117,6 +117,17 @@ const TOOLS: OpenAI.Responses.Tool[] = [
   },
 ];
 
+// 擴大搜尋's tools: the same without since / until, so nothing the model reads offers a date
+// range it can't have (the arguments are dropped too, NO_DATES)
+const BROAD_TOOLS: OpenAI.Responses.Tool[] = TOOLS.map((t) => {
+  if (t.type !== 'function') return t;
+  const params = structuredClone(t.parameters) as { properties: Record<string, unknown>; required: string[] };
+  delete params.properties.since;
+  delete params.properties.until;
+  params.required = params.required.filter((k) => k !== 'since' && k !== 'until');
+  return { ...t, description: t.description?.replace(/episode、since、until/g, 'episode').replace(/某段時間/g, '某一集'), parameters: params };
+});
+
 // `oldestDate` / `newestDate`: Taipei release days of the oldest and newest live episodes,
 // so the model knows which years the archive spans when a question names one
 export type Coverage = { count: number; oldest: number; newest: number; oldestDate: string | null; newestDate: string | null; today: string };
@@ -148,7 +159,7 @@ function broadenRule(citedEps: number[]): string {
   const cited = citedEps.length
     ? `上一次的回答引用了 ${citedEps.map((n) => `EP${n}`).join('、')}：先找別的集數；換了說法還是只有這幾集符合，就照實說還是這幾集。`
     : '上一次的回答沒有引用任何段落。';
-  return `- 這是「擴大搜尋」：聽眾看了上一次的回答，覺得不是他要找的，按了重新找。這次最多搜 ${BROAD_TOOL_CALLS} 次，而且不限日期範圍（since、until 會被忽略）。<previous_searches> 裡是上一次用過的搜尋詞：不要重複，改用別的說法，例如同義詞、英文、主委口語可能的講法、語音辨識可能寫成的字，或問題描述的事情本身會用到的詞。${cited}\n`;
+  return `- 這是「擴大搜尋」：聽眾看了上一次的回答，覺得不是他要找的，按了重新找。這次最多搜 ${BROAD_TOOL_CALLS} 次，而且不限定日期範圍（工具沒有 since、until），只能用 episode 指定一集。<previous_searches> 裡是上一次用過的搜尋詞：不要重複，改用別的說法，例如同義詞、英文、主委口語可能的講法、語音辨識可能寫成的字，或問題描述的事情本身會用到的詞。${cited}\n`;
 }
 
 // Rules only. Coverage and date are server facts; the question never goes in here.
@@ -159,9 +170,13 @@ export function systemPrompt(c: Coverage, broaden?: { citedEps: number[] }): str
 目前收錄 EP${c.oldest}（${c.oldestDate}）–EP${c.newest}（${c.newestDate}），共 ${c.count} 集，中間可能有缺集。今天是 ${c.today}。
 
 做法：
-- 先用工具搜尋再回答，最多搜 ${maxCalls} 次。「有哪些、推薦過、最近」這類清單問題先用 search_mentions；細節、原話、看法用 search_transcript。問某一集或某段時間，兩個工具都可以用 episode、since、until 縮小範圍。搜不到可以換個說法再搜。
+- 先用工具搜尋再回答，最多搜 ${maxCalls} 次。「有哪些、推薦過、最近」這類清單問題先用 search_mentions；細節、原話、看法用 search_transcript。${
+    broaden
+      ? '問某一集，兩個工具都可以用 episode 只搜那一集。搜不到可以換個說法再搜。\n'
+      : `問某一集或某段時間，兩個工具都可以用 episode、since、until 縮小範圍。搜不到可以換個說法再搜。
 - 只有問題寫了集數、年、月、日期，或今年、去年、上個月這類換算得出日期的時間，才用 episode、since、until；換成日期時，until 多留事件之後一兩週，因為節目常在事件之後才談。「早期」「以前」「很久以前」「前幾年」這類模糊的說法不要換成日期範圍：聽眾記的時間常常不準，猜錯範圍會把要找的那集排除在外。
-- 逐字稿是語音辨識，名稱可能有錯字；搜尋時用節目裡可能出現的說法。<mention> 的 name 已經校正過，回答時名稱以它為準。
+`
+  }- 逐字稿是語音辨識，名稱可能有錯字；搜尋時用節目裡可能出現的說法。<mention> 的 name 已經校正過，回答時名稱以它為準。
 - 回答用台灣繁體中文，簡潔，先給結論（問多空、能不能買的除外，見最後一條），細節用「- 」開頭條列，可以用 **粗體** 標重點。不要用其他 Markdown。
 - 問他怎麼看、怎麼解讀某件事時，搜尋結果裡他對這件事講到的不同看法都要寫進條列，每點連同他給的理由、數字或例子；不要只挑一兩點，也不要只寫結論。跟問題無關的段落不用寫。
 - 每個事實後面標出處 [n]：每筆搜尋結果的內容開頭都有它自己的 [n] 和它是哪一集，照抄寫出那個事實的那一筆。只能用搜尋結果裡出現過的編號。
@@ -286,7 +301,7 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
     const cut = cutTerms.length
       ? `\n（${quote(cutTerms)}符合的段落超過 ${TERM_MATCH_LIMIT} 段，關鍵字搜尋只讀了最新的 ${TERM_MATCH_LIMIT} 段，較舊的集數可能沒搜到；${
           scoped ? '這個範圍還是太大，' : ''
-        }問題有寫集數或時間的話，用 episode、since、until 縮小範圍，沒有就換更具體的詞）`
+        }${deps.broaden ? '要找特定一集就用 episode，不然換更具體的詞' : '問題有寫集數或時間的話，用 episode、since、until 縮小範圍，沒有就換更具體的詞'}）`
       : '';
     // The meaning-based rankings always return their nearest chunks, which look like an
     // answer: the prompt's "say it isn't there" rule didn't stop the model from presenting
@@ -337,7 +352,8 @@ async function runTool(name: string, rawArgs: string, deps: Deps, sources: Sourc
     });
     if (fresh.length) deps.emit({ type: 'sources', sources: fresh });
     // A full page looks the same as a complete list unless the model is told
-    const cut = hits.length === MENTION_LIMIT ? `\n（已達 ${MENTION_LIMIT} 筆上限：符合條件但較舊的集數沒有列出，要找就用 episode 或更窄的 since、until 再查）` : '';
+    const narrower = deps.broaden ? '用 episode 或更具體的 keyword' : '用 episode 或更窄的 since、until';
+    const cut = hits.length === MENTION_LIMIT ? `\n（已達 ${MENTION_LIMIT} 筆上限：符合條件但較舊的集數沒有列出，要找就${narrower}再查）` : '';
     return { output: (lines.join('\n') || noResults(deps, p.data, '沒有符合的提及')) + cut, log: { name, args: p.data, results: hits.length } };
   }
 
@@ -377,7 +393,7 @@ export async function answer(question: string, deps: Deps): Promise<void> {
       {
         model: ASK_MODEL,
         input,
-        tools: TOOLS,
+        tools: broaden ? BROAD_TOOLS : TOOLS,
         tool_choice: toolsLeft > 0 ? 'auto' : 'none',
         reasoning: { effort: 'low' },
         // An empty turn is often reasoning that used up the budget, so the retry gets more
