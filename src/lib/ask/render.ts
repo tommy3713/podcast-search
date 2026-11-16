@@ -62,15 +62,17 @@ export function citedOrder(blocks: Block[]): number[] {
   return seen;
 }
 
-// What the searches found that the answer doesn't cite, in the order they were found
-// (each search's best first), for a listener who didn't get what they were after
+// What the searches found that the answer doesn't cite, in the order they were found, for
+// a listener who didn't get what they were after. A passage within NEAR_CITED_SEC of a cited
+// one in the same episode is left out: adjacent chunks share a segment and a mention sits on
+// its passage, so it would be the cited words again, not something the answer passed over.
 export const OTHER_SOURCES_SHOWN = 8;
+const NEAR_CITED_SEC = 120;
 export function otherSources(sources: Record<number, Source>, cited: number[]): Source[] {
-  const used = new Set(cited);
+  const used = cited.map((n) => sources[n]).filter((s) => s !== undefined);
   return Object.values(sources)
-    .filter((s) => !used.has(s.n))
-    .sort((a, b) => a.n - b.n)
-    .slice(0, OTHER_SOURCES_SHOWN);
+    .filter((s) => !cited.includes(s.n) && !used.some((c) => c.ep === s.ep && Math.abs(c.t - s.t) < NEAR_CITED_SEC))
+    .sort((a, b) => a.n - b.n);
 }
 
 // SSE: complete "data: ..." events in buf, plus the unfinished remainder

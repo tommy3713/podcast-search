@@ -189,10 +189,20 @@ describe('termFocus', () => {
 });
 
 describe('otherSources', () => {
-  it('lists the uncited sources in the order they were found, up to a limit', () => {
-    const all = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [i + 1, source(i + 1, `段落 ${i + 1}`)]));
-    expect(otherSources(all, [2, 5]).map((s) => s.n)).toEqual([1, 3, 4, 6, 7, 8, 9, 10]);
-    expect(otherSources(all, [])).toHaveLength(OTHER_SOURCES_SHOWN);
+  it('lists the uncited sources in the order they were found', () => {
+    const all = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [i + 1, source(i + 1, `段落 ${i + 1}`, { ep: 600 + i })]));
+    expect(otherSources(all, [2, 5]).map((s) => s.n)).toEqual([1, 3, 4, 6, 7, 8, 9, 10, 11, 12]);
     expect(otherSources({ 1: all[1]! }, [1])).toEqual([]);
+  });
+
+  it('leaves out passages next to a cited one in the same episode', () => {
+    const near = {
+      1: source(1, '球隊把東京巨蛋租下來', { ep: 700, t: 168 }),
+      2: source(2, '前一段，最後一句也說租下來', { ep: 700, t: 100 }),
+      3: source(3, '東京巨蛋', { ep: 700, t: 168, label: '運動・東京巨蛋' }),
+      4: source(4, '同一集，很後面', { ep: 700, t: 2400 }),
+      5: source(5, '別集同一個時間', { ep: 699, t: 168 }),
+    };
+    expect(otherSources(near, [1]).map((s) => s.n)).toEqual([4, 5]);
   });
 });
