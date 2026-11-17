@@ -43,10 +43,45 @@ function pickSelection(): Picked | { tooLong: true } | null {
 // itself clears the selection before the button hears it
 const LINGER_MS = 400;
 
+// Phones and tablets draw their own menu (copy, translate…) next to a selection, above or below
+// it depending on the room, and a page can neither find out where nor add to it. So with touch
+// the button doesn't sit by the selection: it is a bar docked above whatever is fixed at the
+// bottom of the screen (the bottom nav, the player), or under the header (and a stuck player)
+// when the selection is where the bar would be. With a mouse there is no such menu, and the
+// button floats just below the selection.
+const TOUCH = '(hover: none) and (pointer: coarse)';
+const DOCK_H = 44;
+const DOCK_GAP = 8;
+
+type Dock = { side: 'top' | 'bottom'; at: number };
+type Fab = { picked: Picked | null } & ({ x: number; y: number } | { dock: Dock });
+
+// Where the docked bar goes for a selection at rect: px from the screen's top or bottom edge
+function dockSide(rect: DOMRect): Dock {
+  const h = window.innerHeight;
+  let top = 0;
+  let bottom = h;
+  for (const el of document.querySelectorAll<HTMLElement>('header.top, nav.bottom, .player')) {
+    const r = el.getBoundingClientRect();
+    if (!r.height || r.bottom <= 0 || r.top >= h) continue;
+    const pos = getComputedStyle(el).position;
+    if (pos !== 'fixed' && pos !== 'sticky') continue;
+    // The header and a tablet's sticky player are in the top half; the phone's fixed player and
+    // the bottom nav in the bottom one
+    if (r.top + r.height / 2 < h / 2) top = Math.max(top, r.bottom);
+    else if (pos === 'fixed') bottom = Math.min(bottom, r.top);
+  }
+  const barTop = bottom - DOCK_GAP - DOCK_H;
+  if (rect.bottom > barTop - DOCK_GAP && rect.top > top + DOCK_GAP + DOCK_H + DOCK_GAP) {
+    return { side: 'top', at: top + DOCK_GAP };
+  }
+  return { side: 'bottom', at: h - bottom + DOCK_GAP };
+}
+
 // Memoized: EpisodeView re-renders about 4 times a second during playback, and the open form
 // must not re-render (or refocus) with it
 export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { episode: number; signedIn: boolean }) {
-  const [fab, setFab] = useState<{ x: number; y: number; picked: Picked | null } | null>(null);
+  const [fab, setFab] = useState<Fab | null>(null);
   const [open, setOpen] = useState<Picked | null>(null);
   const hide = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -63,10 +98,14 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
     if (hide.current) clearTimeout(hide.current);
     hide.current = null;
     const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const words = 'tooLong' in picked ? null : picked;
+    if (window.matchMedia(TOUCH).matches) {
+      setFab({ dock: dockSide(rect), picked: words });
+      return;
+    }
     const x = Math.min(Math.max(8, rect.left), window.innerWidth - 150);
-    // Below the selection: phones put their own menu above it
     const y = Math.min(rect.bottom + 10, window.innerHeight - 56);
-    setFab({ x, y, picked: 'tooLong' in picked ? null : picked });
+    setFab({ x, y, picked: words });
   }, []);
 
   useEffect(() => {
@@ -75,7 +114,7 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(place);
     };
-    // Scrolling moves the selection, so the button follows it
+    // Scrolling moves the selection, so the button follows it (or the bar changes sides)
     document.addEventListener('selectionchange', later);
     window.addEventListener('scroll', later, { passive: true });
     window.addEventListener('resize', later);
@@ -113,8 +152,8 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
     <>
       {fab && !open && (
         <button
-          className="btn primary report-fab"
-          style={{ left: fab.x, top: fab.y }}
+          className={'dock' in fab ? `btn primary report-fab report-dock` : 'btn primary report-fab'}
+          style={'dock' in fab ? { [fab.dock.side]: fab.dock.at } : { left: fab.x, top: fab.y }}
           disabled={!fab.picked}
           // Opens on the press, before a phone clears the selection, and keeps a mouse from
           // clearing it; the click is for the keyboard
@@ -124,7 +163,15 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
           }}
           onClick={() => start(fab.picked)}
         >
-          {fab.picked ? '回報錯字' : `最多選 ${MAX_REPORT_CHARS} 字`}
+          {!fab.picked ? (
+            `最多選 ${MAX_REPORT_CHARS} 字`
+          ) : 'dock' in fab ? (
+            <>
+              回報錯字<span className="report-dock-words">「{fab.picked.original}」</span>
+            </>
+          ) : (
+            '回報錯字'
+          )}
         </button>
       )}
       {open && <ReportDialog episode={episode} signedIn={signedIn} picked={open} onClose={close} />}
@@ -139,6 +186,7 @@ function ReportDialog({ episode, signedIn, picked, onClose }: { episode: number;
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const first = useRef<HTMLInputElement>(null);
+  const pressed = useRef(false);
 
   // Once, when the form opens
   useEffect(() => first.current?.focus(), []);
@@ -179,7 +227,13 @@ function ReportDialog({ episode, signedIn, picked, onClose }: { episode: number;
 
   const where = picked.target === 'transcript' ? '逐字稿' : '重點';
   return (
-    <div className="report-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="report-backdrop"
+      // Closes on a tap that both started and ended on the backdrop: the form opens on the press
+      // of 回報錯字, and on a touch screen the click that follows lands on the backdrop now there
+      onPointerDown={(e) => (pressed.current = e.target === e.currentTarget)}
+      onClick={(e) => pressed.current && e.target === e.currentTarget && onClose()}
+    >
       <div className="card report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-title">
         <h2 id="report-title">回報{where}錯字</h2>
         {!signedIn ? (

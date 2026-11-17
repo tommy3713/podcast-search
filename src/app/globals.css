@@ -645,6 +645,10 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
 /* Typo reports on an episode's page (components/report/TypoReporter.tsx) */
 .report-hint { font-size: 13px; margin: -10px 0 12px; text-align: right; }
 .report-fab { position: fixed; z-index: 40; box-shadow: 0 4px 14px rgb(0 0 0 / .14); font-size: 14px; padding: 6px 12px; }
+/* Touch screens: a bar away from the selection, clear of the phone's own menu (TypoReporter.tsx);
+   44px high (DOCK_H) */
+.report-dock { left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px)); margin: 0 auto; max-width: 420px; height: 44px; display: flex; justify-content: center; align-items: center; gap: 2px; font-size: 15px; padding: 0 16px; white-space: nowrap; }
+.report-dock-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .report-backdrop { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / .32); display: grid; place-items: center; padding: 16px; }
 .report-dialog { width: min(420px, 100%); padding: 18px 18px 14px; display: grid; gap: 10px; }
 .report-dialog h2 { font-size: 17px; margin: 0; }
