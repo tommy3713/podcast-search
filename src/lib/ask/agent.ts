@@ -14,6 +14,7 @@ import {
   episodesInScope,
   hasScope,
   MENTION_LIMIT,
+  queryTerms,
   TERM_MATCH_LIMIT,
   searchMentions,
   searchTranscript,
@@ -159,7 +160,9 @@ function broadenRule(citedEps: number[]): string {
   const cited = citedEps.length
     ? `上一次的回答引用了 ${citedEps.map((n) => `EP${n}`).join('、')}：先找別的集數；換了說法還是只有這幾集符合，就照實說還是這幾集。`
     : '上一次的回答沒有引用任何段落。';
-  return `- 這是「擴大搜尋」：聽眾看了上一次的回答，覺得不是他要找的，按了重新找。這次最多搜 ${BROAD_TOOL_CALLS} 次，而且不限定日期範圍（工具沒有 since、until），只能用 episode 指定一集。<previous_searches> 裡是上一次用過的搜尋詞：不要重複，改用別的說法，例如同義詞、英文、主委口語可能的講法、語音辨識可能寫成的字，或問題描述的事情本身會用到的詞。${cited}\n`;
+  return `- 這是「擴大搜尋」：聽眾看了上一次的回答，覺得不是他要找的，按了重新找。這次最多搜 ${BROAD_TOOL_CALLS} 次，而且不限定日期範圍（工具沒有 since、until），只能用 episode 指定一集。
+- 上一次照聽眾的說法搜，沒找到他要的；聽眾記得的說法常常跟節目裡講的不一樣（主題、人物、用詞都可能記錯）。所以這次先想他描述的那段，節目裡實際可能怎麼講：相近的概念、換個角度的說法、主委口語會用的詞、英文原文、語音辨識可能寫成的字，還有他記得的場景或做的事（例如唸了什麼、跟誰聊）。每次搜尋都換不同的詞；<previous_searches> 裡的詞是上一次用過的，不要再用。
+- 找到的段落如果符合他記得的場景或做的事，就算主題跟他說的不完全一樣，也照「細節跟節目對不上」那條回答：說他記得的哪裡不一樣，再說節目實際講的是什麼、在哪一集。${cited}\n`;
 }
 
 // Rules only. Coverage and date are server facts; the question never goes in here.
@@ -377,7 +380,8 @@ function toInputItem(item: OpenAI.Responses.ResponseOutputItem): ResponseInputIt
 export async function answer(question: string, deps: Deps): Promise<void> {
   const broaden = deps.broaden;
   const maxCalls = broaden ? BROAD_TOOL_CALLS : MAX_TOOL_CALLS;
-  const previous = broaden ? `\n<previous_searches>${escapeTags(broaden.queries.join('、'))}</previous_searches>` : '';
+  // Word by word, which is how they're searched (queryTerms) and how the model is told not to repeat them
+  const previous = broaden ? `\n<previous_searches>${escapeTags([...new Set(broaden.queries.flatMap(queryTerms))].join('、'))}</previous_searches>` : '';
   const input: ResponseInputItem[] = [
     { role: 'system', content: systemPrompt(deps.coverage, broaden) },
     { role: 'user', content: `<question>${escapeTags(question)}</question>${previous}` },
