@@ -44,39 +44,49 @@ function pickSelection(): Picked | { tooLong: true } | null {
 const LINGER_MS = 400;
 
 // Phones and tablets draw their own menu (copy, translate…) next to a selection, above or below
-// it depending on the room, and a page can neither find out where nor add to it. So with touch
-// the button doesn't sit by the selection: it is a bar docked above whatever is fixed at the
-// bottom of the screen (the bottom nav, the player), or under the header (and a stuck player)
-// when the selection is where the bar would be. With a mouse there is no such menu, and the
-// button floats just below the selection.
+// it depending on the room, and a page can neither find out where nor add to it. So when the
+// selection was made by touch or pen the button doesn't sit by it: it is a bar docked above
+// whatever is fixed at the bottom of the screen (the bottom nav, the player), or under the header
+// (and a stuck player) when the selection is where the bar would be. With a mouse there is no such
+// menu, and the button floats just below the selection. Which one is decided by the last pointer
+// pressed (a touchscreen laptop, an iPad with a trackpad), or by the primary one before any.
 const TOUCH = '(hover: none) and (pointer: coarse)';
 const DOCK_H = 44;
 const DOCK_GAP = 8;
+// Room left above a selection for the phone's menu when the bar goes to the top
+const MENU_ROOM = 64;
 
-type Dock = { side: 'top' | 'bottom'; at: number };
+type Dock = { side: 'top' | 'bottom'; at: string };
 type Fab = { picked: Picked | null } & ({ x: number; y: number } | { dock: Dock });
 
-// Where the docked bar goes for a selection at rect: px from the screen's top or bottom edge
+// Where the docked bar goes for a selection at rect, as a CSS length from the top or bottom edge.
+// Fixed elements and rects are in the layout viewport, which clientHeight measures (innerHeight
+// shrinks with a pinch zoom on iOS).
 function dockSide(rect: DOMRect): Dock {
-  const h = window.innerHeight;
+  const h = document.documentElement.clientHeight;
   let top = 0;
   let bottom = h;
   for (const el of document.querySelectorAll<HTMLElement>('header.top, nav.bottom, .player')) {
     const r = el.getBoundingClientRect();
     if (!r.height || r.bottom <= 0 || r.top >= h) continue;
-    const pos = getComputedStyle(el).position;
-    if (pos !== 'fixed' && pos !== 'sticky') continue;
-    // The header and a tablet's sticky player are in the top half; the phone's fixed player and
-    // the bottom nav in the bottom one
+    const css = getComputedStyle(el);
+    // A sticky element only counts where it is stuck: a tablet's player scrolls with the page
+    // until it reaches the header
+    const stuck = css.position === 'fixed' || (css.position === 'sticky' && Math.abs(r.top - parseFloat(css.top)) < 2);
+    if (!stuck) continue;
     if (r.top + r.height / 2 < h / 2) top = Math.max(top, r.bottom);
-    else if (pos === 'fixed') bottom = Math.min(bottom, r.top);
+    else bottom = Math.min(bottom, r.top);
   }
   const barTop = bottom - DOCK_GAP - DOCK_H;
-  if (rect.bottom > barTop - DOCK_GAP && rect.top > top + DOCK_GAP + DOCK_H + DOCK_GAP) {
-    return { side: 'top', at: top + DOCK_GAP };
+  if (rect.bottom > barTop - DOCK_GAP && rect.top > top + DOCK_GAP + DOCK_H + MENU_ROOM) {
+    return { side: 'top', at: `${top + DOCK_GAP}px` };
   }
-  return { side: 'bottom', at: h - bottom + DOCK_GAP };
+  // Nothing fixed at the bottom (a tablet): keep clear of the home indicator
+  if (bottom === h) return { side: 'bottom', at: `calc(${DOCK_GAP}px + env(safe-area-inset-bottom, 0px))` };
+  return { side: 'bottom', at: `${h - bottom + DOCK_GAP}px` };
 }
+
+let touchQuery: MediaQueryList | null = null;
 
 // Memoized: EpisodeView re-renders about 4 times a second during playback, and the open form
 // must not re-render (or refocus) with it
@@ -84,6 +94,8 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
   const [fab, setFab] = useState<Fab | null>(null);
   const [open, setOpen] = useState<Picked | null>(null);
   const hide = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The kind of pointer last pressed: 'mouse', 'touch' or 'pen'
+  const pointer = useRef<string | null>(null);
 
   const place = useCallback(() => {
     const picked = pickSelection();
@@ -99,7 +111,8 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
     hide.current = null;
     const rect = sel.getRangeAt(0).getBoundingClientRect();
     const words = 'tooLong' in picked ? null : picked;
-    if (window.matchMedia(TOUCH).matches) {
+    touchQuery ??= window.matchMedia(TOUCH);
+    if (pointer.current ? pointer.current !== 'mouse' : touchQuery.matches) {
       setFab({ dock: dockSide(rect), picked: words });
       return;
     }
@@ -114,13 +127,16 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(place);
     };
+    const pressed = (e: PointerEvent) => (pointer.current = e.pointerType);
     // Scrolling moves the selection, so the button follows it (or the bar changes sides)
+    document.addEventListener('pointerdown', pressed, { capture: true, passive: true });
     document.addEventListener('selectionchange', later);
     window.addEventListener('scroll', later, { passive: true });
     window.addEventListener('resize', later);
     return () => {
       cancelAnimationFrame(frame);
       if (hide.current) clearTimeout(hide.current);
+      document.removeEventListener('pointerdown', pressed, { capture: true });
       document.removeEventListener('selectionchange', later);
       window.removeEventListener('scroll', later);
       window.removeEventListener('resize', later);
@@ -152,7 +168,7 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
     <>
       {fab && !open && (
         <button
-          className={'dock' in fab ? `btn primary report-fab report-dock` : 'btn primary report-fab'}
+          className={'dock' in fab ? 'btn primary report-fab report-dock' : 'btn primary report-fab'}
           style={'dock' in fab ? { [fab.dock.side]: fab.dock.at } : { left: fab.x, top: fab.y }}
           disabled={!fab.picked}
           // Opens on the press, before a phone clears the selection, and keeps a mouse from
@@ -167,7 +183,7 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
             `最多選 ${MAX_REPORT_CHARS} 字`
           ) : 'dock' in fab ? (
             <>
-              回報錯字<span className="report-dock-words">「{fab.picked.original}」</span>
+              回報錯字「<span className="report-dock-words">{fab.picked.original}</span>」
             </>
           ) : (
             '回報錯字'
