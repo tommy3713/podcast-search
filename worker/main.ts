@@ -19,7 +19,7 @@ import { indexPinyin } from './pinyin-index.ts';
 import { indexSummaries } from './summary-index.ts';
 import { indexSeekTables, startSeekIndex } from './seek-index.ts';
 import { askStats } from '@/lib/ask/log.ts';
-import { compactDb, digestDue, formatStats, purgeAskLog, rollupAskDaily, unanswered } from './stats.ts';
+import { compactDb, digestDue, disliked, formatStats, purgeAskLog, rollupAskDaily, unanswered } from './stats.ts';
 
 const USAGE = `usage: worker <command>
   run                 scheduler (poll RSS Wed/Sat 10:00–23:30 Taipei every 30 min, nightly
@@ -120,7 +120,7 @@ async function nightly(db: DB): Promise<void> {
 
 async function weeklyDigest(db: DB, now: Date): Promise<void> {
   const since = new Date(now.getTime() - 7 * 86_400_000);
-  await notify(formatStats('最近 7 天問答', askStats(db, since), unanswered(db, since)));
+  await notify(formatStats('最近 7 天問答', askStats(db, since), unanswered(db, since), disliked(db, since)));
 }
 
 // At the last poll of a release day, say so if nothing published today went live

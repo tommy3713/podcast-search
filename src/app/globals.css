@@ -274,6 +274,17 @@ mark.cur { background: var(--warn); color: var(--surface); }
 .ask-more .tips { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 2px; }
 a.cite { display: inline-block; text-decoration: none; }
 .examples button:disabled { opacity: .5; cursor: not-allowed; }
+/* 😀 / 🙁 under an answer: grey until chosen, so they don't compete with the answer */
+.rate { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; color: var(--muted); }
+.rate-btn { width: 34px; height: 34px; display: inline-grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 18px; line-height: 1; cursor: pointer; filter: grayscale(1); opacity: .7; }
+.rate-btn:hover:not(:disabled), .rate-btn[aria-pressed="true"] { filter: none; opacity: 1; border-color: var(--accent); }
+.rate-btn[aria-pressed="true"] { background: var(--accent-soft); }
+.rate-btn:disabled { cursor: progress; }
+.rate-error { color: var(--warn); }
+.rate-why { padding: 12px 14px; display: grid; gap: 10px; font-size: 14px; }
+.rate-why .chip { cursor: pointer; line-height: 28px; color: inherit; }
+.rate-why .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.rate-why textarea { width: 100%; box-sizing: border-box; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical; }
 
 
 .foot { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
@@ -592,7 +603,7 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
 .admin-error { color: var(--warn); font-weight: 500; }
 .admin-ask-totals { margin-bottom: 18px; }
 .admin-ask-totals .stat-row dd { font-size: 20px; }
-.admin-ask-trend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; margin-bottom: 20px; }
+.admin-ask-trend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 24px; margin-bottom: 20px; }
 @media (max-width: 520px) { .admin-ask-trend { grid-template-columns: minmax(0, 1fr); } }
 .admin-ask-trend h2 { font-size: 13px; font-weight: 500; color: var(--muted); margin: 0 0 6px; }
 .admin-ask-trend > p { grid-column: 1 / -1; margin: 4px 0 0; font-size: 12.5px; }
@@ -620,6 +631,7 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
 .admin-ask-sources li:target { outline: 2px solid var(--accent); }
 .admin-ask-sources p { margin: 6px 0 0; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
 .admin-ask-src-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; }
+.admin-rating-note { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 16px; padding: 8px 12px; border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: 0 8px 8px 0; }
 .admin-golden { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12.5px; background: var(--bg); border-radius: 8px; padding: 10px 12px; margin: 0; }
 @media (max-width: 640px) {
   .admin-segments li { grid-template-columns: 48px minmax(0, 1fr); scroll-margin-top: 80px; }

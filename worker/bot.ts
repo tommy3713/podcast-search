@@ -16,7 +16,7 @@ import { retryButtons, STEP_LABEL, usd } from './pipeline.ts';
 import { type EpisodeRow, getEpisode, recentEpisodes } from './repo.ts';
 import { fetchFeed, parseFeed } from './rss.ts';
 import { askStats } from '@/lib/ask/log.ts';
-import { formatAsk, formatQuestions, formatStats, recentQuestions, unanswered } from './stats.ts';
+import { disliked, formatAsk, formatQuestions, formatStats, recentQuestions, unanswered } from './stats.ts';
 import {
   answerCallback,
   type Button,
@@ -144,7 +144,7 @@ async function handle(db: DB, u: Update): Promise<void> {
       // Older ask_log rows are already purged
       const days = Math.min(ASK_LOG_DAYS, Math.max(1, Number(c.arg) || 7));
       const since = new Date(Date.now() - days * 86_400_000);
-      return sendMessage(formatStats(`最近 ${days} 天問答`, askStats(db, since), unanswered(db, since)));
+      return sendMessage(formatStats(`最近 ${days} 天問答`, askStats(db, since), unanswered(db, since), disliked(db, since)));
     }
     case 'questions': {
       const rows = recentQuestions(db, Math.min(30, Math.max(1, Number(c.arg) || 10)));

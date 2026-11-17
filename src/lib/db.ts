@@ -256,6 +256,18 @@ const MIGRATIONS: string[] = [
   ALTER TABLE ask_log ADD COLUMN retry_of INTEGER;
   CREATE INDEX ask_log_retry_of ON ask_log (retry_of) WHERE retry_of IS NOT NULL;
   `,
+  // A listener's rating of an answer on /ask (src/lib/ask/rating.ts): good | bad, and with bad
+  // why: a JSON array of RatingReason keys and a note, both optional. On the answer's own row,
+  // so they're purged with it after ASK_LOG_DAYS and never in a backup; ask_daily keeps the
+  // counts (DEFAULT 0, so the previous release's rollup still inserts).
+  `
+  ALTER TABLE ask_log ADD COLUMN rating TEXT;
+  ALTER TABLE ask_log ADD COLUMN rating_reasons TEXT;
+  ALTER TABLE ask_log ADD COLUMN rating_note TEXT;
+  ALTER TABLE ask_log ADD COLUMN rated_at TEXT;
+  ALTER TABLE ask_daily ADD COLUMN good INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE ask_daily ADD COLUMN bad INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function defaultDbPath(): string {
