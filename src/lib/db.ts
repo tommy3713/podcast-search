@@ -268,6 +268,27 @@ const MIGRATIONS: string[] = [
   ALTER TABLE ask_daily ADD COLUMN good INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE ask_daily ADD COLUMN bad INTEGER NOT NULL DEFAULT 0;
   `,
+  // Listeners' feedback (src/lib/feedback.ts): a bug, a wish or anything else, sent from the
+  // header's button, read in /admin/feedback. email is only there when the listener typed one
+  // to hear back (an admin answers by hand, from their own mail); it and the account id
+  // (for the daily limit) are set NULL after FEEDBACK_KEEP_DAYS by nightly.
+  `
+  CREATE TABLE feedback (
+    id          INTEGER PRIMARY KEY,
+    user_id     TEXT,
+    email       TEXT,
+    kind        TEXT    NOT NULL CHECK (kind IN ('bug', 'idea', 'other')),
+    body        TEXT    NOT NULL,
+    page        TEXT,                            -- the path it was sent from
+    client_json TEXT,                            -- a bug's browser, screen and theme, if allowed
+    status      TEXT    NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'replied', 'closed')),
+    admin_note  TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    resolved_at TEXT                             -- when it last left 'new'
+  );
+  CREATE INDEX feedback_status ON feedback (status, id);
+  CREATE INDEX feedback_user ON feedback (user_id, created_at);
+  `,
 ];
 
 export function defaultDbPath(): string {

@@ -60,6 +60,8 @@ export function stripAskLog(file: string): void {
     if (hasTable(db, 'ask_retries')) db.exec('DELETE FROM ask_retries');
     // Nor who sent a typo report (kept ASK_LOG_DAYS on the live database, like a question)
     if (db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'typo_reports'`).get()) db.exec('UPDATE typo_reports SET user_id = NULL');
+    // Nor who sent feedback, or their email (kept FEEDBACK_KEEP_DAYS on the live database)
+    if (hasTable(db, 'feedback')) db.exec('UPDATE feedback SET user_id = NULL, email = NULL');
     db.exec('VACUUM');
   } finally {
     db.close();

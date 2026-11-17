@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Mono, Noto_Serif_TC } from 'next/font/google';
 import Link from 'next/link';
 import { BrandMark } from '@/components/BrandMark';
+import { FeedbackButton } from '@/components/feedback/FeedbackButton';
 import { Nav } from '@/components/Nav';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UserMenu } from '@/components/UserMenu';
@@ -53,6 +54,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {!isProduction() && <span className="pill warn">DEV</span>}
             <Nav variant="desk" />
             <div className="actions">
+              <FeedbackButton signedIn={user !== null} />
               <ThemeToggle />
               <UserMenu name={user?.name ?? null} admin={isAdmin(user)} />
             </div>

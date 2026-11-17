@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { ASK_LOG_DAYS } from '@/lib/ask/quota';
+import { FEEDBACK_KEEP_DAYS } from '@/lib/feedback-limits';
 import { shareMetadata } from '@/lib/seo';
 
 export const metadata: Metadata = {
@@ -32,6 +33,8 @@ export default function About() {
         天，用來調查濫用、改善回答品質，期滿自動刪除，之後只留下不含內容的每日統計數字。
         回報錯字時，你選的文字、建議的寫法和備註會保存給管理員確認（建議和備註會先經 OpenAI 檢查有沒有不當內容），不會公開，也不會顯示你的名字；回報的帳號識別碼保存{' '}
         {ASK_LOG_DAYS} 天，期滿自動刪除。
+        送出意見回饋時，內容、送出的頁面、帳號識別碼（用來計算每日次數），以及你選擇附上的瀏覽器資訊和 email 會保存給管理員閱讀（內容會先經 OpenAI
+        檢查有沒有不當內容），不會公開；email 只用來回覆你，不填就不會收到回覆。email 和帳號識別碼保存 {FEEDBACK_KEEP_DAYS} 天，期滿自動刪除。
         網站流量由 Cloudflare 統計，不使用 cookie，也不追蹤個人。這些資料不會販售或分享給第三方。
       </p>
       <h2>聯絡與下架</h2>

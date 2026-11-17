@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Copy the live database to data/prod.db for local testing. Listeners' questions
-# (ask_log, ask_usage) and who sent each typo report (typo_reports.user_id) are removed on
+# (ask_log, ask_usage), who sent each typo report (typo_reports.user_id) and who sent feedback
+# with their email (feedback.user_id, email) are removed on
 # the VPS before anything is downloaded, and the live file is only read: the work happens
 # on an online backup copy in /tmp.
 #   scripts/pull-prod-db.sh && DB_PATH=data/prod.db npm run dev
@@ -17,6 +18,9 @@ ssh -i "$KEY" "$HOST" 'set -e
   # Absent before the release that added it
   if [ -n "$(sqlite3 "$f" "SELECT 1 FROM sqlite_master WHERE name = '\''typo_reports'\''")" ]; then
     sqlite3 "$f" "UPDATE typo_reports SET user_id = NULL;"
+  fi
+  if [ -n "$(sqlite3 "$f" "SELECT 1 FROM sqlite_master WHERE name = '\''feedback'\''")" ]; then
+    sqlite3 "$f" "UPDATE feedback SET user_id = NULL, email = NULL;"
   fi
   if [ -n "$(sqlite3 "$f" "SELECT 1 FROM sqlite_master WHERE name = '\''ask_retries'\''")" ]; then
     sqlite3 "$f" "DELETE FROM ask_retries;"
