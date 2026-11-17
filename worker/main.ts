@@ -9,6 +9,7 @@ import { backfillStep, describePlan, getBackfill, MAX_BACKFILL, planBackfill, ru
 import { backupToR2, episodeCountDrop, verifyBackup } from './backup.ts';
 import { runBot } from './bot.ts';
 import { applyPendingEdits, watchEdits } from './edits.ts';
+import { purgeFeedbackContacts } from './feedback.ts';
 import { purgeReporters, watchReports } from './reports.ts';
 import { notify } from './notify.ts';
 import { diskWarning, ping, queueHealthy } from './monitor.ts';
@@ -96,6 +97,12 @@ async function nightly(db: DB): Promise<void> {
     const n = purgeReporters(db);
     purged += n;
     console.log(`nightly: forgot the reporters of ${n} typo reports`);
+    return null;
+  });
+  check('清理回饋聯絡方式', () => {
+    const n = purgeFeedbackContacts(db);
+    purged += n;
+    console.log(`nightly: forgot the email and account of ${n} feedback`);
     return null;
   });
   // Separate from the purge, so a failed VACUUM isn't reported as a failed purge

@@ -110,4 +110,20 @@ db.transaction(() => {
     insertDay.run(date, n, Math.ceil(n / 2), n - none - 1, none, 1, n * 0.006, 6000 + d * 50, d % 3, d % 2);
   }
 })();
-console.log(`${file}: ${(db.prepare('SELECT COUNT(*) AS n FROM episodes').get() as { n: number }).n} episodes, ${asks.length} questions`);
+// Made-up feedback for /admin/feedback (db:pull strips who sent it), one of each kind and status
+const feedback: [number, string, string, string | null, string, string | null, string, string | null][] = [
+  // minutes ago, user, kind, email, body, page, status, client
+  [30, 'demo1111111', 'bug', 'listener@example.com', '在 EP709 點時間戳，播放的位置跟逐字稿對不起來，大概差了十幾秒。\n用 iPhone 的 Safari。', '/ep/709', 'new',
+    JSON.stringify({ ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1', width: 390, height: 844, theme: 'dark' })],
+  [600, 'demo2222222', 'idea', null, '希望可以訂閱某一檔股票，有新的一集提到時通知我。', '/stock/2330', 'new', null],
+  [4000, 'demo1111111', 'other', 'listener@example.com', '謝謝做這個網站，通勤時很好用！', '/', 'replied', null],
+];
+const insertFeedback = db.prepare(
+  `INSERT INTO feedback (user_id, kind, email, body, page, status, client_json, created_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+);
+db.transaction(() => {
+  for (const [ago, user, kind, email, body, page, status, client] of feedback.toReversed()) {
+    insertFeedback.run(user, kind, email, body, page, status, client, minutesAgo(ago), status === 'new' ? null : minutesAgo(ago - 60));
+  }
+})();
+console.log(`${file}: ${(db.prepare('SELECT COUNT(*) AS n FROM episodes').get() as { n: number }).n} episodes, ${asks.length} questions, ${feedback.length} feedback`);
