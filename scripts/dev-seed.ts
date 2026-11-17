@@ -85,8 +85,15 @@ const demoSources = (answer: string) =>
     });
   });
 const insertDay = db.prepare(
-  `INSERT INTO ask_daily (date, asks, users, answered, no_source, moderated, quota, failed, cost_usd, avg_ms) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
+  `INSERT INTO ask_daily (date, asks, users, answered, no_source, moderated, quota, failed, cost_usd, avg_ms, good, bad) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)`,
 );
+// Listeners' 😀 / 🙁 on some of them: one 😀, a 🙁 without reasons, and one with reasons and a note
+const ratings: [string, 'good' | 'bad', string[], string | null][] = [
+  ['主委最近怎麼看 AI 伺服器？', 'good', [], null],
+  ['主委喜歡什麼顏色？', 'bad', [], null],
+  ['哪一集講到交言肥腸？', 'bad', ['wrong_episode', 'incomplete'], '我記得是在講夜市的那集，不是這集'],
+];
+const rate = db.prepare(`UPDATE ask_log SET rating = ?, rating_reasons = ?, rating_note = ?, rated_at = created_at WHERE question = ?`);
 db.transaction(() => {
   for (const [ago, user, outcome, question, answer, ms, calls] of asks.toReversed()) { // oldest first, as the site logs them
     const sources = outcome === 'answered' && answer ? demoSources(answer) : [];
@@ -95,11 +102,12 @@ db.transaction(() => {
     insertAsk.run(user, question, minutesAgo(ago), outcome, answer, cited, calls.length * 8, ms, calls.length * 1500, answer ? 250 : null, spent,
       JSON.stringify(calls), sources.length ? JSON.stringify(sources) : null);
   }
+  for (const [question, rating, reasons, note] of ratings) rate.run(rating, reasons.length ? JSON.stringify(reasons) : null, note, question);
   for (let d = 40; d >= 1; d--) {
     const date = new Date(Date.now() - d * 86_400_000).toISOString().slice(0, 10);
     const n = 8 + ((d * 7) % 13);
     const none = (d * 3) % 5;
-    insertDay.run(date, n, Math.ceil(n / 2), n - none - 1, none, 1, n * 0.006, 6000 + d * 50);
+    insertDay.run(date, n, Math.ceil(n / 2), n - none - 1, none, 1, n * 0.006, 6000 + d * 50, d % 3, d % 2);
   }
 })();
 console.log(`${file}: ${(db.prepare('SELECT COUNT(*) AS n FROM episodes').get() as { n: number }).n} episodes, ${asks.length} questions`);

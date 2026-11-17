@@ -14,6 +14,7 @@ import { compactDb, purgeAskLog } from '../worker/stats.ts';
 const QUESTION = 'secret-question-7f3a9c';
 const ANSWER = 'secret-answer-b81d24';
 const SOURCE = 'secret-source-5e09c1';
+const NOTE = 'secret-rating-note-2d4e71'; // what a listener wrote with 🙁
 
 function tempDb(): { db: DB; file: string } {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gooaye-')), 'app.db');
@@ -24,11 +25,11 @@ function tempDb(): { db: DB; file: string } {
 // that stays (with the table never empty, its root page is rebalanced rather than cleared)
 function fill(db: DB): void {
   const insert = db.prepare(
-    `INSERT INTO ask_log (user_id, question, answer, sources_json, created_at) VALUES ('u', ?, ?, ?, '2020-01-01T00:00:00Z')`,
+    `INSERT INTO ask_log (user_id, question, answer, sources_json, rating, rating_note, created_at) VALUES ('u', ?, ?, ?, 'bad', ?, '2020-01-01T00:00:00Z')`,
   );
   for (let i = 0; i < 100; i++) {
     const sources = [{ n: 1, ep: 700, t: 0, text: `${SOURCE} ${i}`, label: null }];
-    insert.run(`${QUESTION} ${i}`, `${ANSWER} ${i} `.repeat(400), JSON.stringify(sources));
+    insert.run(`${QUESTION} ${i}`, `${ANSWER} ${i} `.repeat(400), JSON.stringify(sources), `${NOTE} ${i}`);
   }
   db.prepare(`INSERT INTO ask_log (user_id, question) VALUES ('u', 'recent-question-kept')`).run();
   db.prepare(`INSERT INTO worker_state (key, value) VALUES ('kept', 'yes')`).run();
@@ -51,6 +52,7 @@ describe('nightly purge on the live database', () => {
     expect(onDisk(file, QUESTION)).toBe(false);
     expect(onDisk(file, ANSWER)).toBe(false);
     expect(onDisk(file, SOURCE)).toBe(false);
+    expect(onDisk(file, NOTE)).toBe(false);
     expect(fs.statSync(`${file}-wal`).size).toBe(0);
     expect(db.prepare('SELECT question FROM ask_log').all()).toEqual([{ question: 'recent-question-kept' }]);
     db.close();
@@ -98,6 +100,7 @@ describe('stripAskLog', () => {
     expect(onDisk(copy, QUESTION)).toBe(false);
     expect(onDisk(copy, ANSWER)).toBe(false);
     expect(onDisk(copy, SOURCE)).toBe(false);
+    expect(onDisk(copy, NOTE)).toBe(false);
     expect(onDisk(copy, 'recent-question-kept')).toBe(false);
     const restored = openDb(copy, { readonly: true });
     expect(restored.prepare('SELECT COUNT(*) AS n FROM ask_log').get()).toEqual({ n: 0 });

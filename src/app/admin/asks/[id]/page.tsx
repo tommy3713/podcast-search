@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { AskAnswer, AskSources } from '@/components/admin/AskAnswer';
-import { AskFacts, OutcomePill } from '@/components/admin/AskParts';
+import { AskFacts, OutcomePill, RatingPill } from '@/components/admin/AskParts';
+import { RATING_ICON, RATING_LABEL, reasonText } from '@/lib/ask/rating';
 import { taipeiTime } from '@/components/admin/EditStatus';
 import { getAsk, goldenDraft, NOTE_LABEL, type SearchStep } from '@/lib/ask/log';
 import { ASK_LOG_DAYS } from '@/lib/ask/quota';
@@ -45,6 +46,7 @@ export default async function AdminAsk({ params }: Props) {
           {a.user}
         </Link>
         <OutcomePill outcome={a.outcome} />
+        <RatingPill rating={a.rating} reasons={a.reasons} note={!!a.ratingNote} />
         <AskFacts cited={a.cited} ms={a.ms} costUsd={a.costUsd} />
         {a.hits !== null && <span className="muted">搜到 {a.hits} 筆</span>}
         {tokens && <span className="muted">{tokens}</span>}
@@ -70,6 +72,19 @@ export default async function AdminAsk({ params }: Props) {
           <p className="muted">（沒有回答）</p>
         )}
       </article>
+
+      {a.rating && (
+        <>
+          <h2>聽眾評分</h2>
+          <p>
+            {RATING_ICON[a.rating]} {RATING_LABEL[a.rating]}
+            {a.reasons.length > 0 && `：${reasonText(a.reasons)}`}
+            {a.ratedAt && <span className="muted">（{taipeiTime(a.ratedAt)}）</span>}
+          </p>
+          {/* A listener's words: plain text, never parsed as an answer */}
+          {a.ratingNote && <blockquote className="admin-rating-note">{a.ratingNote}</blockquote>}
+        </>
+      )}
 
       {a.sources ? (
         <>

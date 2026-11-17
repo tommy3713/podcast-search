@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { type DB, hasColumn, toDbTime } from '../db.ts';
 import { likePattern } from '../fts.ts';
 import { taipeiDate, taipeiDayStart } from './quota.ts';
+import { isRating, parseReasons, type Rating, type RatingReason } from './rating.ts';
 import type { LoggedSource } from './record.ts';
 import { describeMentionSearch, describeTranscriptSearch } from './search.ts';
 
@@ -17,8 +18,10 @@ export const RECORDED = `outcome IS NOT NULL`;
 // A 擴大搜尋 answer is a second answer to a question already counted, so it isn't a question,
 // a user, an outcome or a time here (counted on its own as `broad`), but what it cost is
 // spent all the same. Rows of a database without the column are all first answers.
+// Ratings count every rated answer, a broad one too: each is an answer the listener judged.
 export function totals(db: DB): string {
   const first = hasColumn(db, 'ask_log', 'retry_of') ? 'retry_of IS NULL' : '1';
+  const rated = hasColumn(db, 'ask_log', 'rating');
   return `
   COALESCE(SUM(${first}), 0)                                              AS asks,
   COUNT(DISTINCT CASE WHEN ${first} THEN user_id END)                     AS users,
@@ -28,7 +31,9 @@ export function totals(db: DB): string {
   COALESCE(SUM(${first} AND outcome = 'quota'), 0)                        AS quota,
   COALESCE(SUM(${first} AND outcome IN ('timeout', 'aborted', 'error')), 0) AS failed,
   COALESCE(SUM(cost_usd), 0)                                              AS cost_usd,
-  CAST(AVG(CASE WHEN ${first} AND outcome IN ('answered', 'no_source') THEN ms END) AS INTEGER) AS avg_ms`;
+  CAST(AVG(CASE WHEN ${first} AND outcome IN ('answered', 'no_source') THEN ms END) AS INTEGER) AS avg_ms,
+  ${rated ? `COALESCE(SUM(rating = 'good'), 0)` : '0'}                     AS good,
+  ${rated ? `COALESCE(SUM(rating = 'bad'), 0)` : '0'}                      AS bad`;
 }
 
 export type AskStats = {
@@ -42,16 +47,22 @@ export type AskStats = {
   cost_usd: number;
   avg_ms: number | null;
   broad?: number; // 擴大搜尋 answers, not among `asks` (absent where the column isn't); their cost is in cost_usd
+  good: number; // answers rated 😀 / 🙁 (a broad one too)
+  bad: number;
+  rateable?: number; // finished answers (a broad one too): what good and bad are out of (askStats only)
 };
 
 export function askStats(db: DB, since: Date): AskStats {
   const s = db.prepare(`SELECT ${totals(db)} FROM ask_log WHERE created_at >= ? AND ${RECORDED}`).get(toDbTime(since)) as AskStats;
-  if (!hasColumn(db, 'ask_log', 'retry_of')) return s;
+  const { rateable } = db
+    .prepare(`SELECT COUNT(*) AS rateable FROM ask_log WHERE created_at >= ? AND outcome IN ('answered', 'no_source')`)
+    .get(toDbTime(since)) as { rateable: number };
+  if (!hasColumn(db, 'ask_log', 'retry_of')) return { ...s, rateable };
   const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ask_log WHERE created_at >= ? AND ${RECORDED} AND retry_of IS NOT NULL`).get(toDbTime(since)) as { n: number };
-  return { ...s, broad: n };
+  return { ...s, broad: n, rateable };
 }
 
-export type AskDay = { date: string; asks: number; answered: number; no_source: number; failed: number };
+export type AskDay = { date: string; asks: number; answered: number; no_source: number; failed: number; good: number; bad: number };
 
 // The `days` finished Taipei days before `today` from ask_daily (rolled up nightly, kept after
 // the rows are purged), oldest first. A day nobody asked on has no row; it comes back as
@@ -61,7 +72,11 @@ export function askDays(db: DB, days: number, today = taipeiDate()): { date: str
     new Date(Date.parse(`${today}T00:00:00Z`) - (days - i) * 86_400_000).toISOString().slice(0, 10),
   );
   const rows = db
-    .prepare('SELECT date, asks, answered, no_source, failed FROM ask_daily WHERE date >= ? AND date < ?')
+    // good / bad: 0 on a snapshot from before ratings
+    .prepare(
+      `SELECT date, asks, answered, no_source, failed, ${hasColumn(db, 'ask_daily', 'good') ? 'good, bad' : '0 AS good, 0 AS bad'}
+       FROM ask_daily WHERE date >= ? AND date < ?`,
+    )
     .all(dates[0], today) as AskDay[];
   const byDate = new Map(rows.map((r) => [r.date, r]));
   return dates.map((date) => ({ date, day: byDate.get(date) ?? null }));
@@ -159,6 +174,7 @@ export type AskFilter = {
   until?: string;
   of?: number; // the account that asked this question (by question, so the id never shows)
   flag?: FlagFilter;
+  rating?: Rating | 'none'; // none: a finished answer nobody rated
 };
 
 export type AskListRow = {
@@ -173,6 +189,9 @@ export type AskListRow = {
   flags: Note[];
   retryOf: number | null; // 擴大搜尋: the question this answer broadened
   broadenedBy: number | null; // the newest 擴大搜尋 answer to this question (a failed one can be tried again)
+  rating: Rating | null; // the listener's 😀 / 🙁
+  reasons: RatingReason[]; // with 🙁, why (may be none)
+  hasNote: boolean; // with 🙁, a note
 };
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -198,6 +217,8 @@ export function parseAskFilter(p: Record<string, string | string[] | undefined>)
   if (of && /^\d{1,12}$/.test(of)) f.of = Number(of);
   const flag = one('flag');
   if (flag === 'cut' || flag === 'unmatched' || flag === 'sound' || flag === 'slow' || flag === 'broad') f.flag = flag;
+  const rating = one('rating');
+  if (isRating(rating) || rating === 'none') f.rating = rating;
   return f;
 }
 
@@ -236,6 +257,13 @@ function whereOf(db: DB, f: AskFilter): { where: string; params: unknown[] } {
     params.push(SLOW_MS);
   } else if (f.flag === 'broad') conds.push(hasColumn(db, 'ask_log', 'retry_of') ? 'retry_of IS NOT NULL' : '0');
   else if (f.flag) conds.push(hasNote(f.flag));
+  // A snapshot from before ratings has none, so only `none` matches there
+  const rated = hasColumn(db, 'ask_log', 'rating');
+  if (f.rating === 'none') conds.push(`outcome IN ('answered', 'no_source')${rated ? ' AND rating IS NULL' : ''}`);
+  else if (f.rating) {
+    conds.push(rated ? 'rating = ?' : '0');
+    if (rated) params.push(f.rating);
+  }
   return { where: conds.length ? conds.join(' AND ') : '1', params };
 }
 
@@ -251,6 +279,9 @@ type ListSqlRow = {
   tool_calls_json: string | null;
   retry_of: number | null;
   broadened_by: number | null;
+  rating: string | null;
+  rating_reasons: string | null;
+  rating_note: string | null;
 };
 
 // 擴大搜尋 links both ways; a snapshot from before it has neither
@@ -259,6 +290,16 @@ const broadColumns = (db: DB) =>
     ? 'retry_of, (SELECT b.id FROM ask_log b WHERE b.retry_of = ask_log.id ORDER BY b.id DESC LIMIT 1) AS broadened_by'
     : 'NULL AS retry_of, NULL AS broadened_by';
 
+// The listener's rating; a snapshot from before it has none (Telegram's /questions reads it too)
+export const ratingColumns = (db: DB) =>
+  hasColumn(db, 'ask_log', 'rating')
+    ? 'rating, rating_reasons, rating_note, rated_at'
+    : 'NULL AS rating, NULL AS rating_reasons, NULL AS rating_note, NULL AS rated_at';
+const ratingOf = (r: Pick<ListSqlRow, 'rating' | 'rating_reasons'>) => ({
+  rating: isRating(r.rating) ? r.rating : null,
+  reasons: parseReasons(r.rating_reasons),
+});
+
 // Newest first, `limit` at a time; `before` is the last id of the page before (keyset, so a
 // question logged while paging doesn't shift the pages). next is the id to pass for the
 // page after, null on the last one.
@@ -266,7 +307,7 @@ export function listAsks(db: DB, f: AskFilter, before: number | null = null, lim
   const { where, params } = whereOf(db, f);
   const page = db
     .prepare(
-      `SELECT id, created_at, user_id, outcome, question, cited, ms, cost_usd, tool_calls_json, ${broadColumns(db)}
+      `SELECT id, created_at, user_id, outcome, question, cited, ms, cost_usd, tool_calls_json, ${broadColumns(db)}, ${ratingColumns(db)}
        FROM ask_log WHERE ${where} AND (? IS NULL OR id < ?) ORDER BY id DESC LIMIT ?`,
     )
     .all(...params, before, before, limit + 1) as ListSqlRow[];
@@ -285,6 +326,8 @@ export function listAsks(db: DB, f: AskFilter, before: number | null = null, lim
       flags: searchNotes(r.tool_calls_json),
       retryOf: r.retry_of,
       broadenedBy: r.broadened_by,
+      ...ratingOf(r),
+      hasNote: !!r.rating_note,
     }),
   );
   return { rows, next: more ? rows.at(-1)!.id : null, total };
@@ -314,6 +357,10 @@ export type AskDetail = {
   older: number | null;
   retryOf: number | null; // 擴大搜尋, both ways (see AskListRow)
   broadenedBy: number | null;
+  rating: Rating | null; // the listener's 😀 / 🙁, and with 🙁 why
+  reasons: RatingReason[];
+  ratingNote: string | null;
+  ratedAt: string | null;
 };
 
 // What sources_json held: the sources, nothing (a row from before it, or never answered),
@@ -340,7 +387,7 @@ export function getAsk(db: DB, id: number): AskDetail | null {
   const r = db
     .prepare(
       `SELECT id, created_at, user_id, outcome, question, answer, cited, hits, ms, input_tokens, output_tokens, cost_usd, tool_calls_json,
-              ${hasColumn(db, 'ask_log', 'sources_json') ? 'sources_json' : 'NULL AS sources_json'}, ${broadColumns(db)}
+              ${hasColumn(db, 'ask_log', 'sources_json') ? 'sources_json' : 'NULL AS sources_json'}, ${broadColumns(db)}, ${ratingColumns(db)}
        FROM ask_log WHERE id = ?`,
     )
     .get(id) as
@@ -350,6 +397,7 @@ export function getAsk(db: DB, id: number): AskDetail | null {
         input_tokens: number | null;
         output_tokens: number | null;
         sources_json: string | null;
+        rated_at: string | null;
       })
     | undefined;
   if (!r) return null;
@@ -374,6 +422,9 @@ export function getAsk(db: DB, id: number): AskDetail | null {
     older: older.id,
     retryOf: r.retry_of,
     broadenedBy: r.broadened_by,
+    ...ratingOf(r),
+    ratingNote: r.rating_note,
+    ratedAt: r.rated_at,
   };
 }
 

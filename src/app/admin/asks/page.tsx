@@ -16,7 +16,8 @@ import {
 import { ASK_LOG_DAYS, taipeiDate } from '@/lib/ask/quota';
 import { readDb } from '@/lib/server-db';
 import { requireAdmin } from '../require-admin';
-import { AskFacts, OutcomePill } from '@/components/admin/AskParts';
+import { AskFacts, OutcomePill, RatingPill } from '@/components/admin/AskParts';
+import { RATING_ICON, RATING_LABEL, RATINGS } from '@/lib/ask/rating';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -80,6 +81,18 @@ function Totals({ title, s, f }: { title: string; s: AskStats; f: AskFilter }) {
           </div>
         )}
         <div>
+          <dt>聽眾評分</dt>
+          <dd>
+            <Link href={href({ since: f.since, rating: 'good' })}>
+              {RATING_ICON.good} {s.good}
+            </Link>
+            <span className="pre">・</span>
+            <Link href={href({ since: f.since, rating: 'bad' })}>
+              {RATING_ICON.bad} {s.bad}
+            </Link>
+          </dd>
+        </div>
+        <div>
           <dt>花費</dt>
           <dd>
             <span className="pre">US$</span>
@@ -131,6 +144,15 @@ export default async function AdminAsks({ searchParams }: Props) {
               />
             </div>
           </div>
+          <div>
+            <h2>每日{RATING_ICON.bad}佔評分比例</h2>
+            <div className="admin-spark">
+              <Sparkline
+                series={days.map(({ day: d }) => (d && d.good + d.bad ? d.bad / (d.good + d.bad) : null))}
+                label={`最近 ${days.length} 天每日評分裡不滿意的比例`}
+              />
+            </div>
+          </div>
           <p className="muted">
             {days[0]!.date} ～ {days.at(-1)!.date}（每晚結算，問答本身刪掉後也留著；沒人問的日子是空的）
           </p>
@@ -154,6 +176,15 @@ export default async function AdminAsks({ searchParams }: Props) {
               {v}
             </option>
           ))}
+        </select>
+        <select name="rating" defaultValue={f.rating ?? ''} aria-label="聽眾評分">
+          <option value="">全部評分</option>
+          {RATINGS.map((r) => (
+            <option key={r} value={r}>
+              {RATING_ICON[r]} {RATING_LABEL[r]}
+            </option>
+          ))}
+          <option value="none">回答了但沒評分</option>
         </select>
         <input name="q" defaultValue={f.q ?? ''} placeholder="問題或回答裡的字" aria-label="關鍵字" />
         <label>
@@ -194,6 +225,7 @@ export default async function AdminAsks({ searchParams }: Props) {
                   {r.user}
                 </Link>
                 <OutcomePill outcome={r.outcome} />
+                <RatingPill rating={r.rating} reasons={r.reasons} note={r.hasNote} />
                 {r.flags.map((x) => (
                   <span key={x} className="pill warn">
                     {FLAG_LABEL[x]}

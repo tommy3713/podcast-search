@@ -1,4 +1,5 @@
 import { OUTCOME_LABEL, type Outcome } from '@/lib/ask/log';
+import { type Rating, RATING_ICON, RATING_LABEL, type RatingReason, reasonText } from '@/lib/ask/rating';
 
 // Bits the list and a question's page share
 
@@ -25,4 +26,17 @@ export function AskFacts({ cited, ms, costUsd }: { cited: number | null; ms: num
     costUsd !== null ? `US$${costUsd.toFixed(4)}` : null,
   ].filter(Boolean);
   return facts.length ? <span className="muted">{facts.join('・')}</span> : null;
+}
+
+// The listener's 😀 / 🙁, with 🙁's reasons and 📝 when they wrote a note
+export function RatingPill({ rating, reasons, note }: { rating: Rating | null; reasons: RatingReason[]; note: boolean }) {
+  if (!rating) return null;
+  const why = reasonText(reasons);
+  return (
+    <span className={rating === 'good' ? 'pill info' : 'pill warn'} title={`聽眾評分：${RATING_LABEL[rating]}${note ? '，有補充說明' : ''}`}>
+      {RATING_ICON[rating]}
+      {why && ` ${why}`}
+      {note && ' 📝'}
+    </span>
+  );
 }

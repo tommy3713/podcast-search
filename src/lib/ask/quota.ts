@@ -1,5 +1,6 @@
 import { type DB, hasColumn, hasTable, toDbTime } from '../db.ts';
 import type { ToolCallLog } from './agent.ts';
+import { type Rating, RATING_REASONS, type RatingReason } from './rating.ts';
 import type { LoggedSource } from './record.ts';
 
 export const USER_DAILY_LIMIT = 20;
@@ -79,6 +80,38 @@ export function takeRetry(db: DB, userId: string, askId: number, now = new Date(
     if (siteUsed(db, date) >= SITE_DAILY_LIMIT) return { ok: false, reason: 'site' };
     db.prepare('INSERT INTO ask_retries (ask_id, date) VALUES (?, ?)').run(askId, date);
     return { ok: true, question: row.question, ...searchedBefore(row.tool_calls_json, row.sources_json) };
+  }).immediate();
+}
+
+export type RateResult = { ok: true } | { ok: false; reason: 'missing' | 'unfinished' | 'unavailable' };
+
+// A listener's 😀 / 🙁 on one of their own answers (a broad one too). A new rating replaces
+// the last one whole: reasons and a note are kept only with bad, and only what was sent last.
+// `missing`: not this account's question (or purged); `unfinished`: nothing was answered.
+export function rateAsk(
+  db: DB,
+  userId: string,
+  askId: number,
+  r: { rating: Rating; reasons?: readonly RatingReason[]; note?: string | null },
+  now = new Date(),
+): RateResult {
+  if (!hasColumn(db, 'ask_log', 'rating')) return { ok: false, reason: 'unavailable' };
+  const bad = r.rating === 'bad';
+  const reasons = bad ? RATING_REASONS.filter((x) => r.reasons?.includes(x)) : [];
+  const note = bad ? r.note?.trim() || null : null;
+  // One transaction, so the nightly purge can't take the row between the check and the write
+  return db.transaction((): RateResult => {
+    const row = db.prepare('SELECT user_id, outcome FROM ask_log WHERE id = ?').get(askId) as { user_id: string; outcome: string | null } | undefined;
+    if (!row || row.user_id !== userId) return { ok: false, reason: 'missing' };
+    if (row.outcome !== 'answered' && row.outcome !== 'no_source') return { ok: false, reason: 'unfinished' };
+    db.prepare('UPDATE ask_log SET rating = ?, rating_reasons = ?, rating_note = ?, rated_at = ? WHERE id = ?').run(
+      r.rating,
+      reasons.length ? JSON.stringify(reasons) : null,
+      note,
+      toDbTime(now),
+      askId,
+    );
+    return { ok: true };
   }).immediate();
 }
 

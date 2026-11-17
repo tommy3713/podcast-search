@@ -6,6 +6,7 @@ import type { AskEvent, Source } from '@/lib/ask/agent';
 import { citedOrder, episodeLabel, groupBlocks, labelBlocks, type LabeledBlock, OTHER_SOURCES_SHOWN, otherSources, parseAnswer, splitEvents } from '@/lib/ask/render';
 import { previewParts, type SourceFocus, sourceFocus, sourceHref, termFocus } from '@/lib/ask/focus';
 import { formatTimestamp } from '@/lib/summary';
+import { MAX_RATING_NOTE_CHARS, type Rating, RATING_ICON, RATING_LABEL, RATING_REASONS, RATINGS, type RatingReason, REASON_LABEL } from '@/lib/ask/rating';
 
 type Msg = {
   id: string;
@@ -18,6 +19,10 @@ type Msg = {
   logId?: number; // its ask_log id, which 擴大搜尋 sends back (absent on answers kept from before)
   broadOf?: string; // 擴大搜尋: the message it broadened
   broadened?: boolean; // 擴大搜尋 was asked for this one
+  rating?: Rating; // the listener's 😀 / 🙁, as the server took it
+  ratingDone?: boolean; // 😀, or 🙁 with its reasons sent (the form for them is closed)
+  ratingReasons?: RatingReason[]; // with 🙁, what was last sent
+  ratingNote?: string;
 };
 
 type Props = { episodeCount: number; initialQuota: number; dailyLimit: number; logDays: number; examples: string[]; initialQuestion: string };
@@ -135,6 +140,8 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
   const broadenRef = useRef(broaden);
   broadenRef.current = broaden;
   const onBroaden = useCallback((m: Msg) => broadenRef.current(m), []);
+  // Stable too: only sets state
+  const onPatch = useCallback((id: string, patch: Partial<Msg>) => setMsgs((all) => all.map((m) => (m.id === id ? { ...m, ...patch } : m))), []);
 
   function apply(id: string, e: AskEvent) {
     switch (e.type) {
@@ -184,7 +191,7 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
             找某一集時，寫你記得的原話、人名或英文最好找；不確定是什麼時候，就不要寫時間。
           </p>
           <p className="fine" style={{ margin: 0 }}>
-            問題會傳給 OpenAI 產生回答，問答會連同帳號保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
+            問題會傳給 OpenAI 產生回答，問答和你給的評分會連同帳號保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
           </p>
         </div>
       )}
@@ -192,7 +199,7 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
       <div style={{ display: 'grid', gap: 28 }}>
         {/* busy only where the button is, so the other answers keep their memo */}
         {msgs.map((m) => (
-          <Message key={m.id} m={m} busy={m.logId && !m.broadOf && !m.broadened ? busy : false} onBroaden={onBroaden} />
+          <Message key={m.id} m={m} busy={m.logId && !m.broadOf && !m.broadened ? busy : false} onBroaden={onBroaden} onPatch={onPatch} />
         ))}
       </div>
 
@@ -228,7 +235,17 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
 }
 
 // Memoized: a streamed answer re-renders the list, and the finished ones above it haven't changed
-const Message = memo(function Message({ m, busy, onBroaden }: { m: Msg; busy: boolean; onBroaden: (m: Msg) => void }) {
+const Message = memo(function Message({
+  m,
+  busy,
+  onBroaden,
+  onPatch,
+}: {
+  m: Msg;
+  busy: boolean;
+  onBroaden: (m: Msg) => void;
+  onPatch: (id: string, patch: Partial<Msg>) => void;
+}) {
   const epOf = new Map(Object.values(m.sources).map((s) => [s.n, s.ep]));
   const known = new Set(epOf.keys());
   const blocks = labelBlocks(parseAnswer(m.text, known, !m.done), epOf, !m.done);
@@ -277,6 +294,8 @@ const Message = memo(function Message({ m, busy, onBroaden }: { m: Msg; busy: bo
           AI 根據逐字稿產生，可能有誤，請點出處核對原節目；不是投資建議。
         </p>
       )}
+      {/* Answers kept from before ratings have no id to rate */}
+      {m.done && !m.error && m.logId && <RateAnswer m={m} onPatch={onPatch} />}
       {m.done && !m.error && (
         <NotWhatYouWanted
           others={otherSources(m.sources, citedNs)}
@@ -287,6 +306,123 @@ const Message = memo(function Message({ m, busy, onBroaden }: { m: Msg; busy: bo
     </article>
   );
 });
+
+// 😀 / 🙁 under a finished answer. Either is saved on the click, so a 🙁 counts even when the
+// listener leaves without saying why; 🙁 then opens a form for the reasons and a note, which
+// can be sent empty. Saved as the click happens (shown at once, put back if it fails).
+// The reasons and note sent are kept on the message (and in sessionStorage), so reopening the
+// form, after a reload too, starts from what the server has rather than sending it blank.
+function RateAnswer({ m, onPatch }: { m: Msg; onPatch: (id: string, patch: Partial<Msg>) => void }) {
+  const [open, setOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reasons, setReasons] = useState<RatingReason[]>(m.ratingReasons ?? []);
+  const [note, setNote] = useState(m.ratingNote ?? '');
+
+  async function send(body: { rating: Rating; reasons?: RatingReason[]; note?: string | null }): Promise<boolean> {
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/ask/rating', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: m.logId, ...body }),
+      });
+      if (res.ok) return true;
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(err.error ?? '沒有送出，請再試一次。');
+    } catch {
+      setError('連線中斷，沒有送出，請再試一次。');
+    } finally {
+      setSending(false);
+    }
+    return false;
+  }
+
+  async function pick(rating: Rating) {
+    if (sending) return;
+    // 🙁 again opens its form again, to add or change the reasons
+    if (rating === m.rating) return setOpen(rating === 'bad');
+    // A new rating replaces the last whole on the server, reasons and note included
+    const before = { rating: m.rating, ratingDone: m.ratingDone, ratingReasons: m.ratingReasons, ratingNote: m.ratingNote };
+    onPatch(m.id, { rating, ratingDone: rating === 'good', ratingReasons: undefined, ratingNote: undefined });
+    setReasons([]);
+    setNote('');
+    setOpen(rating === 'bad');
+    if (!(await send({ rating }))) {
+      onPatch(m.id, before);
+      setReasons(before.ratingReasons ?? []);
+      setNote(before.ratingNote ?? '');
+      setOpen(false);
+    }
+  }
+
+  async function submit() {
+    if (sending) return;
+    const sent = { reasons, note: note.trim() || null };
+    if (await send({ rating: 'bad', ...sent })) {
+      onPatch(m.id, { ratingDone: true, ratingReasons: sent.reasons, ratingNote: sent.note ?? undefined });
+      setOpen(false);
+    }
+  }
+
+  const toggle = (r: RatingReason) => setReasons((rs) => (rs.includes(r) ? rs.filter((x) => x !== r) : [...rs, r]));
+  return (
+    <>
+      <div className="rate">
+        <span>這個回答如何？</span>
+        {RATINGS.map((r) => (
+          <button
+            key={r}
+            type="button"
+            className="rate-btn"
+            aria-pressed={m.rating === r}
+            aria-label={RATING_LABEL[r]}
+            title={RATING_LABEL[r]}
+            disabled={sending}
+            onClick={() => pick(r)}
+          >
+            {RATING_ICON[r]}
+          </button>
+        ))}
+        {!open && m.ratingDone && <span role="status">謝謝回饋！</span>}
+        {error && <span className="rate-error">{error}</span>}
+      </div>
+      {open && m.rating === 'bad' && (
+        <form
+          className="card rate-why"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <div className="eyebrow">哪裡不滿意？都可以不選、不寫</div>
+          <div className="chips">
+            {RATING_REASONS.map((r) => (
+              <button key={r} type="button" className="chip" aria-pressed={reasons.includes(r)} onClick={() => toggle(r)}>
+                {REASON_LABEL[r]}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            // UTF-16 units: never more code points than the server takes
+            maxLength={MAX_RATING_NOTE_CHARS}
+            rows={2}
+            placeholder="想補充的話（選填），例如你要找的是哪一集"
+            aria-label="補充說明"
+          />
+          <div>
+            <button className="btn primary" type="submit" disabled={sending}>
+              送出
+            </button>
+          </div>
+        </form>
+      )}
+    </>
+  );
+}
 
 // Below every finished answer: what the searches found that the answer left out, and how
 // to ask so the next search finds more. Closed until opened, even when the answer cites
