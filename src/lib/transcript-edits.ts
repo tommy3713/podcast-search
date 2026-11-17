@@ -143,3 +143,21 @@ export function replaceMatches(
     return r.count ? [{ index, start: s.start, oldText: s.text, newText: r.text, count: r.count }] : [];
   });
 }
+
+// The segment playing at t, for the admin page's player: the last one starting at or before it;
+// 0 before the first. Segments are in order of start. Of several sharing a start (29 pairs in
+// 714 episodes, nearly all a one-second 謝謝。 before the long one), the first that hasn't ended
+// by t, so a click on the first one's timestamp marks that one.
+export function segmentAt(segments: readonly { start: number; end: number }[], t: number): number {
+  let lo = 0;
+  let hi = segments.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (segments[mid]!.start <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  let i = lo;
+  while (i > 0 && segments[i - 1]!.start === segments[lo]!.start) i--;
+  while (i < lo && segments[i]!.end <= t) i++;
+  return i;
+}
