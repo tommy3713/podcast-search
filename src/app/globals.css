@@ -56,7 +56,8 @@ header.top .wrap { height: 56px; display: flex; align-items: center; gap: 24px; 
 /* Nothing in the header wraps to a second line or gets squeezed. The display name is capped at
    10em with an ellipsis (phones hide it), and on phones the gap shrinks and the login button reads
    just "登入". The brand text is the only thing that can shrink, to an ellipsis, so on a very
-   narrow screen or with large text the header still never scrolls sideways */
+   narrow screen or with large text the header still never scrolls sideways; phones show the
+   mark without it (see the 640px block) */
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 18px; letter-spacing: .02em; min-width: 0; }
 .brand-name, .user .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user .name { max-width: 10em; }
@@ -328,9 +329,14 @@ a.cite { display: inline-block; text-decoration: none; }
   .quote { margin-left: 0; }
   .user .name { display: none; }
   header.top .wrap { gap: 12px; }
-  /* Room for the feedback and theme buttons side by side: both are borderless icons */
-  .actions { gap: 2px; }
-  .user { gap: 6px; }
+  /* Phones show the mark alone: the wordmark stays for screen readers (the mark's SVG is
+     aria-hidden, so it is the link's name) */
+  .brand-name { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  /* The feedback and theme icons close together: narrower buttons (still the header's height to
+     tap) with no gap between them, then the account a little apart */
+  .actions { gap: 0; }
+  .btn.theme-toggle, .btn.icon-btn { width: 30px; }
+  .user { gap: 6px; margin-left: 6px; }
   .user .login-long { display: none; }
 }
 
