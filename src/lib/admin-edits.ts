@@ -1,4 +1,5 @@
-import type { DB } from './db.ts';
+import { type DB, hasColumn } from './db.ts';
+import { parseSeekTable, type SeekTable } from './seek.ts';
 import type { Segment } from './segments.ts';
 import { applyEdits, type TranscriptEdit } from './transcript-edits.ts';
 
@@ -59,14 +60,38 @@ export function recentEdits(db: DB, limit: number): EditRow[] {
   return (db.prepare(`${SELECT} ORDER BY t.id DESC LIMIT ?`).all(limit) as Row[]).map(toRow);
 }
 
-export type AdminEpisode = { id: number; no: number; title: string; segments: AdminSegment[]; edits: EditRow[] };
+export type AdminEpisode = {
+  id: number;
+  no: number;
+  title: string;
+  // For the page's player, which plays the episode the way the public one does
+  audioUrl: string;
+  duration: number;
+  seek: SeekTable | null;
+  segments: AdminSegment[];
+  edits: EditRow[];
+};
+
+type EpisodeRow = {
+  id: number;
+  episode_no: number;
+  title: string;
+  audio_url: string;
+  duration: number | null;
+  seek_json: string | null;
+  segments_json: string | null;
+};
 
 // A live episode's transcript as it will read once the pending edits are applied, and all its
 // edits, newest first
 export function adminEpisode(db: DB, no: number): AdminEpisode | null {
+  // An older snapshot has no seek_json: the player then plays without correcting seeks
+  const seek = hasColumn(db, 'episodes', 'seek_json') ? 'seek_json' : 'NULL AS seek_json';
   const ep = db
-    .prepare(`SELECT id, episode_no, title, segments_json FROM episodes WHERE status = 'done' AND episode_no = ?`)
-    .get(no) as { id: number; episode_no: number; title: string; segments_json: string | null } | undefined;
+    .prepare(
+      `SELECT id, episode_no, title, audio_url, duration, ${seek}, segments_json FROM episodes WHERE status = 'done' AND episode_no = ?`,
+    )
+    .get(no) as EpisodeRow | undefined;
   if (!ep?.segments_json) return null;
   const edits = (db.prepare(`${SELECT} WHERE t.episode_id = ? ORDER BY t.id DESC`).all(ep.id) as Row[]).map(toRow);
   const pending: TranscriptEdit[] = edits
@@ -79,6 +104,10 @@ export function adminEpisode(db: DB, no: number): AdminEpisode | null {
     id: ep.id,
     no: ep.episode_no,
     title: ep.title,
+    audioUrl: ep.audio_url,
+    // 0 too: a feed's 0 would clamp every seek to the start
+    duration: ep.duration || (segments.at(-1)?.end ?? 0),
+    seek: parseSeekTable(ep.seek_json),
     segments: segments.map((s, i) => ({ ...s, pending: touched.has(i) })),
     edits,
   };

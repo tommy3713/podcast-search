@@ -29,7 +29,14 @@ export default async function AdminEpisodePage({ params }: Props) {
           看公開頁面
         </Link>
       </p>
-      <TranscriptEditor episode={ep.no} segments={ep.segments} edits={ep.edits} />
+      <TranscriptEditor
+        episode={ep.no}
+        audioUrl={ep.audioUrl}
+        duration={ep.duration}
+        seek={ep.seek}
+        segments={ep.segments}
+        edits={ep.edits}
+      />
     </>
   );
 }

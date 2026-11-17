@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type DB, EMBEDDING_DIM, openDb } from '@/lib/db.ts';
 import type { Segment } from '@/lib/segments.ts';
 import type { Summary } from '@/lib/summary.ts';
-import { applyEdits, editDiff, replaceMatches } from '@/lib/transcript-edits.ts';
+import { applyEdits, editDiff, replaceMatches, segmentAt } from '@/lib/transcript-edits.ts';
 
 const mocks = vi.hoisted(() => ({
   transcribe: vi.fn(),
@@ -330,5 +330,41 @@ describe('admin access', () => {
     const blank = { index: 0, start: 0, oldText: segments[0]!.text, newText: '  ' };
     expect((await post({ episode: 709, edits: [blank] })).status).toBe(400);
     vi.unstubAllEnvs();
+  });
+});
+
+describe('segmentAt', () => {
+  // seg() ends 4 s after it starts; the pair at 9 is a short one before a long one, as in the data
+  const segs = [seg(0, 'a'), seg(4, 'b'), { start: 9, end: 10, text: '謝謝。' }, { start: 9, end: 14, text: 'd' }, seg(15, 'e')];
+
+  it('finds the last segment starting at or before the time', () => {
+    expect(segmentAt(segs, 0)).toBe(0);
+    expect(segmentAt(segs, 3.9)).toBe(0);
+    expect(segmentAt(segs, 4)).toBe(1);
+    expect(segmentAt(segs, 900)).toBe(4);
+  });
+
+  it('of segments sharing a start, gives the first that has not ended', () => {
+    expect(segmentAt(segs, 9)).toBe(2);
+    expect(segmentAt(segs, 9.5)).toBe(2);
+    expect(segmentAt(segs, 10)).toBe(3);
+    expect(segmentAt(segs, 14.5)).toBe(3); // all ended: the last of them
+  });
+
+  it('gives the first before it starts, and 0 with no segments', () => {
+    expect(segmentAt([seg(2, 'a'), seg(5, 'b')], 1)).toBe(0);
+    expect(segmentAt([], 10)).toBe(0);
+  });
+});
+
+describe('adminEpisode', () => {
+  it('carries what the page player needs, with the seek table parsed', () => {
+    expect(adminEpisode(db, 709)).toMatchObject({ audioUrl: 'https://x/709.mp3', duration: 200, seek: null });
+    const table = { duration: 200, offsets: Array.from({ length: 1001 }, () => 0) };
+    db.prepare('UPDATE episodes SET seek_json = ?, duration = NULL WHERE id = ?').run(JSON.stringify(table), epId);
+    // Without a duration (or 0 from the feed), the end of the last segment
+    expect(adminEpisode(db, 709)).toMatchObject({ seek: table, duration: segments.at(-1)!.end });
+    db.prepare('UPDATE episodes SET duration = 0 WHERE id = ?').run(epId);
+    expect(adminEpisode(db, 709)!.duration).toBe(segments.at(-1)!.end);
   });
 });

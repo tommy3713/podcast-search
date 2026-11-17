@@ -562,10 +562,23 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
 .admin-matches label { display: flex; gap: 8px; align-items: baseline; }
 .admin-filter { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
 .admin-segments { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
-.admin-segments li { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 4px 6px; border-radius: 8px; scroll-margin-top: 80px; }
+.admin-segments li { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 4px 6px; border-radius: 8px; scroll-margin-top: 150px; }
 .admin-segments li.draft { background: var(--warn-soft); }
 .admin-segments li.pending { background: var(--accent-soft); }
 .admin-segments li:target { outline: 2px solid var(--accent); }
+/* The segment playing; a draft or pending one keeps its background and shows it by the timestamp */
+.admin-segments li.now:not(.draft):not(.pending) { background: var(--surface); }
+.admin-segments li.now .admin-ts { color: var(--accent); font-weight: 600; }
+.admin-player { grid-template-columns: auto auto auto auto minmax(0, 1fr) auto auto; margin-bottom: 0; }
+.admin-player-extra { display: flex; }
+.admin-player-extra:empty { display: none; }
+.admin-player:has(.admin-player-extra:empty) { grid-template-columns: auto auto auto auto minmax(0, 1fr) auto; }
+.admin-player-extra .btn { padding: 2px 10px; font-size: 13px; white-space: nowrap; }
+.admin-keys { margin: -4px 0 0; font-size: 13px; }
+.admin-filter-opts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.admin-filter > .muted { white-space: nowrap; }
+.admin-input-wrap { display: grid; gap: 4px; justify-items: start; }
+.admin-input-wrap .btn { padding: 0 8px; font-size: 13px; }
 .admin-ts { font-family: var(--font-mono); font-size: 13px; color: var(--muted); padding-top: 3px; text-decoration: none; }
 .admin-seg { all: unset; cursor: text; line-height: 1.7; overflow-wrap: anywhere; border-radius: 4px; }
 .admin-seg:hover { background: var(--bg); }
@@ -607,9 +620,12 @@ blockquote.bare { font-family: var(--font-body); font-weight: 600; }
 .admin-ask-src-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; }
 .admin-golden { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12.5px; background: var(--bg); border-radius: 8px; padding: 10px 12px; margin: 0; }
 @media (max-width: 640px) {
-  .admin-segments li { grid-template-columns: 48px minmax(0, 1fr); }
+  .admin-segments li { grid-template-columns: 48px minmax(0, 1fr); scroll-margin-top: 80px; }
   .admin-flags { grid-column: 2; }
-  .admin-bar { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); padding-bottom: 10px; }
+  /* Above the player, which sits at the bottom here (AdminPlayer sets its height) */
+  .admin-bar { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + var(--admin-player-h, 0px)); padding-bottom: 10px; }
+  .admin-player, .admin-player:has(.admin-player-extra:empty) { grid-template-columns: auto auto auto minmax(0, 1fr) auto auto; }
+  .admin-keys { display: none; }
 }
 
 /* Typo reports on an episode's page (components/report/TypoReporter.tsx) */
