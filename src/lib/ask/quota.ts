@@ -1,4 +1,4 @@
-import { type DB, hasColumn, toDbTime } from '../db.ts';
+import { type DB, hasColumn, hasTable, toDbTime } from '../db.ts';
 import type { ToolCallLog } from './agent.ts';
 import type { LoggedSource } from './record.ts';
 
@@ -32,8 +32,7 @@ export type QuotaResult = { ok: true; remaining: number } | { ok: false; reason:
 export function takeQuota(db: DB, userId: string, now = new Date()): QuotaResult {
   const date = taipeiDate(now);
   return db.transaction((): QuotaResult => {
-    const site = (db.prepare('SELECT COALESCE(SUM(count), 0) AS n FROM ask_usage WHERE date = ?').get(date) as { n: number }).n;
-    if (site >= SITE_DAILY_LIMIT) return { ok: false, reason: 'site' };
+    if (siteUsed(db, date) >= SITE_DAILY_LIMIT) return { ok: false, reason: 'site' };
     const used = (db.prepare('SELECT count FROM ask_usage WHERE user_id = ? AND date = ?').get(userId, date) as { count: number } | undefined)?.count ?? 0;
     if (used >= USER_DAILY_LIMIT) return { ok: false, reason: 'user' };
     db.prepare(
@@ -42,6 +41,75 @@ export function takeQuota(db: DB, userId: string, now = new Date()): QuotaResult
     ).run(userId, date);
     return { ok: true, remaining: USER_DAILY_LIMIT - used - 1 };
   }).immediate();
+}
+
+// Questions and broadened ones the site answered on a Taipei day: the cap is on what it spends
+function siteUsed(db: DB, date: string): number {
+  const asked = (db.prepare('SELECT COALESCE(SUM(count), 0) AS n FROM ask_usage WHERE date = ?').get(date) as { n: number }).n;
+  // Absent until the release that added 擴大搜尋 has migrated (a local snapshot, or mid-deploy)
+  if (!hasTable(db, 'ask_retries')) return asked;
+  return asked + (db.prepare('SELECT COUNT(*) AS n FROM ask_retries WHERE date = ?').get(date) as { n: number }).n;
+}
+
+// 擴大搜尋: the question it broadens, the words its searches used and the episodes its answer
+// cited, all read from the log rather than taken from the browser
+export type Broaden = { question: string; queries: string[]; citedEps: number[] };
+export type RetryResult =
+  | ({ ok: true } & Broaden)
+  | { ok: false; reason: 'missing' | 'unfinished' | 'broad' | 'used' | 'site' | 'unavailable' };
+
+// Free for the listener, counted toward the site's cap, once per question: the ask_retries
+// row is taken before any model is called, in the same transaction as the checks, so two
+// clicks at once get one answer. `missing`: not this account's question (or purged).
+export function takeRetry(db: DB, userId: string, askId: number, now = new Date()): RetryResult {
+  if (!hasTable(db, 'ask_retries') || !hasColumn(db, 'ask_log', 'retry_of')) {
+    return { ok: false, reason: 'unavailable' };
+  }
+  const date = taipeiDate(now);
+  return db.transaction((): RetryResult => {
+    const row = db
+      .prepare('SELECT user_id, question, outcome, retry_of, tool_calls_json, sources_json FROM ask_log WHERE id = ?')
+      .get(askId) as
+      | { user_id: string; question: string; outcome: string | null; retry_of: number | null; tool_calls_json: string | null; sources_json: string | null }
+      | undefined;
+    if (!row || row.user_id !== userId) return { ok: false, reason: 'missing' };
+    if (row.outcome !== 'answered' && row.outcome !== 'no_source') return { ok: false, reason: 'unfinished' };
+    if (row.retry_of !== null) return { ok: false, reason: 'broad' };
+    if (db.prepare('SELECT 1 FROM ask_retries WHERE ask_id = ?').get(askId)) return { ok: false, reason: 'used' };
+    if (siteUsed(db, date) >= SITE_DAILY_LIMIT) return { ok: false, reason: 'site' };
+    db.prepare('INSERT INTO ask_retries (ask_id, date) VALUES (?, ?)').run(askId, date);
+    return { ok: true, question: row.question, ...searchedBefore(row.tool_calls_json, row.sources_json) };
+  }).immediate();
+}
+
+// Given back when the broad answer failed for reasons that aren't the user's, so they can try again
+export function refundRetry(db: DB, askId: number): void {
+  db.prepare('DELETE FROM ask_retries WHERE ask_id = ?').run(askId);
+}
+
+// What the first answer searched for and cited. Both come from the model (its queries) or
+// the transcripts (the sources), so they're data for the next prompt, never trusted shape.
+// Exported for the eval's --broad, which builds the same from a run it just made.
+export function searchedBefore(toolCalls: string | null, sources: string | null): Omit<Broaden, 'question'> {
+  const parse = (json: string | null): unknown[] => {
+    try {
+      const v: unknown = json ? JSON.parse(json) : [];
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  };
+  const queries = new Set<string>();
+  for (const c of parse(toolCalls)) {
+    const args = (c as { args?: { query?: unknown; keyword?: unknown } } | null)?.args;
+    for (const q of [args?.query, args?.keyword]) if (typeof q === 'string' && q.trim()) queries.add(q.trim().slice(0, 50));
+  }
+  const eps = new Set<number>();
+  for (const s of parse(sources)) {
+    const ep = (s as { ep?: unknown } | null)?.ep;
+    if (Number.isInteger(ep)) eps.add(ep as number);
+  }
+  return { queries: [...queries].slice(0, 8), citedEps: [...eps].sort((a, b) => a - b) };
 }
 
 // Given back when the answer failed for reasons that aren't the user's
@@ -66,12 +134,13 @@ export type AskLogEntry = {
   outputTokens?: number;
   costUsd?: number;
   sources?: LoggedSource[]; // the ones the answer cites
+  retryOf?: number; // 擴大搜尋: the question this answer broadened
 };
 
 // Never throws: a logging failure must not fail the answer (and the web may write here
 // moments before the worker's migration adds the columns: without sources_json the row is
-// written without its sources rather than lost)
-export function logAsk(db: DB, e: AskLogEntry): void {
+// written without its sources rather than lost). Returns the row's id, null if it wasn't written.
+export function logAsk(db: DB, e: AskLogEntry): number | null {
   try {
     const calls = e.toolCalls ?? [];
     const values: Record<string, unknown> = {
@@ -88,10 +157,13 @@ export function logAsk(db: DB, e: AskLogEntry): void {
       cost_usd: e.costUsd ?? null,
     };
     if (hasColumn(db, 'ask_log', 'sources_json')) values.sources_json = e.sources?.length ? JSON.stringify(e.sources) : null;
+    if (e.retryOf !== undefined && hasColumn(db, 'ask_log', 'retry_of')) values.retry_of = e.retryOf;
     const columns = Object.keys(values);
-    db.prepare(`INSERT INTO ask_log (${columns.join(', ')}) VALUES (${columns.map((c) => `@${c}`).join(', ')})`).run(values);
+    const r = db.prepare(`INSERT INTO ask_log (${columns.join(', ')}) VALUES (${columns.map((c) => `@${c}`).join(', ')})`).run(values);
+    return Number(r.lastInsertRowid);
   } catch (err) {
     console.error('[ask_log]', err instanceof Error ? err.message : err);
+    return null;
   }
 }
 

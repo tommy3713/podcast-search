@@ -14,16 +14,22 @@ import { describeMentionSearch, describeTranscriptSearch } from './search.ts';
 // them would show days with questions but no results
 export const RECORDED = `outcome IS NOT NULL`;
 
-export const TOTALS = `
-  COUNT(*)                                                    AS asks,
-  COUNT(DISTINCT user_id)                                     AS users,
-  COALESCE(SUM(outcome = 'answered'), 0)                      AS answered,
-  COALESCE(SUM(outcome = 'no_source'), 0)                     AS no_source,
-  COALESCE(SUM(outcome = 'moderated'), 0)                     AS moderated,
-  COALESCE(SUM(outcome = 'quota'), 0)                         AS quota,
-  COALESCE(SUM(outcome IN ('timeout', 'aborted', 'error')), 0) AS failed,
-  COALESCE(SUM(cost_usd), 0)                                  AS cost_usd,
-  CAST(AVG(CASE WHEN outcome IN ('answered', 'no_source') THEN ms END) AS INTEGER) AS avg_ms`;
+// A 擴大搜尋 answer is a second answer to a question already counted, so it isn't a question,
+// a user, an outcome or a time here (counted on its own as `broad`), but what it cost is
+// spent all the same. Rows of a database without the column are all first answers.
+export function totals(db: DB): string {
+  const first = hasColumn(db, 'ask_log', 'retry_of') ? 'retry_of IS NULL' : '1';
+  return `
+  COALESCE(SUM(${first}), 0)                                              AS asks,
+  COUNT(DISTINCT CASE WHEN ${first} THEN user_id END)                     AS users,
+  COALESCE(SUM(${first} AND outcome = 'answered'), 0)                     AS answered,
+  COALESCE(SUM(${first} AND outcome = 'no_source'), 0)                    AS no_source,
+  COALESCE(SUM(${first} AND outcome = 'moderated'), 0)                    AS moderated,
+  COALESCE(SUM(${first} AND outcome = 'quota'), 0)                        AS quota,
+  COALESCE(SUM(${first} AND outcome IN ('timeout', 'aborted', 'error')), 0) AS failed,
+  COALESCE(SUM(cost_usd), 0)                                              AS cost_usd,
+  CAST(AVG(CASE WHEN ${first} AND outcome IN ('answered', 'no_source') THEN ms END) AS INTEGER) AS avg_ms`;
+}
 
 export type AskStats = {
   asks: number;
@@ -35,10 +41,14 @@ export type AskStats = {
   failed: number;
   cost_usd: number;
   avg_ms: number | null;
+  broad?: number; // 擴大搜尋 answers, not among `asks` (absent where the column isn't); their cost is in cost_usd
 };
 
 export function askStats(db: DB, since: Date): AskStats {
-  return db.prepare(`SELECT ${TOTALS} FROM ask_log WHERE created_at >= ? AND ${RECORDED}`).get(toDbTime(since)) as AskStats;
+  const s = db.prepare(`SELECT ${totals(db)} FROM ask_log WHERE created_at >= ? AND ${RECORDED}`).get(toDbTime(since)) as AskStats;
+  if (!hasColumn(db, 'ask_log', 'retry_of')) return s;
+  const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ask_log WHERE created_at >= ? AND ${RECORDED} AND retry_of IS NOT NULL`).get(toDbTime(since)) as { n: number };
+  return { ...s, broad: n };
 }
 
 export type AskDay = { date: string; asks: number; answered: number; no_source: number; failed: number };
@@ -138,8 +148,8 @@ export function searchSteps(json: string | null): SearchStep[] {
 
 // failed: timeout, aborted or error, as the totals count them
 export type OutcomeFilter = Outcome | 'failed';
-// cut / unmatched / sound: a search that hit that note; slow: over SLOW_MS
-export type FlagFilter = Note | 'slow';
+// cut / unmatched / sound: a search that hit that note; slow: over SLOW_MS; broad: a 擴大搜尋 answer
+export type FlagFilter = Note | 'slow' | 'broad';
 export const SLOW_MS = 15_000;
 
 export type AskFilter = {
@@ -161,6 +171,8 @@ export type AskListRow = {
   ms: number | null;
   costUsd: number | null;
   flags: Note[];
+  retryOf: number | null; // 擴大搜尋: the question this answer broadened
+  broadenedBy: number | null; // the newest 擴大搜尋 answer to this question (a failed one can be tried again)
 };
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -185,7 +197,7 @@ export function parseAskFilter(p: Record<string, string | string[] | undefined>)
   const of = one('of');
   if (of && /^\d{1,12}$/.test(of)) f.of = Number(of);
   const flag = one('flag');
-  if (flag === 'cut' || flag === 'unmatched' || flag === 'sound' || flag === 'slow') f.flag = flag;
+  if (flag === 'cut' || flag === 'unmatched' || flag === 'sound' || flag === 'slow' || flag === 'broad') f.flag = flag;
   return f;
 }
 
@@ -193,7 +205,7 @@ export function parseAskFilter(p: Record<string, string | string[] | undefined>)
 const hasNote = (key: 'cut' | 'unmatched' | 'sound') =>
   `(json_valid(tool_calls_json) AND EXISTS (SELECT 1 FROM json_each(tool_calls_json) WHERE json_type(value, '$.${key}') IS NOT NULL))`;
 
-function whereOf(f: AskFilter): { where: string; params: unknown[] } {
+function whereOf(db: DB, f: AskFilter): { where: string; params: unknown[] } {
   const conds: string[] = [];
   const params: unknown[] = [];
   if (f.outcome === 'failed') conds.push(`outcome IN ('timeout', 'aborted', 'error')`);
@@ -222,7 +234,8 @@ function whereOf(f: AskFilter): { where: string; params: unknown[] } {
   if (f.flag === 'slow') {
     conds.push('ms > ?');
     params.push(SLOW_MS);
-  } else if (f.flag) conds.push(hasNote(f.flag));
+  } else if (f.flag === 'broad') conds.push(hasColumn(db, 'ask_log', 'retry_of') ? 'retry_of IS NOT NULL' : '0');
+  else if (f.flag) conds.push(hasNote(f.flag));
   return { where: conds.length ? conds.join(' AND ') : '1', params };
 }
 
@@ -236,16 +249,24 @@ type ListSqlRow = {
   ms: number | null;
   cost_usd: number | null;
   tool_calls_json: string | null;
+  retry_of: number | null;
+  broadened_by: number | null;
 };
+
+// 擴大搜尋 links both ways; a snapshot from before it has neither
+const broadColumns = (db: DB) =>
+  hasColumn(db, 'ask_log', 'retry_of')
+    ? 'retry_of, (SELECT b.id FROM ask_log b WHERE b.retry_of = ask_log.id ORDER BY b.id DESC LIMIT 1) AS broadened_by'
+    : 'NULL AS retry_of, NULL AS broadened_by';
 
 // Newest first, `limit` at a time; `before` is the last id of the page before (keyset, so a
 // question logged while paging doesn't shift the pages). next is the id to pass for the
 // page after, null on the last one.
 export function listAsks(db: DB, f: AskFilter, before: number | null = null, limit = 50): { rows: AskListRow[]; next: number | null; total: number } {
-  const { where, params } = whereOf(f);
+  const { where, params } = whereOf(db, f);
   const page = db
     .prepare(
-      `SELECT id, created_at, user_id, outcome, question, cited, ms, cost_usd, tool_calls_json
+      `SELECT id, created_at, user_id, outcome, question, cited, ms, cost_usd, tool_calls_json, ${broadColumns(db)}
        FROM ask_log WHERE ${where} AND (? IS NULL OR id < ?) ORDER BY id DESC LIMIT ?`,
     )
     .all(...params, before, before, limit + 1) as ListSqlRow[];
@@ -262,6 +283,8 @@ export function listAsks(db: DB, f: AskFilter, before: number | null = null, lim
       ms: r.ms,
       costUsd: r.cost_usd,
       flags: searchNotes(r.tool_calls_json),
+      retryOf: r.retry_of,
+      broadenedBy: r.broadened_by,
     }),
   );
   return { rows, next: more ? rows.at(-1)!.id : null, total };
@@ -289,6 +312,8 @@ export type AskDetail = {
   sourcesBroken: boolean; // sources_json held entries that don't read as sources
   newer: number | null; // the neighbouring questions, for paging through them one by one
   older: number | null;
+  retryOf: number | null; // 擴大搜尋, both ways (see AskListRow)
+  broadenedBy: number | null;
 };
 
 // What sources_json held: the sources, nothing (a row from before it, or never answered),
@@ -315,7 +340,7 @@ export function getAsk(db: DB, id: number): AskDetail | null {
   const r = db
     .prepare(
       `SELECT id, created_at, user_id, outcome, question, answer, cited, hits, ms, input_tokens, output_tokens, cost_usd, tool_calls_json,
-              ${hasColumn(db, 'ask_log', 'sources_json') ? 'sources_json' : 'NULL AS sources_json'}
+              ${hasColumn(db, 'ask_log', 'sources_json') ? 'sources_json' : 'NULL AS sources_json'}, ${broadColumns(db)}
        FROM ask_log WHERE id = ?`,
     )
     .get(id) as
@@ -347,6 +372,8 @@ export function getAsk(db: DB, id: number): AskDetail | null {
     ...((p) => ({ sources: p.sources, sourcesBroken: p.broken }))(parseSources(r.sources_json)),
     newer: newer.id,
     older: older.id,
+    retryOf: r.retry_of,
+    broadenedBy: r.broadened_by,
   };
 }
 

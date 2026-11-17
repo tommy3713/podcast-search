@@ -1,7 +1,8 @@
 // One run of one question: the same answer() the site calls, followed the way the site
 // logs it, then the rule checks and the judge.
 import type OpenAI from 'openai';
-import { answer, ASK_MODEL, ASK_TIMEOUT_MS, type Coverage, newTrace } from '../../src/lib/ask/agent.ts';
+import { answer, ASK_MODEL, ASK_TIMEOUT_MS, BROAD_TIMEOUT_MS, type Coverage, newTrace } from '../../src/lib/ask/agent.ts';
+import { searchedBefore } from '../../src/lib/ask/quota.ts';
 import { AnswerRecorder } from '../../src/lib/ask/record.ts';
 import { askCost } from '../../src/lib/cost.ts';
 import type { DB } from '../../src/lib/db.ts';
@@ -14,7 +15,8 @@ const JUDGE_TIMEOUT_MS = 60_000;
 
 const uniqueSorted = (xs: number[]) => [...new Set(xs)].sort((a, b) => a - b);
 
-export type RunDeps = { db: DB; client: OpenAI; coverage: Coverage; timeoutMs?: number };
+// broad: answer once as the site does, then score the 擴大搜尋 answer made from that one
+export type RunDeps = { db: DB; client: OpenAI; coverage: Coverage; timeoutMs?: number; broad?: boolean };
 
 export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<RunResult> {
   const trace = newTrace();
@@ -22,8 +24,22 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
   const refs = new Map<number, SourceRef>();
   const texts = new Map<number, CitedSource>();
   const started = Date.now();
-  const signal = AbortSignal.timeout(deps.timeoutMs ?? ASK_TIMEOUT_MS);
   let error: string | undefined;
+  // --broad: the first answer, as the site would have logged it, only to say what it searched
+  // and cited; its tokens count toward the run's cost
+  let broaden: { queries: string[]; citedEps: number[] } | undefined;
+  if (deps.broad) {
+    const first = newTrace();
+    const seen = new AnswerRecorder();
+    try {
+      await answer(q.question, { db: deps.db, client: deps.client, coverage: deps.coverage, trace: first, signal: AbortSignal.timeout(ASK_TIMEOUT_MS), emit: (e) => seen.see(e) });
+    } catch {
+      // the site offers 擴大搜尋 only on a finished answer, but the eval still asks it, from what was searched
+    }
+    broaden = searchedBefore(JSON.stringify(first.toolCalls), JSON.stringify(seen.citedSources()));
+    for (const k of ['inputTokens', 'cachedTokens', 'outputTokens', 'embeddingTokens'] as const) trace[k] += first[k];
+  }
+  const signal = AbortSignal.timeout(deps.timeoutMs ?? (broaden ? BROAD_TIMEOUT_MS : ASK_TIMEOUT_MS));
   try {
     await answer(q.question, {
       db: deps.db,
@@ -31,6 +47,7 @@ export async function runQuestion(q: GoldenQuestion, deps: RunDeps): Promise<Run
       coverage: deps.coverage,
       trace,
       signal,
+      ...(broaden ? { broaden } : {}),
       emit: (e) => {
         recorder.see(e);
         if (e.type === 'sources') {

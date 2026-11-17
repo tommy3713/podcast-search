@@ -168,6 +168,7 @@ export type EvalMeta = {
   sha: string;
   db: DbInfo;
   askModel: string;
+  broad?: boolean; // the 擴大搜尋 answers were scored (--broad)
   judgeModel: string;
   supportModel?: string; // missing in results from before the source check
   runs: number;
@@ -303,6 +304,7 @@ export function compare(before: EvalResult, after: EvalResult): Diff {
   const data = dataChange(a.db, b.db);
   if (data) d.changed.push(data);
   if (a.askModel !== b.askModel) d.changed.push(`ASK_MODEL ${a.askModel} → ${b.askModel}`);
+  if (!!a.broad !== !!b.broad) d.changed.push(`${a.broad ? '擴大搜尋' : '一般回答'} → ${b.broad ? '擴大搜尋' : '一般回答'}`);
   if (a.judgeModel !== b.judgeModel) d.changed.push(`JUDGE_MODEL ${a.judgeModel} → ${b.judgeModel}`);
   if (a.supportModel && b.supportModel && a.supportModel !== b.supportModel) d.changed.push(`SUPPORT_MODEL ${a.supportModel} → ${b.supportModel}`);
   if (a.runs !== b.runs) d.changed.push(`每題 ${a.runs} 次 → ${b.runs} 次`);

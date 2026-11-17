@@ -14,7 +14,7 @@ export function reportEval(r: EvalResult, golden: GoldenQuestion[]): string {
   const s = summarize(r);
   const byId = new Map(golden.map((q) => [q.id, q]));
   const out: string[] = [];
-  out.push(`/ask eval　${r.meta.startedAt}　${r.meta.sha}　資料 ${dbLine(r.meta.db)}　ask ${r.meta.askModel}　judge ${r.meta.judgeModel}${r.meta.supportModel ? `　出處檢查 ${r.meta.supportModel}` : ''}　每題 ${r.meta.runs} 次${r.meta.partial ? '　（只跑部分題目）' : ''}`);
+  out.push(`/ask eval　${r.meta.startedAt}　${r.meta.sha}　資料 ${dbLine(r.meta.db)}　ask ${r.meta.askModel}　judge ${r.meta.judgeModel}${r.meta.supportModel ? `　出處檢查 ${r.meta.supportModel}` : ''}　每題 ${r.meta.runs} 次${r.meta.broad ? '　擴大搜尋' : ''}${r.meta.partial ? '　（只跑部分題目）' : ''}`);
   out.push('');
   out.push('題型         題數  通過  不穩定  失敗');
   const total = { pass: 0, unstable: 0, fail: 0 };
