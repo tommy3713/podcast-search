@@ -43,12 +43,59 @@ function pickSelection(): Picked | { tooLong: true } | null {
 // itself clears the selection before the button hears it
 const LINGER_MS = 400;
 
+// Phones and tablets draw their own menu (copy, translate…) next to a selection, above or below
+// it depending on the room, and a page can neither find out where nor add to it. So when the
+// selection was made by touch or pen the button doesn't sit by it: it is a bar docked above
+// whatever is fixed at the bottom of the screen (the bottom nav, the player), or under the header
+// (and a stuck player) when the selection is where the bar would be. With a mouse there is no such
+// menu, and the button floats just below the selection. Which one is decided by the last pointer
+// pressed (a touchscreen laptop, an iPad with a trackpad), or by the primary one before any.
+const TOUCH = '(hover: none) and (pointer: coarse)';
+const DOCK_H = 44;
+const DOCK_GAP = 8;
+// Room left above a selection for the phone's menu when the bar goes to the top
+const MENU_ROOM = 64;
+
+type Dock = { side: 'top' | 'bottom'; at: string };
+type Fab = { picked: Picked | null } & ({ x: number; y: number } | { dock: Dock });
+
+// Where the docked bar goes for a selection at rect, as a CSS length from the top or bottom edge.
+// Fixed elements and rects are in the layout viewport, which clientHeight measures (innerHeight
+// shrinks with a pinch zoom on iOS).
+function dockSide(rect: DOMRect): Dock {
+  const h = document.documentElement.clientHeight;
+  let top = 0;
+  let bottom = h;
+  for (const el of document.querySelectorAll<HTMLElement>('header.top, nav.bottom, .player')) {
+    const r = el.getBoundingClientRect();
+    if (!r.height || r.bottom <= 0 || r.top >= h) continue;
+    const css = getComputedStyle(el);
+    // A sticky element only counts where it is stuck: a tablet's player scrolls with the page
+    // until it reaches the header
+    const stuck = css.position === 'fixed' || (css.position === 'sticky' && Math.abs(r.top - parseFloat(css.top)) < 2);
+    if (!stuck) continue;
+    if (r.top + r.height / 2 < h / 2) top = Math.max(top, r.bottom);
+    else bottom = Math.min(bottom, r.top);
+  }
+  const barTop = bottom - DOCK_GAP - DOCK_H;
+  if (rect.bottom > barTop - DOCK_GAP && rect.top > top + DOCK_GAP + DOCK_H + MENU_ROOM) {
+    return { side: 'top', at: `${top + DOCK_GAP}px` };
+  }
+  // Nothing fixed at the bottom (a tablet): keep clear of the home indicator
+  if (bottom === h) return { side: 'bottom', at: `calc(${DOCK_GAP}px + env(safe-area-inset-bottom, 0px))` };
+  return { side: 'bottom', at: `${h - bottom + DOCK_GAP}px` };
+}
+
+let touchQuery: MediaQueryList | null = null;
+
 // Memoized: EpisodeView re-renders about 4 times a second during playback, and the open form
 // must not re-render (or refocus) with it
 export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { episode: number; signedIn: boolean }) {
-  const [fab, setFab] = useState<{ x: number; y: number; picked: Picked | null } | null>(null);
+  const [fab, setFab] = useState<Fab | null>(null);
   const [open, setOpen] = useState<Picked | null>(null);
   const hide = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The kind of pointer last pressed: 'mouse', 'touch' or 'pen'
+  const pointer = useRef<string | null>(null);
 
   const place = useCallback(() => {
     const picked = pickSelection();
@@ -63,10 +110,15 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
     if (hide.current) clearTimeout(hide.current);
     hide.current = null;
     const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const words = 'tooLong' in picked ? null : picked;
+    touchQuery ??= window.matchMedia(TOUCH);
+    if (pointer.current ? pointer.current !== 'mouse' : touchQuery.matches) {
+      setFab({ dock: dockSide(rect), picked: words });
+      return;
+    }
     const x = Math.min(Math.max(8, rect.left), window.innerWidth - 150);
-    // Below the selection: phones put their own menu above it
     const y = Math.min(rect.bottom + 10, window.innerHeight - 56);
-    setFab({ x, y, picked: 'tooLong' in picked ? null : picked });
+    setFab({ x, y, picked: words });
   }, []);
 
   useEffect(() => {
@@ -75,13 +127,16 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(place);
     };
-    // Scrolling moves the selection, so the button follows it
+    const pressed = (e: PointerEvent) => (pointer.current = e.pointerType);
+    // Scrolling moves the selection, so the button follows it (or the bar changes sides)
+    document.addEventListener('pointerdown', pressed, { capture: true, passive: true });
     document.addEventListener('selectionchange', later);
     window.addEventListener('scroll', later, { passive: true });
     window.addEventListener('resize', later);
     return () => {
       cancelAnimationFrame(frame);
       if (hide.current) clearTimeout(hide.current);
+      document.removeEventListener('pointerdown', pressed, { capture: true });
       document.removeEventListener('selectionchange', later);
       window.removeEventListener('scroll', later);
       window.removeEventListener('resize', later);
@@ -113,8 +168,8 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
     <>
       {fab && !open && (
         <button
-          className="btn primary report-fab"
-          style={{ left: fab.x, top: fab.y }}
+          className={'dock' in fab ? 'btn primary report-fab report-dock' : 'btn primary report-fab'}
+          style={'dock' in fab ? { [fab.dock.side]: fab.dock.at } : { left: fab.x, top: fab.y }}
           disabled={!fab.picked}
           // Opens on the press, before a phone clears the selection, and keeps a mouse from
           // clearing it; the click is for the keyboard
@@ -124,7 +179,15 @@ export const TypoReporter = memo(function TypoReporter({ episode, signedIn }: { 
           }}
           onClick={() => start(fab.picked)}
         >
-          {fab.picked ? '回報錯字' : `最多選 ${MAX_REPORT_CHARS} 字`}
+          {!fab.picked ? (
+            `最多選 ${MAX_REPORT_CHARS} 字`
+          ) : 'dock' in fab ? (
+            <>
+              回報錯字「<span className="report-dock-words">{fab.picked.original}</span>」
+            </>
+          ) : (
+            '回報錯字'
+          )}
         </button>
       )}
       {open && <ReportDialog episode={episode} signedIn={signedIn} picked={open} onClose={close} />}
@@ -139,6 +202,7 @@ function ReportDialog({ episode, signedIn, picked, onClose }: { episode: number;
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const first = useRef<HTMLInputElement>(null);
+  const pressed = useRef(false);
 
   // Once, when the form opens
   useEffect(() => first.current?.focus(), []);
@@ -179,7 +243,13 @@ function ReportDialog({ episode, signedIn, picked, onClose }: { episode: number;
 
   const where = picked.target === 'transcript' ? '逐字稿' : '重點';
   return (
-    <div className="report-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="report-backdrop"
+      // Closes on a tap that both started and ended on the backdrop: the form opens on the press
+      // of 回報錯字, and on a touch screen the click that follows lands on the backdrop now there
+      onPointerDown={(e) => (pressed.current = e.target === e.currentTarget)}
+      onClick={(e) => pressed.current && e.target === e.currentTarget && onClose()}
+    >
       <div className="card report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-title">
         <h2 id="report-title">回報{where}錯字</h2>
         {!signedIn ? (
