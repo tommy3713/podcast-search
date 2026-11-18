@@ -114,9 +114,28 @@ const OWN_LABEL = new RegExp(String.raw`^\s*${EPISODE_LIST}[：:｜|]\s*`, 'i');
 const ONLY_EPISODES = new RegExp(String.raw`^\s*${EPISODE_LIST}$`, 'i');
 // Prose that opens with episodes ("EP709 說…"), dropped when they are exactly the label's
 const LEADING_EPISODES = new RegExp(String.raw`^\s*${EPISODE_LIST}`, 'i');
+// A line answering "which episode" by naming it ("是 EP700。主委說…", "就是 EP693，他說…",
+// "是 EP691 這集聊的。", "是 EP700 [1]"), which under its label read "EP700 是 EP700" (13 of 285
+// answers in an eval run). Dropped with the punctuation after it when the episodes are exactly
+// the label's and the sentence ends there: punctuation not followed by another episode, or
+// the end of the line's text with a citation or nothing after it (not bold), so
+// "是 EP700 跟 EP701 都有", "是 EP700 **提到的**" and "是 EP700，EP701 也有" stay whole.
+const ANSWER_EPISODES = new RegExp(
+  String.raw`^\s*(?:答案)?(?:就|應該|主要|則|也)?(?:是在|是|在)\s*(${EPISODE_LIST})(?:這一?集(?:聊的|講的|說的|提到的)?)?\s*(?:([。．.，,；;：:])\s*|$)`,
+  'i',
+);
 
-const namedIn = (text: string) =>
-  [...new Set([...text.matchAll(/(?<!\d)\d{3,4}(?!\d)(?!-\d{2}-)/g)].map((m) => Number(m[0])))].filter((n) => n < 1900).sort((a, b) => a - b);
+// Whether a run of episodes as EPISODE_LIST matches it names exactly `eps`: its numbers, a
+// date's parts (2026-11-07) left out. Never for a range, in any of ONE_EPISODE's forms
+// (EP706–709, EP709-EP710, EP709 ~ 710): it names the episodes between too, not its two ends.
+const DATES = /\d{4}-\d{2}-\d{2}/g;
+const RANGE = /\d\s*[-–—~～]\s*(?:EP\s?)?\d/i;
+function namesExactly(list: string, eps: number[]): boolean {
+  const text = list.replace(DATES, '');
+  if (RANGE.test(text)) return false;
+  const named = [...new Set([...text.matchAll(/\d{1,4}/g)].map((m) => Number(m[0])))].sort((a, b) => a - b);
+  return named.join() === eps.join();
+}
 
 export type LabeledBlock = Block & { eps: number[] };
 
@@ -135,8 +154,14 @@ export function labelBlocks(blocks: Block[], epOf: ReadonlyMap<number, number>, 
     const [first, ...rest] = b.parts;
     if (first?.kind !== 'text') return { ...b, eps };
     let text = first.text.replace(OWN_LABEL, '');
-    const lead = LEADING_EPISODES.exec(text);
-    if (eps.length && lead && namedIn(lead[0]).join() === eps.join()) text = text.slice(lead[0].length);
+    if (eps.length) {
+      const answer = ANSWER_EPISODES.exec(text);
+      const after = answer ? text.slice(answer[0].length) : '';
+      const ends = answer && (answer[2] ? !LEADING_EPISODES.test(after) : !rest[0] || rest[0].kind === 'cite');
+      const lead = LEADING_EPISODES.exec(text);
+      if (ends && namesExactly(answer[1]!, eps)) text = after;
+      else if (lead && namesExactly(lead[0], eps)) text = text.slice(lead[0].length);
+    }
     return { ...b, eps, parts: text ? [{ kind: 'text', text }, ...rest] : rest };
   });
 }

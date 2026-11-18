@@ -313,6 +313,43 @@ describe('episode labels', () => {
     expect(shown('EP709 2026-11-07 說 [1]')).toBe('EP709｜說 [1]');
   });
 
+  it('drops "是 EP709" answering which episode, which under its label read "EP709 是 EP709"', () => {
+    // as eval answers wrote it
+    expect(shown('是 EP709 [1]')).toBe('EP709｜[1]');
+    expect(shown('是 EP709。 [1]')).toBe('EP709｜[1]');
+    expect(shown('是 EP709（2026-10-31）。[1]')).toBe('EP709｜[1]');
+    expect(shown('是 EP709。主委說「我們的球隊把東京巨蛋租了下來」[1]')).toBe('EP709｜主委說「我們的球隊把東京巨蛋租了下來」[1]');
+    expect(shown('是 EP709，他說「這是我第一次就是直接跑到10公里」[1][3]')).toBe('EP709｜他說「這是我第一次就是直接跑到10公里」[1][3]');
+    expect(shown('是 EP709 這集聊的。主委在這集提到北海道 [1]')).toBe('EP709｜主委在這集提到北海道 [1]');
+    expect(shown('就是 EP706、EP709，兩集都有 [1][2]')).toBe('EP706・EP709｜兩集都有 [1][2]');
+    expect(shown('- 主要是在 EP709：他說 [1]')).toBe('- EP709｜他說 [1]');
+    // two-digit episodes too
+    expect(labeledAnswer('是 EP86。他說 [1]', new Map([[1, 86]]))).toBe('EP86｜他說 [1]');
+  });
+
+  it('keeps "是 EP…" when it says more than the label', () => {
+    // another episode than the one cited
+    expect(shown('是 EP691，他說 [1]')).toBe('EP709｜是 EP691，他說 [1]');
+    // only one of the two named is cited
+    expect(shown('是 EP709 跟 EP706 都有 [1]')).toBe('EP709｜是 EP709 跟 EP706 都有 [1]');
+    expect(shown('是 EP709、EP706。[1]')).toBe('EP709｜是 EP709、EP706。[1]');
+    // the sentence goes on after the episode
+    expect(shown('是 EP709 提到的 [1]')).toBe('EP709｜是 EP709 提到的 [1]');
+    expect(shown('在 EP709 他說 [1]')).toBe('EP709｜在 EP709 他說 [1]');
+    // bold after the episode carries the sentence on
+    expect(shown('是 EP709 **提到的** [1]')).toBe('EP709｜是 EP709 **提到的** [1]');
+    // a comma and another episode: the line names more than the label
+    expect(shown('是 EP709，EP706 也有提到 [1]')).toBe('EP709｜是 EP709，EP706 也有提到 [1]');
+    // a range is never taken for its two ends, in any of the forms a label is read in
+    expect(shown('是 EP709-710。[1][6]')).toBe('EP709・EP710｜是 EP709-710。[1][6]');
+    expect(shown('是 EP709–710。[1][6]')).toBe('EP709・EP710｜是 EP709–710。[1][6]');
+    expect(shown('是 EP709 ~ 710。[1][6]')).toBe('EP709・EP710｜是 EP709 ~ 710。[1][6]');
+    expect(shown('EP709-EP710 都有聊 [6]')).toBe('EP710｜EP709-EP710 都有聊 [6]');
+    expect(shown('EP709–710 都有聊 [1][6]')).toBe('EP709・EP710｜EP709–710 都有聊 [1][6]');
+    // a line without a citation keeps what the model wrote
+    expect(shown('是 EP709。')).toBe('是 EP709。');
+  });
+
   it('writes the page’s text for the log and the judge, and the eval’s without labels', () => {
     const raw = '主委聊過：\n- EP706：911 [1]\n- **GTS** [2][4]\n找不到別的 [9]';
     expect(shown(raw)).toBe('主委聊過：\n- EP709｜911 [1]\n- EP701・EP706｜**GTS** [2][4]\n找不到別的');
