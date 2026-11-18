@@ -45,6 +45,11 @@ export class AnswerRecorder {
     });
   }
 
+  // Every source the searches sent, by number (the showcase keeps some of the uncited ones)
+  allSources(): Source[] {
+    return [...this.sources.values()].sort((a, b) => a.n - b.n);
+  }
+
   // The answer with each line's episode label, as the page shows it
   labeled(): string {
     return labeledAnswer(this.text, this.episodes);
