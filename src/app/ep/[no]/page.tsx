@@ -9,7 +9,7 @@ import { adjacentEpisodes, episodeIndex, episodesByNo, getEpisode, parseEpisodeN
 import { formatDate, groupParagraphs, minutes } from '@/lib/format';
 import { pageHref, pageOfIndex } from '@/lib/paging';
 import { relatedEpisodes } from '@/lib/related';
-import { episodeDescription, episodeJsonLd, episodeTitle, SHARE_IMAGE, SITE_NAME } from '@/lib/seo';
+import { episodeDescription, episodeJsonLd, episodeTitle, SITE_NAME } from '@/lib/seo';
 import { stockIndex } from '@/lib/stock-pages';
 import { sponsorHref, sponsorOf } from '@/lib/sponsors';
 import { TOPIC_CATEGORIES, topicHref, topicOf } from '@/lib/topics';
@@ -41,9 +41,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       siteName: SITE_NAME,
       locale: 'zh_TW',
       publishedTime: ep.publishedAt,
-      images: [SHARE_IMAGE],
+      // No images: the episode's own share image (opengraph-image.tsx beside this) fills them in
     },
-    twitter: { card: 'summary_large_image', title, description, images: [SHARE_IMAGE] },
+    twitter: { card: 'summary_large_image', title, description },
   };
 }
 
