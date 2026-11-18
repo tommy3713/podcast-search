@@ -3,16 +3,14 @@ import { TAIPEI_OFFSET_MS } from './format.ts';
 
 // 歷史上的今天 on the home page: for each earlier year, the live episode released nearest to
 // today's month and day (Taipei), within ON_THIS_DAY_WINDOW days, with what it was about at a
-// glance: its line, first key points (timestamps link into it) and stocks. Newest year first.
+// glance: its line, first key points (timestamps link into it) and stocks. Every earlier year
+// back to the show's first, newest first (OnThisDay.tsx writes a CSS rule per year's panel).
 // Two episodes a week (Wednesday and Saturday), so a year has one within 3 days unless the
 // show was off or that stretch isn't backfilled, and then the year is left out. Two years'
 // days are 365 or more apart, so no episode is near both.
 export const ON_THIS_DAY_WINDOW = 7;
 export const ON_THIS_DAY_KEYS = 3;
 export const ON_THIS_DAY_STOCKS = 4;
-// The years shown: the newest ones with an episode near the day. globals.css has a rule per
-// year's panel (.otd-panel:nth-of-type): more years need more rules.
-export const ON_THIS_DAY_YEARS = 3;
 
 export type OnThisDay = {
   yearsAgo: number;
@@ -64,7 +62,7 @@ function pick(db: DB, today: string): OnThisDay[] {
   const picked: { id: number; yearsAgo: number }[] = [];
   // Down to the year before the oldest episode: near New Year a target's window reaches into
   // the previous calendar year
-  for (let year = thisYear - 1; year >= oldest - 1 && picked.length < ON_THIS_DAY_YEARS; year--) {
+  for (let year = thisYear - 1; year >= oldest - 1; year--) {
     const target = sameDay(today, year);
     let best: { id: number; off: number; day: number } | undefined;
     for (const r of rows) {

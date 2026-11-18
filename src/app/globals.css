@@ -128,25 +128,34 @@ h1, h2, h3 { text-wrap: balance; }
 .otd-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding-inline: 2px; }
 .otd-head h3 { margin: 0; font-family: var(--font-display); font-size: 19px; }
 .otd-tabs { padding: 0; overflow: hidden; }
-.otd-tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+/* Every earlier year is a tab: they share the width, and once they don't fit (phones, or a
+   dozen years) the row scrolls sideways, the last one cut off at the edge; OnThisDaySwipe.tsx
+   keeps the checked one in view */
+.otd-tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(76px, 1fr); border-bottom: 1px solid var(--line); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.otd-tabbar::-webkit-scrollbar { display: none; }
+/* An end with years scrolled past it fades out (OnThisDaySwipe.tsx sets which) */
+.otd-tabbar[data-before="true"] { --otd-fade-l: 28px; }
+.otd-tabbar[data-after="true"] { --otd-fade-r: 28px; }
+.otd-tabbar[data-before="true"], .otd-tabbar[data-after="true"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--otd-fade-l, 0px), #000 calc(100% - var(--otd-fade-r, 0px)), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 var(--otd-fade-l, 0px), #000 calc(100% - var(--otd-fade-r, 0px)), transparent);
+}
 .otd-tabbar label { position: relative; display: grid; justify-items: center; gap: 2px; padding: 12px 8px 10px; cursor: pointer; color: var(--muted); transition: color .2s, background .2s; }
 .otd-tabbar label + label { border-left: 1px solid var(--line); }
 .otd-tabbar label:hover { color: var(--fg); }
 .otd-tabbar input { position: absolute; opacity: 0; pointer-events: none; }
 .otd-tabbar b { font-family: var(--font-display); font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .otd-tabbar span { font-size: 12.5px; }
-.otd-tabbar label::after { content: ''; position: absolute; left: 18%; right: 18%; bottom: -1px; height: 3px; border-radius: 3px; background: var(--accent); transform: scaleX(0); transition: transform .25s cubic-bezier(.2, .7, .2, 1); }
+.otd-tabbar label::after { content: ''; position: absolute; left: 18%; right: 18%; bottom: 0; height: 3px; border-radius: 3px; background: var(--accent); transform: scaleX(0); transition: transform .25s cubic-bezier(.2, .7, .2, 1); }
 .otd-tabbar label:has(input:checked) { color: var(--accent); background: var(--accent-soft); }
 .otd-tabbar label:has(input:checked)::after { transform: scaleX(1); }
 .otd-tabbar label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -4px; }
-/* The checked year's panel, a rule per year: ON_THIS_DAY_YEARS (3) of them. Without :has (Firefox
-   before 121, Safari before 15.4) the first year shows and the tabs do nothing. */
+/* The checked year's panel: OnThisDay.tsx writes the rule per year, as many as there are years.
+   Without :has (Firefox before 121, Safari before 15.4) the first year shows and the tabs do
+   nothing. */
 .otd-panel { display: none; grid-template-columns: 150px minmax(0, 1fr); }
 .otd-panel:first-of-type { display: grid; }
 .otd-tabs:has(label:not(:first-child) input:checked) .otd-panel:first-of-type { display: none; }
-.otd-tabs:has(label:nth-child(1) input:checked) .otd-panel:nth-of-type(1),
-.otd-tabs:has(label:nth-child(2) input:checked) .otd-panel:nth-of-type(2),
-.otd-tabs:has(label:nth-child(3) input:checked) .otd-panel:nth-of-type(3) { display: grid; animation: rise .4s cubic-bezier(.2, .7, .2, 1); }
 .otd-panel-side { display: grid; place-items: center; border-right: 1px solid var(--line); background: var(--bg); overflow: hidden; }
 .otd-bigyear { font-family: var(--font-display); font-weight: 800; font-size: 54px; line-height: 1; color: var(--accent); opacity: .25; letter-spacing: -.02em; writing-mode: vertical-rl; user-select: none; font-variant-numeric: tabular-nums; }
 .otd-panel-main { padding: 18px 20px; display: grid; gap: 12px; min-width: 0; }

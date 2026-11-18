@@ -5,11 +5,17 @@ import type { OnThisDay as Item } from '@/lib/on-this-day';
 import { formatTimestamp } from '@/lib/summary';
 
 // 歷史上的今天 on the home page (src/lib/on-this-day.ts): one card, the years along its top as
-// radios (CSS shows the checked one's panel: no JavaScript), each panel the episode's date,
-// number and line (one link to it), its first key points and stocks. Wide screens get the
+// radios (CSS shows the checked one's panel: no JavaScript; the rule per year is written here,
+// since every earlier year is shown, one more each year), each panel the episode's date, number
+// and line (one link to it), its first key points and stocks. Wide screens get the
 // year large down the panel's side; phones swipe between the years (OnThisDaySwipe.tsx).
 // The links don't prefetch: dynamic /ep URLs on the home page, which most visitors load once.
 const RADIO = 'otd-year';
+
+// The checked year's panel shown: a rule per year (globals.css has the rest). Selectors only,
+// nothing from the database
+const panelRules = (n: number) =>
+  `${Array.from({ length: n }, (_, i) => `.otd-tabs:has(label:nth-child(${i + 1}) input:checked) .otd-panel:nth-of-type(${i + 1})`).join(',')}{display:grid;animation:rise .4s cubic-bezier(.2,.7,.2,1)}`;
 
 export function OnThisDay({ items, today }: { items: Item[]; today: string }) {
   if (!items.length) return null;
@@ -27,6 +33,7 @@ export function OnThisDay({ items, today }: { items: Item[]; today: string }) {
   );
   return (
     <section className="otd" aria-labelledby="otd-title">
+      <style>{panelRules(items.length)}</style>
       <div className="otd-head">
         <h3 id="otd-title">歷史上的今天</h3>
         <span className="fine">
