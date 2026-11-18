@@ -81,8 +81,10 @@ export default async function Home({ searchParams }: Props) {
             <div>
               <div className="eyebrow">最新一集</div>
               <h2>
-                EP{hero.no}
-                <EpName title={hero.title} />
+                <Link href={`/ep/${hero.no}`}>
+                  EP{hero.no}
+                  <EpName title={hero.title} />
+                </Link>
               </h2>
               <div className="meta">
                 <span>{formatDate(hero.publishedAt)}</span>
