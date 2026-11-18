@@ -8,6 +8,7 @@ import { previewParts, type SourceFocus, sourceFocus, sourceHref, termFocus } fr
 import { formatDate } from '@/lib/format';
 import { formatTimestamp } from '@/lib/summary';
 import type { ShowcaseItem } from '@/lib/ask/showcase';
+import { LoginButton } from '@/components/UserMenu';
 import { MAX_RATING_NOTE_CHARS, type Rating, RATING_ICON, RATING_LABEL, RATING_REASONS, RATINGS, type RatingReason, REASON_LABEL } from '@/lib/ask/rating';
 
 type Msg = {
@@ -25,7 +26,14 @@ type Msg = {
   ratingDone?: boolean; // 😀, or 🙁 with its reasons sent (the form for them is closed)
   ratingReasons?: RatingReason[]; // with 🙁, what was last sent
   ratingNote?: string;
+  // Asked without a login: rated under the browser's id for that Taipei day (`day`), so not on
+  // a later day, not once signed in (nor an account's answer once signed out), and never broadened
+  anon?: boolean;
+  day?: string;
 };
+
+// The Taipei day in the browser, as the server counts it (quota.ts taipeiDate)
+const taipeiToday = () => new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 
 type Props = {
   episodeCount: number;
@@ -33,9 +41,14 @@ type Props = {
   dailyLimit: number;
   logDays: number;
   examples: string[];
-  // Answers asked ahead of time behind 看範例回答 before the first question, loaded when opened
-  showcase?: boolean;
+  // Answers asked ahead of time, before the first question: shown (signed out, where they
+  // show what a question gets) or behind 看範例回答, loaded when opened ('lazy')
+  showcase?: ShowcaseItem[] | 'lazy' | null;
   initialQuestion: string;
+  // Signed out: a few questions a day without a login (ANON_DAILY_LIMIT), with a login button,
+  // and what signing in gets (USER_DAILY_LIMIT; quota.ts can't be imported here)
+  signedIn?: boolean;
+  loginLimit?: number;
 };
 
 // Keeps answers when you open a cited episode and come back; per tab, never sent anywhere
@@ -59,7 +72,7 @@ function save(msgs: Msg[]): void {
   }
 }
 
-export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examples, showcase = false, initialQuestion }: Props) {
+export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examples, showcase = null, initialQuestion, signedIn = true, loginLimit = dailyLimit }: Props) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [quota, setQuota] = useState(initialQuota);
   const [busy, setBusy] = useState(false);
@@ -107,7 +120,7 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
   // error the stream reported: the server gives a broadening back when nothing was answered).
   async function run(msg: Pick<Msg, 'q' | 'broadOf'>, body: { question: string } | { retryOf: number }): Promise<number | null> {
     const id = `${Date.now()}`;
-    setMsgs((all) => [...all, { id, ...msg, status: null, sources: {}, text: '', done: false, error: null }]);
+    setMsgs((all) => [...all, { id, ...msg, status: null, sources: {}, text: '', done: false, error: null, ...(signedIn ? {} : { anon: true, day: taipeiToday() }) }]);
     setBusy(true);
     requestAnimationFrame(() => document.getElementById(`msg-${id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
     try {
@@ -117,9 +130,10 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
         body: JSON.stringify(body),
       });
       if (!res.ok || !res.body) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string };
-        // A broadened question is free: a full site is the only 429 it gets, and that isn't the user's quota
-        if (res.status === 429 && 'question' in body) setQuota(0);
+        const err = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+        // Only their own questions running out counts them down: a full site (or, signed out, the
+        // day's share for visitors or their network's) says so in the answer's place
+        if (res.status === 429 && err.reason === 'user') setQuota(0);
         update(id, (m) => ({ ...m, error: err.error ?? '發生錯誤，請稍後再試。', done: true }));
         return res.status;
       }
@@ -183,7 +197,14 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
           <h1>問所有集數</h1>
           <div className="fine">目前收錄 {episodeCount} 集，回答會附上集數和時間點</div>
         </div>
-        <span className={`pill ${out ? 'warn' : 'info'}`}>今天剩 {quota} 次</span>
+        {signedIn ? (
+          <span className={`pill ${out ? 'warn' : 'info'}`}>今天剩 {quota} 次</span>
+        ) : (
+          <div className="ask-anon">
+            <span className={`pill ${out ? 'warn' : 'info'}`}>免登入今天剩 {quota} 題</span>
+            <LoginButton />
+          </div>
+        )}
       </div>
 
       {msgs.length === 0 && (
@@ -201,17 +222,25 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
           <p className="fine" style={{ margin: 0 }}>
             找某一集時，寫你記得的原話、人名或英文最好找；不確定是什麼時候，就不要寫時間。
           </p>
-          <p className="fine" style={{ margin: 0 }}>
-            問題會傳給 OpenAI 產生回答，問答和你給的評分會連同帳號保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
-          </p>
-          {showcase && <LazyShowcase />}
+          {signedIn ? (
+            <p className="fine" style={{ margin: 0 }}>
+              問題會傳給 OpenAI 產生回答，問答和你給的評分會連同帳號保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
+            </p>
+          ) : (
+            <p className="fine" style={{ margin: 0 }}>
+              不用登入每天可以問 {dailyLimit} 題，登入後每天 {loginLimit} 題，還能擴大搜尋。沒登入時，本站用瀏覽器的 cookie 和每天更換的代碼計算次數，不保存 IP；問題會傳給 OpenAI
+              產生回答，問答和評分保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
+            </p>
+          )}
+          {showcase === 'lazy' && <LazyShowcase />}
         </div>
       )}
+      {msgs.length === 0 && Array.isArray(showcase) && <AskShowcase items={showcase} />}
 
       <div style={{ display: 'grid', gap: 28 }}>
         {/* busy only where the button is, so the other answers keep their memo */}
         {msgs.map((m) => (
-          <Message key={m.id} m={m} busy={m.logId && !m.broadOf && !m.broadened ? busy : false} onBroaden={onBroaden} onPatch={onPatch} />
+          <Message key={m.id} m={m} busy={m.logId && !m.broadOf && !m.broadened ? busy : false} onBroaden={onBroaden} onPatch={onPatch} signedIn={signedIn} />
         ))}
       </div>
 
@@ -222,7 +251,17 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
           ask(q);
         }}
       >
-        {out && <div className="notice warn">今天的 {dailyLimit} 次用完了，明天 00:00 重置。</div>}
+        {out &&
+          (signedIn ? (
+            <div className="notice warn">今天的 {dailyLimit} 次用完了，明天 00:00 重置。</div>
+          ) : (
+            <div className="notice warn ask-anon-out">
+              <span>
+                今天免登入的 {dailyLimit} 題用完了，登入就能每天問 {loginLimit} 題。
+              </span>
+              <LoginButton />
+            </div>
+          ))}
         <div className="field">
           <input
             value={q}
@@ -253,9 +292,11 @@ const Message = memo(function Message({
   onBroaden,
   onPatch,
   example,
+  signedIn = true,
 }: {
   m: Msg;
   busy: boolean;
+  signedIn?: boolean;
   onBroaden: (m: Msg) => void;
   onPatch: (id: string, patch: Partial<Msg>) => void;
   // An answer asked ahead of time (AskShowcase): read only, so no rating and no 擴大搜尋,
@@ -311,13 +352,14 @@ const Message = memo(function Message({
         </p>
       )}
       {/* Answers kept from before ratings have no id to rate */}
-      {m.done && !m.error && m.logId && !example && <RateAnswer m={m} onPatch={onPatch} />}
+      {m.done && !m.error && m.logId && !example && !!m.anon === !signedIn && (!m.anon || m.day === taipeiToday()) && <RateAnswer m={m} onPatch={onPatch} />}
       {m.done && !m.error && (
         <NotWhatYouWanted
           others={otherSources(m.sources, citedNs)}
           found={example?.othersFound}
           // Once per question, and not on a broad answer itself; answers kept from before have no id
-          broaden={m.logId && !m.broadOf && !example ? { done: !!m.broadened, busy, go: () => onBroaden(m) } : null}
+          broaden={m.logId && !m.broadOf && !example && !m.anon && signedIn ? { done: !!m.broadened, busy, go: () => onBroaden(m) } : null}
+          loginToBroaden={!example && !signedIn}
         />
       )}
     </article>
@@ -450,10 +492,12 @@ function NotWhatYouWanted({
   others,
   found = others.length,
   broaden,
+  loginToBroaden = false,
 }: {
   others: Source[];
   found?: number;
   broaden: { done: boolean; busy: boolean; go: () => void } | null;
+  loginToBroaden?: boolean;
 }) {
   const [all, setAll] = useState(false);
   const shown = all ? others : others.slice(0, OTHER_SOURCES_SHOWN);
@@ -467,6 +511,12 @@ function NotWhatYouWanted({
               {broaden.done ? '已擴大搜尋' : '擴大搜尋'}
             </button>
             <span className="fine">不限日期、換別的說法再找一次，不扣今天的次數。每題一次。</span>
+          </div>
+        )}
+        {loginToBroaden && (
+          <div className="broaden">
+            <LoginButton />
+            <span className="fine">登入就能擴大搜尋：不限日期、換別的說法再找一次。</span>
           </div>
         )}
         {others.length > 0 && (

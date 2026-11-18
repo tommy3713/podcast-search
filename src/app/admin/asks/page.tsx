@@ -72,6 +72,13 @@ function Totals({ title, s, f }: { title: string; s: AskStats; f: AskFilter }) {
             <span className="pre">秒</span>
           </dd>
         </div>
+        <div>
+          <dt>未登入</dt>
+          <dd>
+            <Link href={href({ since: f.since, who: 'anon' })}>{s.anon ?? 0}</Link>
+            {!!s.anonFull && <span className="pre">・額度滿 {s.anonFull} 天</span>}
+          </dd>
+        </div>
         {s.broad !== undefined && (
           <div>
             <dt>擴大搜尋</dt>
@@ -185,6 +192,11 @@ export default async function AdminAsks({ searchParams }: Props) {
             </option>
           ))}
           <option value="none">回答了但沒評分</option>
+        </select>
+        <select name="who" defaultValue={f.who ?? ''} aria-label="誰問的">
+          <option value="">登入和未登入</option>
+          <option value="account">登入的帳號</option>
+          <option value="anon">未登入</option>
         </select>
         <input name="q" defaultValue={f.q ?? ''} placeholder="問題或回答裡的字" aria-label="關鍵字" />
         <label>

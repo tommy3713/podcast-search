@@ -1,13 +1,29 @@
 import { type DB, hasColumn, hasTable, toDbTime } from '../db.ts';
 import type { ToolCallLog } from './agent.ts';
+import { ADDRESS_SQL, ANON_SQL, isAnon } from './anon.ts';
 import { type Rating, RATING_REASONS, type RatingReason } from './rating.ts';
 import type { LoggedSource } from './record.ts';
 
 export const USER_DAILY_LIMIT = 20;
 export const SITE_DAILY_LIMIT = 500;
+// Without a login (anon.ts): a few a day per visitor, so they can try it before signing in,
+// and a share of the site's cap, so the questions nobody vouches for (about US$0.01 each)
+// stay within US$1 a day and can't use up what signed-in listeners get
+export const ANON_DAILY_LIMIT = 2;
+export const ANON_SITE_DAILY_LIMIT = 100;
+// One network's questions without a login a day, however many cookies it clears (and however
+// many people share its address: a mobile network's IPv4 is many people's)
+export const ADDRESS_DAILY_LIMIT = 10;
+
+// The day's limit for an account or a visitor
+export function dailyLimit(userId: string): number {
+  return isAnon(userId) ? ANON_DAILY_LIMIT : USER_DAILY_LIMIT;
+}
 // Nightly deletes ask_log rows older than this (and backups carry none); /about and /ask
 // tell users so, so change all of them together by changing this
 export const ASK_LOG_DAYS = 30;
+// Nightly deletes ask_usage rows (the daily counts) older than this
+export const USAGE_KEPT_DAYS = 7;
 
 // Days reset at 00:00 Taipei (UTC+8, no DST)
 export function taipeiDate(now = new Date()): string {
@@ -24,29 +40,51 @@ export function remaining(db: DB, userId: string, now = new Date()): number {
   const row = db.prepare('SELECT count FROM ask_usage WHERE user_id = ? AND date = ?').get(userId, taipeiDate(now)) as
     | { count: number }
     | undefined;
-  return Math.max(0, USER_DAILY_LIMIT - (row?.count ?? 0));
+  return Math.max(0, dailyLimit(userId) - (row?.count ?? 0));
 }
 
-export type QuotaResult = { ok: true; remaining: number } | { ok: false; reason: 'user' | 'site' };
+// anon_site: the day's questions without a login are used up; address: this network's are
+// (signing in still works for both)
+export type QuotaResult = { ok: true; remaining: number } | { ok: false; reason: 'user' | 'site' | 'anon_site' | 'address' };
 
-// Charged before calling any model, so a burst of requests can't overspend
-export function takeQuota(db: DB, userId: string, now = new Date()): QuotaResult {
+const used = (db: DB, key: string, date: string) =>
+  (db.prepare('SELECT count FROM ask_usage WHERE user_id = ? AND date = ?').get(key, date) as { count: number } | undefined)?.count ?? 0;
+const charge = (db: DB, key: string, date: string) =>
+  db
+    .prepare(
+      `INSERT INTO ask_usage (user_id, date, count) VALUES (?, ?, 1)
+       ON CONFLICT (user_id, date) DO UPDATE SET count = count + 1`,
+    )
+    .run(key, date);
+
+// Charged before calling any model, so a burst of requests can't overspend. A visitor without
+// a login (anon.ts) is charged on their network's key too.
+export function takeQuota(db: DB, userId: string, now = new Date(), address?: string): QuotaResult {
   const date = taipeiDate(now);
   return db.transaction((): QuotaResult => {
     if (siteUsed(db, date) >= SITE_DAILY_LIMIT) return { ok: false, reason: 'site' };
-    const used = (db.prepare('SELECT count FROM ask_usage WHERE user_id = ? AND date = ?').get(userId, date) as { count: number } | undefined)?.count ?? 0;
-    if (used >= USER_DAILY_LIMIT) return { ok: false, reason: 'user' };
-    db.prepare(
-      `INSERT INTO ask_usage (user_id, date, count) VALUES (?, ?, 1)
-       ON CONFLICT (user_id, date) DO UPDATE SET count = count + 1`,
-    ).run(userId, date);
-    return { ok: true, remaining: USER_DAILY_LIMIT - used - 1 };
+    const mine = used(db, userId, date);
+    const limit = dailyLimit(userId);
+    if (mine >= limit) return { ok: false, reason: 'user' };
+    if (isAnon(userId)) {
+      if (anonUsed(db, date) >= ANON_SITE_DAILY_LIMIT) return { ok: false, reason: 'anon_site' };
+      if (!address || used(db, address, date) >= ADDRESS_DAILY_LIMIT) return { ok: false, reason: 'address' };
+      charge(db, address, date);
+    }
+    charge(db, userId, date);
+    return { ok: true, remaining: limit - mine - 1 };
   }).immediate();
+}
+
+// Questions asked without a login on a Taipei day
+export function anonUsed(db: DB, date: string): number {
+  return (db.prepare(`SELECT COALESCE(SUM(count), 0) AS n FROM ask_usage WHERE date = ? AND ${ANON_SQL()}`).get(date) as { n: number }).n;
 }
 
 // Questions and broadened ones the site answered on a Taipei day: the cap is on what it spends
 function siteUsed(db: DB, date: string): number {
-  const asked = (db.prepare('SELECT COALESCE(SUM(count), 0) AS n FROM ask_usage WHERE date = ?').get(date) as { n: number }).n;
+  // A visitor's question is on their row and their network's: counted once
+  const asked = (db.prepare(`SELECT COALESCE(SUM(count), 0) AS n FROM ask_usage WHERE date = ? AND NOT ${ADDRESS_SQL()}`).get(date) as { n: number }).n;
   // Absent until the release that added 擴大搜尋 has migrated (a local snapshot, or mid-deploy)
   if (!hasTable(db, 'ask_retries')) return asked;
   return asked + (db.prepare('SELECT COUNT(*) AS n FROM ask_retries WHERE date = ?').get(date) as { n: number }).n;
@@ -146,8 +184,10 @@ export function searchedBefore(toolCalls: string | null, sources: string | null)
 }
 
 // Given back when the answer failed for reasons that aren't the user's
-export function refundQuota(db: DB, userId: string, now = new Date()): void {
-  db.prepare('UPDATE ask_usage SET count = MAX(0, count - 1) WHERE user_id = ? AND date = ?').run(userId, taipeiDate(now));
+export function refundQuota(db: DB, userId: string, now = new Date(), address?: string): void {
+  const refund = db.prepare('UPDATE ask_usage SET count = MAX(0, count - 1) WHERE user_id = ? AND date = ?');
+  refund.run(userId, taipeiDate(now));
+  if (address) refund.run(address, taipeiDate(now));
 }
 
 // answered: cites at least one source. no_source: answered without citing anything,
@@ -203,6 +243,8 @@ export function logAsk(db: DB, e: AskLogEntry): number | null {
 // A user over the limit may keep retrying; only the first rejection of their day is kept,
 // so the log stays bounded and `quota` counts people turned away, not retries
 export function logQuotaRejection(db: DB, userId: string, question: string, now = new Date()): void {
+  // Visitors' ids cost nothing to make, so their rejections would be rows without end
+  if (isAnon(userId)) return;
   const dayStart = toDbTime(taipeiDayStart(taipeiDate(now)));
   try {
     const seen = db.prepare(`SELECT 1 FROM ask_log WHERE created_at >= ? AND user_id = ? AND outcome = 'quota'`).get(dayStart, userId);

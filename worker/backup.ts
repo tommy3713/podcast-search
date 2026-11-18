@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
 import { AwsClient } from 'aws4fetch';
 import { countLiveEpisodes, type DB, hasTable, openDb } from '@/lib/db.ts';
+import { ADDRESS_SQL, ANON_SQL } from '@/lib/ask/anon.ts';
 import { isProduction } from '@/lib/env.ts';
 import { WORK_DIR } from './config.ts';
 
@@ -58,6 +59,9 @@ export function stripAskLog(file: string): void {
     db.exec('DELETE FROM ask_log');
     // ask_log ids start over in a restore, so a kept row would block a new question's 擴大搜尋
     if (hasTable(db, 'ask_retries')) db.exec('DELETE FROM ask_retries');
+    // Nor the day's counts of visitors without a login and their networks (anon.ts): an
+    // address key is an HMAC of an address, kept USAGE_KEPT_DAYS live and nowhere else
+    db.exec(`DELETE FROM ask_usage WHERE ${ANON_SQL()} OR ${ADDRESS_SQL()}`);
     // Nor who sent a typo report (kept ASK_LOG_DAYS on the live database, like a question)
     if (db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'typo_reports'`).get()) db.exec('UPDATE typo_reports SET user_id = NULL');
     // Nor who sent feedback, or their email (kept FEEDBACK_KEEP_DAYS on the live database)

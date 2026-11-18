@@ -30,7 +30,7 @@ describe('askStats', () => {
     ask('2026-10-20T05:00:00Z', 'u3', 'answered'); // before the window
 
     const s = askStats(db, new Date('2026-10-30T00:00:00Z'));
-    expect(s).toEqual({ asks: 4, users: 2, answered: 1, no_source: 1, moderated: 0, quota: 1, failed: 1, cost_usd: 0.03, avg_ms: 5000, broad: 0, good: 0, bad: 0, rateable: 2 });
+    expect(s).toEqual({ asks: 4, users: 2, answered: 1, no_source: 1, moderated: 0, quota: 1, failed: 1, cost_usd: 0.03, avg_ms: 5000, broad: 0, good: 0, bad: 0, rateable: 2, anon: 0, anonFull: 0, anonFullCut: true });
     expect(unanswered(db, new Date('2026-10-30T00:00:00Z'))).toEqual([{ day: '2026-11-01', question: '主委喜歡什麼顏色' }]);
   });
 
