@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type DB, openDb } from '@/lib/db';
-import { ON_THIS_DAY_KEYS, ON_THIS_DAY_STOCKS, ON_THIS_DAY_YEARS, onThisDay } from '@/lib/on-this-day';
+import { ON_THIS_DAY_KEYS, ON_THIS_DAY_STOCKS, onThisDay } from '@/lib/on-this-day';
 
 let db: DB;
 beforeEach(() => {
@@ -36,17 +36,21 @@ describe('onThisDay', () => {
     ]);
   });
 
-  it('shows the newest three years that have one, skipping a year without', () => {
-    expect(ON_THIS_DAY_YEARS).toBe(3);
+  it('shows every earlier year that has one, back to the first, skipping a year without', () => {
     add(1, '2025-11-18');
     add(2, '2023-11-18');
     add(3, '2022-11-18');
     add(4, '2021-11-18');
+    add(5, '2020-11-18');
+    add(6, '2019-11-18');
     // 2024 has none
     expect(picks('2026-11-18')).toEqual([
       [1, 1],
       [3, 2],
       [4, 3],
+      [5, 4],
+      [6, 5],
+      [7, 6],
     ]);
   });
 

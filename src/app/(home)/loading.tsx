@@ -31,7 +31,8 @@ export default function HomeLoading() {
           </div>
           <div className="card otd-tabs">
             <div className="otd-tabbar">
-              {Array.from({ length: 3 }, (_, i) => (
+              {/* As many years as the show has before this one, give or take */}
+              {Array.from({ length: 6 }, (_, i) => (
                 <div key={i} style={{ display: 'grid', justifyItems: 'center', gap: 6, padding: '12px 8px 10px' }}>
                   <Bar w={60} h={22} />
                   <Bar w={40} h={12} />
