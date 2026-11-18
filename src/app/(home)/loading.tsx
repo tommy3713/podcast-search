@@ -25,6 +25,22 @@ export default function HomeLoading() {
             <Bar w="80%" />
           </div>
         </div>
+        <div className="otd">
+          <div className="otd-head">
+            <Bar w={90} h={19} />
+          </div>
+          <div className="otd-track">
+            {Array.from({ length: 3 }, (_, i) => (
+              <div className="card otd-card" key={i}>
+                <Bar w="60%" h={20} />
+                <Bar w="85%" h={16} />
+                <Bar w="95%" h={13} />
+                <Bar w="90%" h={13} />
+                <Bar w="80%" h={13} />
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="card list">
           <div className="list-head">
             <Bar w={120} h={16} />

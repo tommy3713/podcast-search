@@ -1,6 +1,6 @@
 import type { Segment } from './segments.ts';
 
-const TAIPEI_OFFSET_MS = 8 * 3600_000;
+export const TAIPEI_OFFSET_MS = 8 * 3600_000;
 const WEEKDAYS = '日一二三四五六';
 
 function taipei(iso: string): Date {

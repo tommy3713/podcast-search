@@ -5,12 +5,16 @@ import { Fragment } from 'react';
 import { redirect } from 'next/navigation';
 import { Badge, EpName } from '@/components/Badge';
 import { EpisodeRow } from '@/components/EpisodeRow';
+import { OnThisDay } from '@/components/OnThisDay';
 import { Pager } from '@/components/Pager';
 import { countEpisodes, getEpisode, latestEpisodeNo, listEpisodes, oldestEpisodeNo } from '@/lib/episodes';
 import { formatDate, minutes, monthLabel } from '@/lib/format';
+import { taipeiDate } from '@/lib/ask/quota';
+import { onThisDay } from '@/lib/on-this-day';
 import { clampPage, PER_PAGE, pageCount, pageOffset } from '@/lib/paging';
 import { SEARCH_MAX_CHARS } from '@/lib/search-limits';
 import { SITE_NAME, shareMetadata } from '@/lib/seo';
+import { readDb } from '@/lib/server-db';
 import { formatTimestamp } from '@/lib/summary';
 
 type Props = { searchParams: Promise<{ page?: string; ep?: string }> };
@@ -56,6 +60,9 @@ export default async function Home({ searchParams }: Props) {
   const items = await listEpisodes(PER_PAGE, pageOffset(page));
   const latestNo = (await latestEpisodeNo())!;
   const hero = page === 1 ? await getEpisode(latestNo) : null;
+  // 那年今日 on the first page only
+  const today = taipeiDate();
+  const pastYears = page === 1 ? onThisDay(await readDb(), today) : [];
 
   let month = '';
   return (
@@ -112,6 +119,8 @@ export default async function Home({ searchParams }: Props) {
           </div>
         </article>
       )}
+
+      <OnThisDay items={pastYears} today={today} />
 
       {items.length > 0 && (
         <section className="card list" id="ep-list">
