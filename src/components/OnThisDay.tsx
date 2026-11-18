@@ -1,16 +1,30 @@
 import Link from 'next/link';
+import { OnThisDaySwipe } from '@/components/OnThisDaySwipe';
 import { formatDate } from '@/lib/format';
 import type { OnThisDay as Item } from '@/lib/on-this-day';
 import { formatTimestamp } from '@/lib/summary';
 
 // 那年今日 on the home page (src/lib/on-this-day.ts): one card, the years along its top as
 // radios (CSS shows the checked one's panel: no JavaScript), each panel the episode's date,
-// number and line (one link to it), its first key points and stocks. Wide screens get the year
-// large down the panel's side. The links don't prefetch: dynamic /ep URLs on the home page,
-// which most visitors load once.
+// number and line (one link to it), its first key points and stocks. Wide screens get the
+// year large down the panel's side; phones swipe between the years (OnThisDaySwipe.tsx).
+// The links don't prefetch: dynamic /ep URLs on the home page, which most visitors load once.
+const RADIO = 'otd-year';
+
 export function OnThisDay({ items, today }: { items: Item[]; today: string }) {
   if (!items.length) return null;
   const [, m, d] = today.split('-');
+  const tabs = (
+    <div className="otd-tabbar" role="radiogroup" aria-label="選年份">
+      {items.map((x, i) => (
+        <label key={x.no}>
+          <input type="radio" name={RADIO} value={x.no} defaultChecked={i === 0} />
+          <b>{x.year}</b>
+          <span>{x.yearsAgo} 年前</span>
+        </label>
+      ))}
+    </div>
+  );
   return (
     <section className="otd" aria-labelledby="otd-title">
       <div className="otd-head">
@@ -18,17 +32,13 @@ export function OnThisDay({ items, today }: { items: Item[]; today: string }) {
         <span className="fine">
           {Number(m)}/{Number(d)}・往年這幾天的集數
         </span>
+        {items.length > 1 && (
+          <span className="fine otd-hint" aria-hidden="true">
+            左右滑動切換年份
+          </span>
+        )}
       </div>
-      <div className="card otd-tabs">
-        <div className="otd-tabbar" role="radiogroup" aria-label="選年份">
-          {items.map((x, i) => (
-            <label key={x.no}>
-              <input type="radio" name="otd-year" value={x.no} defaultChecked={i === 0} />
-              <b>{x.year}</b>
-              <span>{x.yearsAgo} 年前</span>
-            </label>
-          ))}
-        </div>
+      <OnThisDaySwipe name={RADIO} tabs={tabs}>
         {items.map((x) => (
           <article key={x.no} className="otd-panel">
             <div className="otd-panel-side" aria-hidden="true">
@@ -67,7 +77,7 @@ export function OnThisDay({ items, today }: { items: Item[]; today: string }) {
             </div>
           </article>
         ))}
-      </div>
+      </OnThisDaySwipe>
     </section>
   );
 }
