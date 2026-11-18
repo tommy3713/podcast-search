@@ -1,15 +1,17 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import Link from 'next/link';
 import { AskShowcase, AskView } from '@/components/AskView';
 import { LoginButton } from '@/components/UserMenu';
 import { MAX_QUESTION_CHARS } from '@/lib/ask/agent';
-import { ASK_LOG_DAYS, remaining, USER_DAILY_LIMIT } from '@/lib/ask/quota';
+import { anonAllowed, anonToken, anonVisitor, clientAddress, cookieValue } from '@/lib/ask/anon';
+import { ANON_DAILY_LIMIT, ASK_LOG_DAYS, remaining, taipeiDate, USER_DAILY_LIMIT } from '@/lib/ask/quota';
 import { showcase } from '@/lib/ask/showcase';
 import { currentUser } from '@/lib/auth';
 import { countEpisodes } from '@/lib/episodes';
 import { readDb } from '@/lib/server-db';
 
-// Answers need a login and differ per question; nothing here belongs in search results
+// Answers differ per question and visitor; nothing here belongs in search results
 export const metadata: Metadata = { title: 'AI問答', robots: { index: false, follow: true } };
 
 const EXAMPLES = ['孟恭最近喜歡做的運動是什麼？', '主委推薦過哪些電影或影集？', '主委對 Anthropic IPO 的看法？', '主委去新加坡環球影城是哪一集？'];
@@ -32,9 +34,29 @@ export default async function AskPage({ searchParams }: { searchParams: Promise<
   const [user, count] = await Promise.all([currentUser(), countEpisodes()]);
   const question = initialQuestion((await searchParams).q);
   const examples = showcase();
+  // Signed out, a few questions a day under the browser's id for the day (anon.ts); one that
+  // hasn't asked yet has no cookie and all of them left
+  const h = await headers();
+  const address = user ? null : clientAddress(h);
+  if (!user && anonAllowed(address)) {
+    const visitor = anonVisitor(anonToken(cookieValue(h)), address, taipeiDate());
+    return (
+      <AskView
+        episodeCount={count}
+        initialQuota={visitor ? remaining(await readDb(), visitor.id) : ANON_DAILY_LIMIT}
+        dailyLimit={ANON_DAILY_LIMIT}
+        loginLimit={USER_DAILY_LIMIT}
+        logDays={ASK_LOG_DAYS}
+        examples={EXAMPLES}
+        showcase={examples}
+        initialQuestion={question}
+        signedIn={false}
+      />
+    );
+  }
   if (!user) {
-    // Was only this login card, and most visitors left there: the asked-ahead answers show
-    // what a question gets before anyone signs in
+    // No address to count a visitor by (live, a request that didn't come through Cloudflare):
+    // the login card, with the asked-ahead answers showing what a question gets
     return (
       <div className="ask">
         <div className="ask-head">
@@ -59,5 +81,5 @@ export default async function AskPage({ searchParams }: { searchParams: Promise<
       </div>
     );
   }
-  return <AskView episodeCount={count} initialQuota={remaining(await readDb(), user.id)} dailyLimit={USER_DAILY_LIMIT} logDays={ASK_LOG_DAYS} examples={EXAMPLES} showcase={examples.length > 0} initialQuestion={question} />;
+  return <AskView episodeCount={count} initialQuota={remaining(await readDb(), user.id)} dailyLimit={USER_DAILY_LIMIT} logDays={ASK_LOG_DAYS} examples={EXAMPLES} showcase={examples.length > 0 ? 'lazy' : null} initialQuestion={question} />;
 }

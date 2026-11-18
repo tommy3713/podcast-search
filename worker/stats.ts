@@ -1,12 +1,12 @@
 import { type AskStats, NOTE_LABEL, ratingColumns, RECORDED, searchSteps, shortUser, totals } from '@/lib/ask/log.ts';
-import { ASK_LOG_DAYS, taipeiDayStart } from '@/lib/ask/quota.ts';
+import { ANON_SITE_DAILY_LIMIT, ASK_LOG_DAYS, taipeiDayStart, USAGE_KEPT_DAYS } from '@/lib/ask/quota.ts';
 import { isRating, parseReasons, RATING_ICON, reasonText } from '@/lib/ask/rating.ts';
 import { type DB, hasColumn, hasTable, toDbTime } from '@/lib/db.ts';
 import type { TaipeiTime } from './schedule.ts';
 
 export function purgeAskLog(db: DB): number {
   const r = db.prepare(`DELETE FROM ask_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)`).run(`-${ASK_LOG_DAYS} days`);
-  db.prepare(`DELETE FROM ask_usage WHERE date < date('now', '-7 days')`).run();
+  db.prepare(`DELETE FROM ask_usage WHERE date < date('now', '-${USAGE_KEPT_DAYS} days')`).run();
   // Broadened questions go with the questions (absent before the release that added it)
   if (hasTable(db, 'ask_retries')) {
     db.prepare('DELETE FROM ask_retries WHERE ask_id NOT IN (SELECT id FROM ask_log)').run();
@@ -93,6 +93,10 @@ export function formatStats(title: string, s: AskStats, questions: { day: string
   const lines = [
     `📊 ${title}`,
     `共 ${s.asks} 題・${s.users} 人`,
+    // A visitor without a login is a new id each day, so `users` counts them once a day
+    ...(s.anon
+      ? [`👤 未登入 ${s.anon} 題${s.anonFull ? `・額度用滿 ${s.anonFull} 天（${ANON_SITE_DAILY_LIMIT} 題／天${s.anonFullCut ? `；只算得到最近 ${USAGE_KEPT_DAYS} 天` : ''}）` : ''}`]
+      : []),
     `✅ 有出處 ${s.answered}・❓ 沒出處 ${s.no_source}・🚫 不當內容 ${s.moderated}・⛔ 配額已滿 ${s.quota}・❌ 失敗 ${s.failed}`,
     // Not among the questions above; their cost is in the line below
     ...(s.broad ? [`🔁 擴大搜尋 ${s.broad}（聽眾覺得第一次的回答不是他要的）`] : []),

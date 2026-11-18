@@ -254,6 +254,8 @@ mark.cur { background: var(--warn); color: var(--surface); }
 .ask { max-width: 820px; margin: 0 auto; display: grid; gap: 18px; }
 .ask-head { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; justify-content: space-between; }
 .ask-head h1 { margin: 0; font-family: var(--font-display); font-size: 28px; }
+.ask-anon { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ask-anon-out { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .gate { padding: 28px; display: grid; gap: 12px; justify-items: start; }
 .gate h2 { margin: 0; font-family: var(--font-display); font-size: 22px; }
 .msg { display: grid; gap: 12px; }

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { currentUser } from '@/lib/auth';
-import { ASK_LOG_DAYS, rateAsk, type RateResult } from '@/lib/ask/quota';
+import { anonToken, anonVisitor, clientAddress, cookieValue } from '@/lib/ask/anon';
+import { ASK_LOG_DAYS, rateAsk, type RateResult, taipeiDate } from '@/lib/ask/quota';
 import { MAX_RATING_NOTE_CHARS, RATING_REASONS, RATINGS } from '@/lib/ask/rating';
 import { writeDb } from '@/lib/server-db';
 
@@ -20,7 +21,7 @@ const Body = z
   .strict();
 
 const REFUSED: Record<Exclude<RateResult, { ok: true }>['reason'], [number, string]> = {
-  missing: [404, `找不到這個回答（問答保留 ${ASK_LOG_DAYS} 天）。`],
+  missing: [404, `找不到這個回答（問答保留 ${ASK_LOG_DAYS} 天；沒登入時只能評同一個瀏覽器當天的回答）。`],
   unfinished: [409, '這個問題沒有回答完，不能評分。'],
   unavailable: [503, '評分暫時不能用，請稍後再試。'],
 };
@@ -35,8 +36,9 @@ export async function POST(req: Request) {
   const origin = req.headers.get('origin');
   if (origin && new URL(origin).host !== req.headers.get('host')) return json(403, { error: '來源不符' });
 
-  const user = await currentUser();
-  if (!user) return json(401, { error: '請先登入' });
+  // Signed out, an answer is the visitor's own while their id is the same: that Taipei day
+  const userId = (await currentUser())?.id ?? anonVisitor(anonToken(cookieValue(req.headers)), clientAddress(req.headers), taipeiDate())?.id;
+  if (!userId) return json(401, { error: '請先登入' });
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     // The page sends only what it offers, so the note's length is the one thing a listener can get wrong
@@ -44,7 +46,7 @@ export async function POST(req: Request) {
     return json(400, { error: note ? `補充說明請在 ${MAX_RATING_NOTE_CHARS} 字以內` : '評分沒有送出，請重新整理頁面再試。' });
   }
 
-  const r = rateAsk(await writeDb(), user.id, parsed.data.id, parsed.data);
+  const r = rateAsk(await writeDb(), userId, parsed.data.id, parsed.data);
   if (!r.ok) {
     const [status, error] = REFUSED[r.reason];
     return json(status, { error });

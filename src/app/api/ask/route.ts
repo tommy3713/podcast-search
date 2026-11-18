@@ -1,7 +1,8 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { answer, type AskEvent, ASK_MODEL, ASK_TIMEOUT_MS, BROAD_TIMEOUT_MS, MAX_QUESTION_CHARS, newTrace, readCoverage } from '@/lib/ask/agent';
-import { type AskOutcome, type Broaden, logAsk, logQuotaRejection, refundQuota, refundRetry, remaining, type RetryResult, taipeiDate, takeQuota, takeRetry } from '@/lib/ask/quota';
+import { anonCookie, anonToken, cookieValue, anonVisitor, clientAddress, newAnonToken } from '@/lib/ask/anon';
+import { ANON_DAILY_LIMIT, type AskOutcome, type Broaden, logAsk, logQuotaRejection, refundQuota, refundRetry, remaining, type RetryResult, taipeiDate, takeQuota, takeRetry, USER_DAILY_LIMIT } from '@/lib/ask/quota';
 import { askCost } from '@/lib/cost';
 import { AnswerRecorder } from '@/lib/ask/record';
 import { currentUser } from '@/lib/auth';
@@ -22,6 +23,16 @@ const RETRY_REFUSED: Record<Exclude<RetryResult, { ok: true }>['reason'], [numbe
   unavailable: [503, '擴大搜尋暫時不能用，請稍後再試。'],
 };
 
+const QUOTA_REFUSED: Record<Exclude<ReturnType<typeof takeQuota>, { ok: true }>['reason'], (anonymous: boolean) => string> = {
+  user: (anonymous) =>
+    anonymous
+      ? `今天免登入的 ${ANON_DAILY_LIMIT} 題用完了，登入就能每天問 ${USER_DAILY_LIMIT} 題。`
+      : '今天的問答次數用完了，明天 00:00 重置。',
+  anon_site: () => `今天免登入的名額已滿，登入就能每天問 ${USER_DAILY_LIMIT} 題。`,
+  address: () => `這個網路今天免登入的名額已滿，登入就能每天問 ${USER_DAILY_LIMIT} 題。`,
+  site: () => '今天全站的問答次數已滿，明天再來。',
+};
+
 const json = (status: number, body: Record<string, unknown>) => Response.json(body, { status });
 
 export async function POST(req: Request) {
@@ -31,7 +42,15 @@ export async function POST(req: Request) {
   const origin = req.headers.get('origin');
   if (origin && new URL(origin).host !== req.headers.get('host')) return json(403, { error: '來源不符' });
 
-  const user = await currentUser();
+  // Signed out, a visitor gets a few questions a day under an id made from their address and
+  // the day (anon.ts); without an address to count by, they sign in
+  const account = await currentUser();
+  // A browser without the cookie gets a token here, sent back with the answer
+  const cookieToken = account ? null : anonToken(cookieValue(req.headers));
+  const token = account ? null : (cookieToken ?? newAnonToken());
+  const anonymous = account ? null : anonVisitor(token, clientAddress(req.headers), taipeiDate());
+  const user = account ?? (anonymous ? { id: anonymous.id } : null);
+  const setCookie: Record<string, string> = token && token !== cookieToken && anonymous ? { 'Set-Cookie': anonCookie(token) } : {};
   if (!user) return json(401, { error: '請先登入' });
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return json(400, { error: `問題請在 ${MAX_QUESTION_CHARS} 字以內` });
@@ -43,6 +62,8 @@ export async function POST(req: Request) {
   let broaden: (Broaden & { of: number }) | null = null;
   let left: number;
   if ('retryOf' in parsed.data) {
+    // Half again as many searches, not counted against a quota: for accounts only
+    if (anonymous) return json(403, { error: '登入就能擴大搜尋。' });
     const of = parsed.data.retryOf;
     const r = takeRetry(wdb, user.id, of);
     if (!r.ok) {
@@ -54,10 +75,11 @@ export async function POST(req: Request) {
     left = remaining(wdb, user.id);
   } else {
     question = parsed.data.question;
-    const quota = takeQuota(wdb, user.id);
+    const quota = takeQuota(wdb, user.id, undefined, anonymous?.address);
     if (!quota.ok) {
       logQuotaRejection(wdb, user.id, question);
-      return json(429, { error: quota.reason === 'user' ? '今天的問答次數用完了，明天 00:00 重置。' : '今天全站的問答次數已滿，明天再來。' });
+      // reason: the page counts its own questions down only when they are what ran out
+      return Response.json({ error: QUOTA_REFUSED[quota.reason](!!anonymous), reason: quota.reason }, { status: 429, headers: setCookie });
     }
     left = quota.remaining;
   }
@@ -113,7 +135,7 @@ export async function POST(req: Request) {
         // than a first answer (half again as many searches in half again the time), it would
         // otherwise use up the question's one try
         if (broaden) refundRetry(wdb, broaden.of);
-        else if (!answered) refundQuota(wdb, user.id);
+        else if (!answered) refundQuota(wdb, user.id, undefined, anonymous?.address);
         const timedOut = signal.aborted && !req.signal.aborted;
         outcome = timedOut ? 'timeout' : req.signal.aborted ? 'aborted' : 'error';
         const what = timedOut ? `回答超過 ${timeoutMs / 1000} 秒，已中斷。` : '回答時發生錯誤。';
@@ -142,6 +164,7 @@ export async function POST(req: Request) {
 
   return new Response(body, {
     headers: {
+      ...setCookie,
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       'X-Accel-Buffering': 'no',

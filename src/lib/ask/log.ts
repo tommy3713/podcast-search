@@ -4,7 +4,8 @@
 import { createHash } from 'node:crypto';
 import { type DB, hasColumn, toDbTime } from '../db.ts';
 import { likePattern } from '../fts.ts';
-import { taipeiDate, taipeiDayStart } from './quota.ts';
+import { ANON_PREFIX, ANON_SQL, isAnon } from './anon.ts';
+import { ANON_SITE_DAILY_LIMIT, taipeiDate, taipeiDayStart, USAGE_KEPT_DAYS } from './quota.ts';
 import { isRating, parseReasons, type Rating, type RatingReason } from './rating.ts';
 import type { LoggedSource } from './record.ts';
 import { describeMentionSearch, describeTranscriptSearch } from './search.ts';
@@ -50,6 +51,9 @@ export type AskStats = {
   good: number; // answers rated 😀 / 🙁 (a broad one too)
   bad: number;
   rateable?: number; // finished answers (a broad one too): what good and bad are out of (askStats only)
+  anon?: number; // of `asks`, asked without a login (askStats only)
+  anonFull?: number; // Taipei days in the span whose questions without a login hit ANON_SITE_DAILY_LIMIT (askStats only)
+  anonFullCut?: boolean; // the span reaches past the 7 days ask_usage keeps, so anonFull counts only those
 };
 
 export function askStats(db: DB, since: Date): AskStats {
@@ -57,9 +61,25 @@ export function askStats(db: DB, since: Date): AskStats {
   const { rateable } = db
     .prepare(`SELECT COUNT(*) AS rateable FROM ask_log WHERE created_at >= ? AND outcome IN ('answered', 'no_source')`)
     .get(toDbTime(since)) as { rateable: number };
-  if (!hasColumn(db, 'ask_log', 'retry_of')) return { ...s, rateable };
+  const first = hasColumn(db, 'ask_log', 'retry_of') ? 'retry_of IS NULL' : '1';
+  const { anon } = db
+    .prepare(`SELECT COUNT(*) AS anon FROM ask_log WHERE created_at >= ? AND ${RECORDED} AND ${first} AND ${ANON_SQL()}`)
+    .get(toDbTime(since)) as { anon: number };
+  // A day whose count reached the cap; a full cap day after day is someone using it up.
+  // ask_usage keeps 7 days (rollupAskDaily's purge), so a longer span is cut to them.
+  const kept = taipeiDate(new Date(Date.now() - (USAGE_KEPT_DAYS - 1) * 86_400_000));
+  const from = taipeiDate(since) < kept ? kept : taipeiDate(since);
+  const { anonFull } = db
+    .prepare(
+      `SELECT COUNT(*) AS anonFull FROM (
+         SELECT date FROM ask_usage WHERE date >= ? AND ${ANON_SQL()} GROUP BY date HAVING SUM(count) >= ?
+       )`,
+    )
+    .get(from, ANON_SITE_DAILY_LIMIT) as { anonFull: number };
+  const extra = { rateable, anon, anonFull, anonFullCut: from !== taipeiDate(since) };
+  if (!hasColumn(db, 'ask_log', 'retry_of')) return { ...s, ...extra };
   const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ask_log WHERE created_at >= ? AND ${RECORDED} AND retry_of IS NOT NULL`).get(toDbTime(since)) as { n: number };
-  return { ...s, broad: n, rateable };
+  return { ...s, broad: n, ...extra };
 }
 
 export type AskDay = { date: string; asks: number; answered: number; no_source: number; failed: number; good: number; bad: number };
@@ -100,8 +120,10 @@ export const OUTCOME_LABEL: Record<Outcome, string> = {
 // Users are a Google account id. Telegram shows its first characters; the admin page shows a
 // tag hashed from the whole id instead, since Google ids mostly start 10 or 11, which leaves
 // few characters to tell people apart. Neither shows the id.
-export const shortUser = (userId: string) => userId.slice(0, 6);
-export const userTag = (userId: string) => createHash('sha256').update(userId).digest('hex').slice(0, 6);
+export const shortUser = (userId: string) => (isAnon(userId) ? `未登入${userId.slice(ANON_PREFIX.length, ANON_PREFIX.length + 4)}` : userId.slice(0, 6));
+// A visitor without a login is a new id each day (anon.ts), so their tag says so
+export const userTag = (userId: string) => `${isAnon(userId) ? '未登入 ' : ''}${createHash('sha256').update(userId).digest('hex').slice(0, 6)}`;
+
 
 // ── Searches ──────────────────────────────────────────────────────────────────────────
 
@@ -175,6 +197,7 @@ export type AskFilter = {
   of?: number; // the account that asked this question (by question, so the id never shows)
   flag?: FlagFilter;
   rating?: Rating | 'none'; // none: a finished answer nobody rated
+  who?: 'anon' | 'account'; // asked without a login, or signed in
 };
 
 export type AskListRow = {
@@ -219,6 +242,8 @@ export function parseAskFilter(p: Record<string, string | string[] | undefined>)
   if (flag === 'cut' || flag === 'unmatched' || flag === 'sound' || flag === 'slow' || flag === 'broad') f.flag = flag;
   const rating = one('rating');
   if (isRating(rating) || rating === 'none') f.rating = rating;
+  const who = one('who');
+  if (who === 'anon' || who === 'account') f.who = who;
   return f;
 }
 
@@ -264,6 +289,8 @@ function whereOf(db: DB, f: AskFilter): { where: string; params: unknown[] } {
     conds.push(rated ? 'rating = ?' : '0');
     if (rated) params.push(f.rating);
   }
+  if (f.who === 'anon') conds.push(ANON_SQL());
+  else if (f.who === 'account') conds.push(`NOT ${ANON_SQL()}`);
   return { where: conds.length ? conds.join(' AND ') : '1', params };
 }
 
