@@ -32,11 +32,6 @@ export function OnThisDay({ items, today }: { items: Item[]; today: string }) {
         <span className="fine">
           {Number(m)}/{Number(d)}・往年這幾天的集數
         </span>
-        {items.length > 1 && (
-          <span className="fine otd-hint" aria-hidden="true">
-            左右滑動切換年份
-          </span>
-        )}
       </div>
       <OnThisDaySwipe name={RADIO} tabs={tabs}>
         {items.map((x) => (
