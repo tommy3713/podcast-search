@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type DB, openDb } from '@/lib/db';
-import { ON_THIS_DAY_KEYS, ON_THIS_DAY_STOCKS, onThisDay } from '@/lib/on-this-day';
+import { ON_THIS_DAY_KEYS, ON_THIS_DAY_STOCKS, ON_THIS_DAY_YEARS, onThisDay } from '@/lib/on-this-day';
 
 let db: DB;
 beforeEach(() => {
@@ -33,6 +33,20 @@ describe('onThisDay', () => {
     expect(picks('2026-11-18')).toEqual([
       [1, 4],
       [2, 2],
+    ]);
+  });
+
+  it('shows the newest three years that have one, skipping a year without', () => {
+    expect(ON_THIS_DAY_YEARS).toBe(3);
+    add(1, '2025-11-18');
+    add(2, '2023-11-18');
+    add(3, '2022-11-18');
+    add(4, '2021-11-18');
+    // 2024 has none
+    expect(picks('2026-11-18')).toEqual([
+      [1, 1],
+      [3, 2],
+      [4, 3],
     ]);
   });
 
@@ -98,6 +112,25 @@ describe('onThisDay', () => {
       [2, 2],
     ]);
     expect(picks('2026-06-01')).toEqual([]);
+  });
+
+  it('shows an episode whose keys or stocks are not shaped as the summary writes them, without them', () => {
+    add(1, '2025-11-18', { summary: { line: '一句話', keys: 'abc', stocks: ['TSMC', { name: '台積電' }] } });
+    add(2, '2024-11-18', { summary: { line: '另一句', keys: 5, stocks: 'TSMC' } });
+    expect(onThisDay(db, '2026-11-18')).toEqual([
+      expect.objectContaining({ no: 1, line: '一句話', keys: [], stocks: ['台積電'] }),
+      expect.objectContaining({ no: 2, line: '另一句', keys: [], stocks: [] }),
+    ]);
+  });
+
+  it('names the year a pick stands for, which near New Year is not always its own', () => {
+    // 2027-01-02: 2025's day is 2025-01-02; the nearest is 2024-12-31
+    add(1, '2024-12-31');
+    add(2, '2026-01-02');
+    expect(onThisDay(db, '2027-01-02').map((x) => [x.no, x.year, x.yearsAgo])).toEqual([
+      [2, 2026, 1],
+      [1, 2025, 2],
+    ]);
   });
 
   it('is empty with no episodes', () => {

@@ -3,6 +3,11 @@ import type { Segment } from './segments.ts';
 export const TAIPEI_OFFSET_MS = 8 * 3600_000;
 const WEEKDAYS = '日一二三四五六';
 
+// Today (or `now`) in Taipei, YYYY-MM-DD: days reset at 00:00 Taipei (UTC+8, no DST)
+export function taipeiDate(now = new Date()): string {
+  return new Date(now.getTime() + TAIPEI_OFFSET_MS).toISOString().slice(0, 10);
+}
+
 function taipei(iso: string): Date {
   return new Date(new Date(iso).getTime() + TAIPEI_OFFSET_MS);
 }

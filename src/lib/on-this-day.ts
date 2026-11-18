@@ -10,9 +10,15 @@ import { TAIPEI_OFFSET_MS } from './format.ts';
 export const ON_THIS_DAY_WINDOW = 7;
 export const ON_THIS_DAY_KEYS = 3;
 export const ON_THIS_DAY_STOCKS = 4;
+// The years shown: the newest ones with an episode near the day. globals.css has a rule per
+// year's panel (.otd-panel:nth-of-type): more years need more rules.
+export const ON_THIS_DAY_YEARS = 3;
 
 export type OnThisDay = {
   yearsAgo: number;
+  // The year it stands for, not always the episode's own: near New Year the nearest one can be
+  // in the calendar year after or before
+  year: number;
   no: number;
   title: string;
   publishedAt: string;
@@ -58,7 +64,7 @@ function pick(db: DB, today: string): OnThisDay[] {
   const picked: { id: number; yearsAgo: number }[] = [];
   // Down to the year before the oldest episode: near New Year a target's window reaches into
   // the previous calendar year
-  for (let year = thisYear - 1; year >= oldest - 1; year--) {
+  for (let year = thisYear - 1; year >= oldest - 1 && picked.length < ON_THIS_DAY_YEARS; year--) {
     const target = sameDay(today, year);
     let best: { id: number; off: number; day: number } | undefined;
     for (const r of rows) {
@@ -70,13 +76,15 @@ function pick(db: DB, today: string): OnThisDay[] {
   }
   if (!picked.length) return [];
   // The line and stock names as episodes.ts reads them, the key points parsed here; a summary
-  // that doesn't parse shows the episode without it
+  // that doesn't parse, or keys or stocks not shaped as the summary writes them, shows the
+  // episode without them rather than failing the home page
   const found = db
     .prepare(
       `SELECT id, episode_no, title, published_at,
          CASE WHEN json_valid(summary_json) THEN json_extract(summary_json, '$.line') END AS line,
-         CASE WHEN json_valid(summary_json) THEN json_extract(summary_json, '$.keys') END AS keys,
-         CASE WHEN json_valid(summary_json) THEN (SELECT json_group_array(json_extract(s.value, '$.name')) FROM json_each(summary_json, '$.stocks') s) END AS stocks
+         CASE WHEN json_valid(summary_json) AND json_type(summary_json, '$.keys') = 'array' THEN json_extract(summary_json, '$.keys') END AS keys,
+         CASE WHEN json_valid(summary_json) AND json_type(summary_json, '$.stocks') = 'array'
+           THEN (SELECT json_group_array(CASE WHEN s.type = 'object' THEN json_extract(s.value, '$.name') END) FROM json_each(summary_json, '$.stocks') s) END AS stocks
        FROM episodes WHERE id IN (SELECT value FROM json_each(?))`,
     )
     .all(JSON.stringify(picked.map((p) => p.id))) as { id: number; episode_no: number; title: string; published_at: string; line: unknown; keys: string | null; stocks: string | null }[];
@@ -89,6 +97,6 @@ function pick(db: DB, today: string): OnThisDay[] {
       .slice(0, ON_THIS_DAY_KEYS)
       .map((k) => ({ t: Math.floor(k.t), text: k.text }));
     const stocks = [...new Set((r.stocks ? (JSON.parse(r.stocks) as unknown[]) : []).filter((n): n is string => typeof n === 'string' && n !== ''))].slice(0, ON_THIS_DAY_STOCKS);
-    return [{ yearsAgo, no: r.episode_no, title: r.title, publishedAt: r.published_at, line: typeof r.line === 'string' ? r.line : '', keys, stocks }];
+    return [{ yearsAgo, year: Number(today.slice(0, 4)) - yearsAgo, no: r.episode_no, title: r.title, publishedAt: r.published_at, line: typeof r.line === 'string' ? r.line : '', keys, stocks }];
   });
 }
