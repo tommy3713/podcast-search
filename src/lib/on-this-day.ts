@@ -1,7 +1,7 @@
 import type { DB } from './db.ts';
 import { TAIPEI_OFFSET_MS } from './format.ts';
 
-// 那年今日 on the home page: for each earlier year, the live episode released nearest to
+// 歷史上的今天 on the home page: for each earlier year, the live episode released nearest to
 // today's month and day (Taipei), within ON_THIS_DAY_WINDOW days, with what it was about at a
 // glance: its line, first key points (timestamps link into it) and stocks. Newest year first.
 // Two episodes a week (Wednesday and Saturday), so a year has one within 3 days unless the

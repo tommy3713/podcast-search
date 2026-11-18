@@ -59,7 +59,7 @@ export default async function Home({ searchParams }: Props) {
   const items = await listEpisodes(PER_PAGE, pageOffset(page));
   const latestNo = (await latestEpisodeNo())!;
   const hero = page === 1 ? await getEpisode(latestNo) : null;
-  // 那年今日 on the first page only
+  // 歷史上的今天 on the first page only
   const today = taipeiDate();
   const pastYears = page === 1 ? onThisDay(await readDb(), today) : [];
 

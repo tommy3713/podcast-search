@@ -123,7 +123,7 @@ h1, h2, h3 { text-wrap: balance; }
 /* home */
 .home { max-width: 880px; margin: 0 auto; display: grid; gap: 16px; }
 .home > * { min-width: 0; }
-/* 那年今日 (OnThisDay.tsx): one card, a year picked with radios along its top (no JavaScript) */
+/* 歷史上的今天 (OnThisDay.tsx): one card, a year picked with radios along its top (no JavaScript) */
 .otd { display: grid; gap: 10px; min-width: 0; }
 .otd-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding-inline: 2px; }
 .otd-head h3 { margin: 0; font-family: var(--font-display); font-size: 19px; }
@@ -160,9 +160,7 @@ h1, h2, h3 { text-wrap: balance; }
 .otd-keys li > span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .otd-keys .ts { text-decoration: none; }
 .otd-stocks .chip { max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
-.otd-hint { display: none; margin-left: auto; }
 @media (max-width: 640px) {
-  .otd-hint { display: inline; }
   /* Phones: every year's panel side by side, swiped through (OnThisDaySwipe.tsx keeps the tabs
      with the panel in view); the card is as tall as the tallest, so it doesn't jump */
   .otd-panels { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
