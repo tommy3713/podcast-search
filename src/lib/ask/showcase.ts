@@ -8,7 +8,8 @@ import type { Source } from './agent.ts';
 // the first question. Each was asked once through answer() by scripts/ask-showcase.ts and
 // committed, so the owner reads every word the site shows in its own name before it ships.
 // Nothing about the host's views: each asks where something was said.
-// showcase.json keeps this order (the script writes it so), which the lazy load relies on.
+// They are /ask's only example questions: a pick shows the answer and never asks. showcase.json
+// keeps this order (the script writes it so); the page finds each answer by its question.
 export const SHOWCASE_QUESTIONS = [
   '主委在哪幾集說到外資在賣台股或提款？依時間列出',
   '哪一集主委提到去參加小島秀夫的活動？',
