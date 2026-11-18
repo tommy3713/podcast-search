@@ -245,11 +245,13 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
       >
         {out &&
           (signedIn ? (
-            <div className="notice warn">今天的 {dailyLimit} 次用完了，明天 00:00 重置。</div>
+            <div className="notice warn">
+              今天的 {dailyLimit} 次用完了，明天 00:00 重置。也可以用<Link href="/search">關鍵字搜尋</Link>，不限次數。
+            </div>
           ) : (
             <div className="notice warn ask-anon-out">
               <span>
-                今天免登入的 {dailyLimit} 題用完了，登入就能每天問 {loginLimit} 題。
+                今天免登入的 {dailyLimit} 題用完了，登入就能每天問 {loginLimit} 題；也可以用<Link href="/search">關鍵字搜尋</Link>，不限次數。
               </span>
               <LoginButton />
             </div>

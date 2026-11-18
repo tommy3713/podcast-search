@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Form from 'next/form';
 import Link from 'next/link';
 import { Fragment } from 'react';
 import { redirect } from 'next/navigation';
@@ -8,6 +9,7 @@ import { Pager } from '@/components/Pager';
 import { countEpisodes, getEpisode, latestEpisodeNo, listEpisodes, oldestEpisodeNo } from '@/lib/episodes';
 import { formatDate, minutes, monthLabel } from '@/lib/format';
 import { clampPage, PER_PAGE, pageCount, pageOffset } from '@/lib/paging';
+import { SEARCH_MAX_CHARS } from '@/lib/search-limits';
 import { SITE_NAME, shareMetadata } from '@/lib/seo';
 import { formatTimestamp } from '@/lib/summary';
 
@@ -58,6 +60,14 @@ export default async function Home({ searchParams }: Props) {
   let month = '';
   return (
     <div className="home">
+      <Form action="/search" className="card search-form" role="search">
+        <div className="field">
+          <input name="q" type="search" maxLength={SEARCH_MAX_CHARS} placeholder="搜尋所有集數的逐字稿和重點" aria-label="搜尋所有集數" autoComplete="off" enterKeyHint="search" />
+          <button className="btn" type="submit">
+            搜尋
+          </button>
+        </div>
+      </Form>
       {hero && (
         <article className="card hero">
           <div className="hero-top">

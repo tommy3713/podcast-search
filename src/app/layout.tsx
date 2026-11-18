@@ -54,6 +54,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {!isProduction() && <span className="pill warn">DEV</span>}
             <Nav variant="desk" />
             <div className="actions">
+              {/* No prefetch: on every page, and /search is dynamic */}
+              <Link className="btn ghost icon-btn" href="/search" prefetch={false}>
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m20 20-4.4-4.4" />
+                </svg>
+                <span className="sr-only">搜尋</span>
+              </Link>
               <FeedbackButton signedIn={user !== null} />
               <ThemeToggle />
               <UserMenu name={user?.name ?? null} admin={isAdmin(user)} />
