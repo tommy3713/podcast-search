@@ -9,7 +9,7 @@ export const SITE_DAILY_LIMIT = 500;
 // Without a login (anon.ts): a few a day per visitor, so they can try it before signing in,
 // and a share of the site's cap, so the questions nobody vouches for (about US$0.01 each)
 // stay within US$1 a day and can't use up what signed-in listeners get
-export const ANON_DAILY_LIMIT = 2;
+export const ANON_DAILY_LIMIT = 5;
 export const ANON_SITE_DAILY_LIMIT = 100;
 // One network's questions without a login a day, however many cookies it clears (and however
 // many people share its address: a mobile network's IPv4 is many people's)
