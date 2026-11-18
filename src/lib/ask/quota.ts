@@ -26,9 +26,8 @@ export const ASK_LOG_DAYS = 30;
 export const USAGE_KEPT_DAYS = 7;
 
 // Days reset at 00:00 Taipei (UTC+8, no DST)
-export function taipeiDate(now = new Date()): string {
-  return new Date(now.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
-}
+export { taipeiDate } from '../format.ts';
+import { taipeiDate } from '../format.ts';
 
 // When a Taipei day (YYYY-MM-DD) starts, plusDays later. Format it for the column it is
 // compared with: toDbTime for created_at, toISOString for published_at (which keeps ms).

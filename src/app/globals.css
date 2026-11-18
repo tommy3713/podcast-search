@@ -123,6 +123,59 @@ h1, h2, h3 { text-wrap: balance; }
 /* home */
 .home { max-width: 880px; margin: 0 auto; display: grid; gap: 16px; }
 .home > * { min-width: 0; }
+/* 那年今日 (OnThisDay.tsx): one card, a year picked with radios along its top (no JavaScript) */
+.otd { display: grid; gap: 10px; min-width: 0; }
+.otd-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding-inline: 2px; }
+.otd-head h3 { margin: 0; font-family: var(--font-display); font-size: 19px; }
+.otd-tabs { padding: 0; overflow: hidden; }
+.otd-tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+.otd-tabbar label { position: relative; display: grid; justify-items: center; gap: 2px; padding: 12px 8px 10px; cursor: pointer; color: var(--muted); transition: color .2s, background .2s; }
+.otd-tabbar label + label { border-left: 1px solid var(--line); }
+.otd-tabbar label:hover { color: var(--fg); }
+.otd-tabbar input { position: absolute; opacity: 0; pointer-events: none; }
+.otd-tabbar b { font-family: var(--font-display); font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.otd-tabbar span { font-size: 12.5px; }
+.otd-tabbar label::after { content: ''; position: absolute; left: 18%; right: 18%; bottom: -1px; height: 3px; border-radius: 3px; background: var(--accent); transform: scaleX(0); transition: transform .25s cubic-bezier(.2, .7, .2, 1); }
+.otd-tabbar label:has(input:checked) { color: var(--accent); background: var(--accent-soft); }
+.otd-tabbar label:has(input:checked)::after { transform: scaleX(1); }
+.otd-tabbar label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -4px; }
+/* The checked year's panel, a rule per year: ON_THIS_DAY_YEARS (3) of them. Without :has (Firefox
+   before 121, Safari before 15.4) the first year shows and the tabs do nothing. */
+.otd-panel { display: none; grid-template-columns: 150px minmax(0, 1fr); }
+.otd-panel:first-of-type { display: grid; }
+.otd-tabs:has(label:not(:first-child) input:checked) .otd-panel:first-of-type { display: none; }
+.otd-tabs:has(label:nth-child(1) input:checked) .otd-panel:nth-of-type(1),
+.otd-tabs:has(label:nth-child(2) input:checked) .otd-panel:nth-of-type(2),
+.otd-tabs:has(label:nth-child(3) input:checked) .otd-panel:nth-of-type(3) { display: grid; animation: rise .4s cubic-bezier(.2, .7, .2, 1); }
+.otd-panel-side { display: grid; place-items: center; border-right: 1px solid var(--line); background: var(--bg); overflow: hidden; }
+.otd-bigyear { font-family: var(--font-display); font-weight: 800; font-size: 54px; line-height: 1; color: var(--accent); opacity: .25; letter-spacing: -.02em; writing-mode: vertical-rl; user-select: none; font-variant-numeric: tabular-nums; }
+.otd-panel-main { padding: 18px 20px; display: grid; gap: 12px; min-width: 0; }
+.otd-link { display: grid; gap: 8px; color: inherit; text-decoration: none; }
+.otd-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.otd-ep { margin-left: auto; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+.otd-line { color: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 20px; line-height: 1.4; text-decoration: underline transparent 1px; text-underline-offset: 4px; transition: text-decoration-color .2s; }
+.otd-link:hover .otd-line, .otd-link:focus-visible .otd-line { color: var(--accent); text-decoration-color: currentColor; }
+.otd-keys { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 14px; line-height: 1.6; }
+.otd-keys li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.otd-keys li > span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.otd-keys .ts { text-decoration: none; }
+.otd-stocks .chip { max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.otd-hint { display: none; margin-left: auto; }
+@media (max-width: 640px) {
+  .otd-hint { display: inline; }
+  /* Phones: every year's panel side by side, swiped through (OnThisDaySwipe.tsx keeps the tabs
+     with the panel in view); the card is as tall as the tallest, so it doesn't jump */
+  .otd-panels { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .otd-panels::-webkit-scrollbar { display: none; }
+  .otd-panels > .otd-panel { display: grid !important; flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always; animation: none !important; grid-template-columns: minmax(0, 1fr); }
+  .otd-panel-side { display: none; }
+  .otd-panel-main { padding: 16px; }
+  .otd-line { font-size: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .otd-tabs .otd-panel { animation: none !important; }
+  .otd-tabbar label, .otd-tabbar label::after, .otd-line { transition: none; }
+}
 .hero { padding: 22px; display: grid; gap: 14px; }
 .hero-top { display: flex; gap: 16px; align-items: flex-start; }
 .hero-top > div { min-width: 0; display: grid; gap: 4px; }
