@@ -14,8 +14,6 @@ import { readDb } from '@/lib/server-db';
 // Answers differ per question and visitor; nothing here belongs in search results
 export const metadata: Metadata = { title: 'AI問答', robots: { index: false, follow: true } };
 
-const EXAMPLES = ['孟恭最近喜歡做的運動是什麼？', '主委推薦過哪些電影或影集？', '主委對 Anthropic IPO 的看法？', '主委去新加坡環球影城是哪一集？'];
-
 // ?q= fills in the question box (a stock's page links here with one). It is never sent by
 // itself: a question costs one of the day's.
 function initialQuestion(q: string | string[] | undefined): string {
@@ -33,7 +31,10 @@ function initialQuestion(q: string | string[] | undefined): string {
 export default async function AskPage({ searchParams }: { searchParams: Promise<{ q?: string | string[] }> }) {
   const [user, count] = await Promise.all([currentUser(), countEpisodes()]);
   const question = initialQuestion((await searchParams).q);
+  // The example questions are the ones answered ahead of time (showcase.ts): a pick shows
+  // that answer and never asks, so it costs no one a question
   const examples = showcase();
+  const questions = examples.map((x) => x.q);
   // Signed out, a few questions a day under the browser's id for the day (anon.ts); one that
   // hasn't asked yet has no cookie and all of them left
   const h = await headers();
@@ -47,7 +48,7 @@ export default async function AskPage({ searchParams }: { searchParams: Promise<
         dailyLimit={ANON_DAILY_LIMIT}
         loginLimit={USER_DAILY_LIMIT}
         logDays={ASK_LOG_DAYS}
-        examples={EXAMPLES}
+        examples={questions}
         showcase={examples}
         initialQuestion={question}
         signedIn={false}
@@ -77,9 +78,9 @@ export default async function AskPage({ searchParams }: { searchParams: Promise<
             <Link href="/about#privacy">隱私說明</Link>
           </p>
         </div>
-        <AskShowcase items={examples} />
+        <AskShowcase questions={questions} items={examples} title="看看 AI 怎麼回答" hint="點題目看預先產生的範例回答。" />
       </div>
     );
   }
-  return <AskView episodeCount={count} initialQuota={remaining(await readDb(), user.id)} dailyLimit={USER_DAILY_LIMIT} logDays={ASK_LOG_DAYS} examples={EXAMPLES} showcase={examples.length > 0 ? 'lazy' : null} initialQuestion={question} />;
+  return <AskView episodeCount={count} initialQuota={remaining(await readDb(), user.id)} dailyLimit={USER_DAILY_LIMIT} logDays={ASK_LOG_DAYS} examples={questions} initialQuestion={question} />;
 }

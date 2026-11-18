@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Fragment, memo, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, memo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import type { AskEvent, Source } from '@/lib/ask/agent';
 import { citedOrder, episodeLabel, groupBlocks, labelBlocks, type LabeledBlock, OTHER_SOURCES_SHOWN, otherSources, parseAnswer, splitEvents } from '@/lib/ask/render';
 import { previewParts, type SourceFocus, sourceFocus, sourceHref, termFocus } from '@/lib/ask/focus';
@@ -40,10 +40,12 @@ type Props = {
   initialQuota: number;
   dailyLimit: number;
   logDays: number;
+  // The example questions (SHOWCASE_QUESTIONS that have an answer), shown before the first
+  // question; picking one shows its answer asked ahead of time, never asks. With `showcase`
+  // (signed out) the answers come with the page and the first is open; without, they load on
+  // the first pick
   examples: string[];
-  // Answers asked ahead of time, before the first question: shown (signed out, where they
-  // show what a question gets) or behind 看範例回答, loaded when opened ('lazy')
-  showcase?: ShowcaseItem[] | 'lazy' | null;
+  showcase?: ShowcaseItem[];
   initialQuestion: string;
   // Signed out: a few questions a day without a login (ANON_DAILY_LIMIT), with a login button,
   // and what signing in gets (USER_DAILY_LIMIT; quota.ts can't be imported here)
@@ -72,7 +74,7 @@ function save(msgs: Msg[]): void {
   }
 }
 
-export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examples, showcase = null, initialQuestion, signedIn = true, loginLimit = dailyLimit }: Props) {
+export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examples, showcase, initialQuestion, signedIn = true, loginLimit = dailyLimit }: Props) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [quota, setQuota] = useState(initialQuota);
   const [busy, setBusy] = useState(false);
@@ -208,15 +210,7 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
       </div>
 
       {msgs.length === 0 && (
-        <div className="card" style={{ padding: 18, display: 'grid', gap: 10 }}>
-          <div className="eyebrow">可以這樣問</div>
-          <div className="examples">
-            {examples.map((x) => (
-              <button key={x} type="button" onClick={() => ask(x)} disabled={busy || out}>
-                {x}
-              </button>
-            ))}
-          </div>
+        <AskShowcase questions={examples} items={showcase}>
           {/* Here rather than in the sticky composer: seen before the first question, without
               taking screen space for good (and it comes and goes with the examples) */}
           <p className="fine" style={{ margin: 0 }}>
@@ -232,10 +226,8 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
               產生回答，問答和評分保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
             </p>
           )}
-          {showcase === 'lazy' && <LazyShowcase />}
-        </div>
+        </AskShowcase>
       )}
-      {msgs.length === 0 && Array.isArray(showcase) && <AskShowcase items={showcase} />}
 
       <div style={{ display: 'grid', gap: 28 }}>
         {/* busy only where the button is, so the other answers keep their memo */}
@@ -605,54 +597,97 @@ function AnswerBlocks({ blocks, sources, focus }: { blocks: LabeledBlock[]; sour
 
 const noop = () => {};
 
-// Signed in, the examples sit behind 看範例回答, which most never open: their file (about
-// 40 KB of passages) is fetched as its own chunk when it is. showcase.json is written in
-// SHOWCASE_QUESTIONS' order and checked against the schema by tests/showcase.test.ts.
-function LazyShowcase() {
-  const [items, setItems] = useState<ShowcaseItem[] | null>(null);
+// The example questions, each answered ahead of time (src/lib/ask/showcase.ts) and shown in the
+// same Message an asked question gets: cited passages, labelled lines, links to the moment and
+// 不是你要找的？, read only. A pick costs nothing: it never asks. Given `items` (signed out, where
+// they show what a question gets) the first is open; without (signed in, where most never pick
+// one) the file is fetched as its own chunk on the first pick (once, shared by quick picks;
+// a failed fetch is tried again on the next pick). Answers are found by their question, so
+// one the file lacks shows a note rather than loading forever (tests/showcase.test.ts checks
+// the file answers every question). A pick scrolls its answer into view: below the card, on a
+// phone it is under the fold. `children` go in the card under the questions (how to ask, privacy).
+export function AskShowcase({
+  questions,
+  items: given,
+  title = '可以這樣問',
+  hint = '點題目看預先產生的範例回答，不會用掉今天的題數。',
+  children,
+}: {
+  questions: string[];
+  items?: ShowcaseItem[];
+  title?: string;
+  hint?: string;
+  children?: ReactNode;
+}) {
+  const [items, setItems] = useState<ShowcaseItem[] | null>(given ?? null);
+  const [at, setAt] = useState<number | null>(given?.length ? 0 : null);
+  const [failed, setFailed] = useState(false);
+  const loading = useRef<Promise<void> | null>(null);
+  const answerRef = useRef<HTMLElement>(null);
+  const picked = useRef(false);
+  function pick(i: number) {
+    setAt(i);
+    picked.current = true;
+    if (items || loading.current) return;
+    setFailed(false);
+    loading.current = import('@/lib/ask/showcase.json').then(
+      (m) => setItems(m.default as ShowcaseItem[]),
+      () => {
+        loading.current = null;
+        setFailed(true);
+      },
+    );
+  }
+  // After the pick renders (the section may only now exist)
+  useEffect(() => {
+    if (!picked.current) return;
+    picked.current = false;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    answerRef.current?.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  }, [at]);
+  const q = at === null ? undefined : questions[at];
+  const item = q === undefined ? undefined : items?.find((x) => x.q === q);
   return (
-    <details
-      className="showcase-more"
-      onToggle={(e) => {
-        if (e.currentTarget.open && !items) import('@/lib/ask/showcase.json').then((m) => setItems(m.default as ShowcaseItem[]), noop);
-      }}
-    >
-      <summary>看範例回答</summary>
-      {items ? <AskShowcase items={items} /> : <p className="fine">載入中…</p>}
-    </details>
-  );
-}
-
-// Answers asked ahead of time (src/lib/ask/showcase.ts), one shown at a time, in the same
-// Message an asked question gets: cited passages, labelled lines, links to the moment and
-// 不是你要找的？, read only.
-export function AskShowcase({ items }: { items: ShowcaseItem[] }) {
-  const [at, setAt] = useState(0);
-  const item = items[at];
-  if (!item) return null;
-  const m: Msg = {
-    id: `showcase-${at}`,
-    q: item.q,
-    status: null,
-    sources: Object.fromEntries(item.sources.map((s) => [s.n, s])),
-    text: item.text,
-    done: true,
-    error: null,
-  };
-  return (
-    <section className="showcase" aria-label="範例回答">
-      <div className="eyebrow">看看 AI 怎麼回答</div>
-      <div className="examples showcase-picks" role="group" aria-label="範例問題">
-        {items.map((x, i) => (
-          <button key={x.q} type="button" aria-pressed={i === at} onClick={() => setAt(i)}>
-            {x.q}
-          </button>
-        ))}
+    <>
+      <div className="card" style={{ padding: 18, display: 'grid', gap: 10 }}>
+        {questions.length > 0 && (
+          <>
+            <div className="eyebrow">{title}</div>
+            <div className="examples showcase-picks" role="group" aria-label="範例問題">
+              {questions.map((x, i) => (
+                <button key={x} type="button" aria-pressed={i === at} onClick={() => pick(i)}>
+                  {x}
+                </button>
+              ))}
+            </div>
+            <p className="fine" style={{ margin: 0 }}>
+              {hint}
+            </p>
+          </>
+        )}
+        {children}
       </div>
-      <Message key={at} m={m} busy={false} onBroaden={noop} onPatch={noop} example={{ othersFound: item.othersFound }} />
-      <p className="fine" style={{ margin: 0 }}>
-        範例回答在 {formatDate(`${item.askedAt}T12:00:00+08:00`)} 產生，當時收錄 {item.count} 集（EP{item.oldest}–EP{item.newest}）；現在問，回答可能不同。
-      </p>
-    </section>
+      {q !== undefined && (
+        <section className="showcase" aria-label="範例回答" ref={answerRef}>
+          {item ? (
+            <>
+              <Message
+                key={at}
+                m={{ id: `showcase-${at}`, q: item.q, status: null, sources: Object.fromEntries(item.sources.map((s) => [s.n, s])), text: item.text, done: true, error: null }}
+                busy={false}
+                onBroaden={noop}
+                onPatch={noop}
+                example={{ othersFound: item.othersFound }}
+              />
+              <p className="fine" style={{ margin: 0 }}>
+                範例回答在 {formatDate(`${item.askedAt}T12:00:00+08:00`)} 產生，當時收錄 {item.count} 集（EP{item.oldest}–EP{item.newest}）；現在問，回答可能不同。
+              </p>
+            </>
+          ) : (
+            <p className="fine">{failed ? '範例回答載入失敗，請再點一次題目。' : items ? '這題的範例回答暫時沒有。' : '載入中…'}</p>
+          )}
+        </section>
+      )}
+    </>
   );
 }
