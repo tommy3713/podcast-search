@@ -5,7 +5,9 @@ import { Fragment, memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { AskEvent, Source } from '@/lib/ask/agent';
 import { citedOrder, episodeLabel, groupBlocks, labelBlocks, type LabeledBlock, OTHER_SOURCES_SHOWN, otherSources, parseAnswer, splitEvents } from '@/lib/ask/render';
 import { previewParts, type SourceFocus, sourceFocus, sourceHref, termFocus } from '@/lib/ask/focus';
+import { formatDate } from '@/lib/format';
 import { formatTimestamp } from '@/lib/summary';
+import type { ShowcaseItem } from '@/lib/ask/showcase';
 import { MAX_RATING_NOTE_CHARS, type Rating, RATING_ICON, RATING_LABEL, RATING_REASONS, RATINGS, type RatingReason, REASON_LABEL } from '@/lib/ask/rating';
 
 type Msg = {
@@ -25,7 +27,16 @@ type Msg = {
   ratingNote?: string;
 };
 
-type Props = { episodeCount: number; initialQuota: number; dailyLimit: number; logDays: number; examples: string[]; initialQuestion: string };
+type Props = {
+  episodeCount: number;
+  initialQuota: number;
+  dailyLimit: number;
+  logDays: number;
+  examples: string[];
+  // Answers asked ahead of time behind 看範例回答 before the first question, loaded when opened
+  showcase?: boolean;
+  initialQuestion: string;
+};
 
 // Keeps answers when you open a cited episode and come back; per tab, never sent anywhere
 const STORAGE_KEY = 'gooaye.ask.v1';
@@ -48,7 +59,7 @@ function save(msgs: Msg[]): void {
   }
 }
 
-export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examples, initialQuestion }: Props) {
+export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examples, showcase = false, initialQuestion }: Props) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [quota, setQuota] = useState(initialQuota);
   const [busy, setBusy] = useState(false);
@@ -193,6 +204,7 @@ export function AskView({ episodeCount, initialQuota, dailyLimit, logDays, examp
           <p className="fine" style={{ margin: 0 }}>
             問題會傳給 OpenAI 產生回答，問答和你給的評分會連同帳號保存 {logDays} 天後自動刪除。<Link href="/about#privacy">隱私說明</Link>
           </p>
+          {showcase && <LazyShowcase />}
         </div>
       )}
 
@@ -240,11 +252,15 @@ const Message = memo(function Message({
   busy,
   onBroaden,
   onPatch,
+  example,
 }: {
   m: Msg;
   busy: boolean;
   onBroaden: (m: Msg) => void;
   onPatch: (id: string, patch: Partial<Msg>) => void;
+  // An answer asked ahead of time (AskShowcase): read only, so no rating and no 擴大搜尋,
+  // and only some of the passages it didn't use are kept, out of othersFound
+  example?: { othersFound: number };
 }) {
   const epOf = new Map(Object.values(m.sources).map((s) => [s.n, s.ep]));
   const known = new Set(epOf.keys());
@@ -295,12 +311,13 @@ const Message = memo(function Message({
         </p>
       )}
       {/* Answers kept from before ratings have no id to rate */}
-      {m.done && !m.error && m.logId && <RateAnswer m={m} onPatch={onPatch} />}
+      {m.done && !m.error && m.logId && !example && <RateAnswer m={m} onPatch={onPatch} />}
       {m.done && !m.error && (
         <NotWhatYouWanted
           others={otherSources(m.sources, citedNs)}
+          found={example?.othersFound}
           // Once per question, and not on a broad answer itself; answers kept from before have no id
-          broaden={m.logId && !m.broadOf ? { done: !!m.broadened, busy, go: () => onBroaden(m) } : null}
+          broaden={m.logId && !m.broadOf && !example ? { done: !!m.broadened, busy, go: () => onBroaden(m) } : null}
         />
       )}
     </article>
@@ -428,7 +445,16 @@ function RateAnswer({ m, onPatch }: { m: Msg; onPatch: (id: string, patch: Parti
 // to ask so the next search finds more. Closed until opened, even when the answer cites
 // nothing: then the passages are often ones found only by meaning, about something else
 // (asked about Rivian, EP706's Tesla Roadster), which the answer rightly didn't switch to.
-function NotWhatYouWanted({ others, broaden }: { others: Source[]; broaden: { done: boolean; busy: boolean; go: () => void } | null }) {
+// found: how many there were, when `others` is only the first of them (an example answer)
+function NotWhatYouWanted({
+  others,
+  found = others.length,
+  broaden,
+}: {
+  others: Source[];
+  found?: number;
+  broaden: { done: boolean; busy: boolean; go: () => void } | null;
+}) {
   const [all, setAll] = useState(false);
   const shown = all ? others : others.slice(0, OTHER_SOURCES_SHOWN);
   return (
@@ -445,7 +471,9 @@ function NotWhatYouWanted({ others, broaden }: { others: Source[]; broaden: { do
         )}
         {others.length > 0 && (
           <>
-            <div className="eyebrow">搜尋也找到這 {others.length} 段，回答沒有用到</div>
+            <div className="eyebrow">
+              搜尋也找到這 {found} 段，回答沒有用到{found > others.length && `（這裡列出 ${others.length} 段）`}
+            </div>
             <div className="more-srcs">
               {shown.map((s) => {
                 const f = termFocus(s);
@@ -522,5 +550,59 @@ function AnswerBlocks({ blocks, sources, focus }: { blocks: LabeledBlock[]; sour
     ) : (
       <p key={i}>{parts(g.items[0]!)}</p>
     ),
+  );
+}
+
+const noop = () => {};
+
+// Signed in, the examples sit behind 看範例回答, which most never open: their file (about
+// 40 KB of passages) is fetched as its own chunk when it is. showcase.json is written in
+// SHOWCASE_QUESTIONS' order and checked against the schema by tests/showcase.test.ts.
+function LazyShowcase() {
+  const [items, setItems] = useState<ShowcaseItem[] | null>(null);
+  return (
+    <details
+      className="showcase-more"
+      onToggle={(e) => {
+        if (e.currentTarget.open && !items) import('@/lib/ask/showcase.json').then((m) => setItems(m.default as ShowcaseItem[]), noop);
+      }}
+    >
+      <summary>看範例回答</summary>
+      {items ? <AskShowcase items={items} /> : <p className="fine">載入中…</p>}
+    </details>
+  );
+}
+
+// Answers asked ahead of time (src/lib/ask/showcase.ts), one shown at a time, in the same
+// Message an asked question gets: cited passages, labelled lines, links to the moment and
+// 不是你要找的？, read only.
+export function AskShowcase({ items }: { items: ShowcaseItem[] }) {
+  const [at, setAt] = useState(0);
+  const item = items[at];
+  if (!item) return null;
+  const m: Msg = {
+    id: `showcase-${at}`,
+    q: item.q,
+    status: null,
+    sources: Object.fromEntries(item.sources.map((s) => [s.n, s])),
+    text: item.text,
+    done: true,
+    error: null,
+  };
+  return (
+    <section className="showcase" aria-label="範例回答">
+      <div className="eyebrow">看看 AI 怎麼回答</div>
+      <div className="examples showcase-picks" role="group" aria-label="範例問題">
+        {items.map((x, i) => (
+          <button key={x.q} type="button" aria-pressed={i === at} onClick={() => setAt(i)}>
+            {x.q}
+          </button>
+        ))}
+      </div>
+      <Message key={at} m={m} busy={false} onBroaden={noop} onPatch={noop} example={{ othersFound: item.othersFound }} />
+      <p className="fine" style={{ margin: 0 }}>
+        範例回答在 {formatDate(`${item.askedAt}T12:00:00+08:00`)} 產生，當時收錄 {item.count} 集（EP{item.oldest}–EP{item.newest}）；現在問，回答可能不同。
+      </p>
+    </section>
   );
 }
