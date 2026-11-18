@@ -68,7 +68,7 @@ nav.desk, .user, .avatar { flex: none; }
 .brand-mark .bm-ring { stroke: var(--logo-ring); }
 /* The wordmark is Latin, so a sans like the logo file's rather than the display serif */
 .brand-name { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 19px; font-weight: 800; letter-spacing: -.02em; }
-.brand-name .search { color: var(--logo-ink); font-weight: 700; letter-spacing: -.01em; }
+.brand-search { color: var(--logo-ink); font-weight: 700; letter-spacing: -.01em; }
 nav.desk { display: flex; gap: 4px; }
 nav.desk a { text-decoration: none; color: var(--muted); padding: 6px 12px; border-radius: 8px; font-weight: 500; }
 nav.desk a[aria-current="page"] { color: var(--fg); background: var(--bg); }
@@ -277,7 +277,7 @@ mark.cur { background: var(--warn); color: var(--surface); }
 .composer { position: sticky; bottom: 16px; padding: 12px; display: grid; gap: 8px; box-shadow: 0 6px 24px rgb(0 0 0 / .08); }
 .notice { padding: 12px 14px; border-radius: 10px; font-size: 14px; }
 .notice.warn { background: var(--warn-soft); color: var(--warn); }
-/* /search */
+/* /search (the header wordmark's "Search" is .brand-search, so .search never reaches it) */
 .search { max-width: 820px; margin: 0 auto; display: grid; gap: 16px; }
 .search-form { padding: 12px; }
 .search .notice { margin: 0; background: var(--accent-soft); }
