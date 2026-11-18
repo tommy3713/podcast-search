@@ -4,7 +4,7 @@ import { formatDate } from '@/lib/format';
 import type { OnThisDay as Item } from '@/lib/on-this-day';
 import { formatTimestamp } from '@/lib/summary';
 
-// 那年今日 on the home page (src/lib/on-this-day.ts): one card, the years along its top as
+// 歷史上的今天 on the home page (src/lib/on-this-day.ts): one card, the years along its top as
 // radios (CSS shows the checked one's panel: no JavaScript), each panel the episode's date,
 // number and line (one link to it), its first key points and stocks. Wide screens get the
 // year large down the panel's side; phones swipe between the years (OnThisDaySwipe.tsx).
@@ -28,7 +28,7 @@ export function OnThisDay({ items, today }: { items: Item[]; today: string }) {
   return (
     <section className="otd" aria-labelledby="otd-title">
       <div className="otd-head">
-        <h3 id="otd-title">那年今日</h3>
+        <h3 id="otd-title">歷史上的今天</h3>
         <span className="fine">
           {Number(m)}/{Number(d)}・往年這幾天的集數
         </span>

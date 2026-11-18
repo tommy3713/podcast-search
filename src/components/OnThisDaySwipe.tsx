@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useRef } from 'react';
 
-// 那年今日's card. Phones (640 px and below) lay the years' panels side by side in a
+// 歷史上的今天's card. Phones (640 px and below) lay the years' panels side by side in a
 // scroll-snap track (globals.css) and swipe through them; this keeps the year tabs (radios
 // named `name`, inside `tabs`) and the panel in view together: picking a year scrolls to its
 // panel, and a swipe checks the year it comes to rest on. Panels off screen are inert, so focus
