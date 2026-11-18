@@ -6,6 +6,9 @@ export default function HomeLoading() {
   return (
     <Loading>
       <div className="home">
+        <div className="card search-form">
+          <Bar w="100%" h={40} r={10} />
+        </div>
         <div className="card hero">
           <div className="hero-top">
             <Bar w={68} h={68} r={14} />

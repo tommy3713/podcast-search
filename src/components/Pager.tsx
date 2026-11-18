@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { pageHref, pagerItems } from '@/lib/paging';
+import { pageHref as listPageHref, pagerItems } from '@/lib/paging';
 
-export function Pager({ page, total }: { page: number; total: number }) {
+// `href`: a page's URL (the home page's list by default); `name`: what the pages are of, for screen readers
+export function Pager({ page, total, href: pageHref = listPageHref, name = '集數分頁' }: { page: number; total: number; href?: (page: number) => string; name?: string }) {
   const step = (n: number, label: string, off: boolean) =>
     off ? (
       <span className="step" aria-disabled="true">
@@ -13,7 +14,7 @@ export function Pager({ page, total }: { page: number; total: number }) {
       </Link>
     );
   return (
-    <nav className="pager" aria-label="集數分頁">
+    <nav className="pager" aria-label={name}>
       {step(page - 1, '‹ 上一頁', page === 1)}
       {pagerItems(page, total).map((n, i) =>
         n === 'gap' ? (
