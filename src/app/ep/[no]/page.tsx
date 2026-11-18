@@ -2,11 +2,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge, EpName } from '@/components/Badge';
+import { EpisodeMore, EpisodeStepper } from '@/components/EpisodeNav';
 import { EpisodeView } from '@/components/EpisodeView';
 import { currentUser } from '@/lib/auth';
-import { episodeIndex, getEpisode, parseEpisodeNo } from '@/lib/episodes';
+import { adjacentEpisodes, episodeIndex, episodesByNo, getEpisode, parseEpisodeNo } from '@/lib/episodes';
 import { formatDate, groupParagraphs, minutes } from '@/lib/format';
 import { pageHref, pageOfIndex } from '@/lib/paging';
+import { relatedEpisodes } from '@/lib/related';
 import { episodeDescription, episodeJsonLd, episodeTitle, SHARE_IMAGE, SITE_NAME } from '@/lib/seo';
 import { stockIndex } from '@/lib/stock-pages';
 import { sponsorHref, sponsorOf } from '@/lib/sponsors';
@@ -58,6 +60,11 @@ export default async function EpisodePage({ params, searchParams }: Props) {
   const focus = t !== null && hl !== null ? findFocus(ep.segments, t, hl) : null;
   // Back to the list page this episode appears on
   const back = pageHref(pageOfIndex(await episodeIndex(ep.no)));
+  const adjacent = await adjacentEpisodes(ep.no);
+  // The neighbours are already linked as 上一集 / 下一集
+  const related = await episodesByNo(
+    await relatedEpisodes(ep.no, [adjacent.prev?.no, adjacent.next?.no].filter((n) => n !== undefined)),
+  );
   // Each stock's page with every episode that talks about it; null for the few without one
   const stocks = await stockIndex();
   const stockHrefs = ep.summary.stocks.map((s) => {
@@ -79,9 +86,12 @@ export default async function EpisodePage({ params, searchParams }: Props) {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: episodeJsonLd(ep) }} />
-      <Link className="back" href={back}>
-        ← 所有集數
-      </Link>
+      <div className="ep-topnav">
+        <Link className="back" href={back}>
+          ← 所有集數
+        </Link>
+        <EpisodeStepper {...adjacent} />
+      </div>
       <div className="ep-head">
         <Badge title={ep.title} large />
         <div>
@@ -112,6 +122,7 @@ export default async function EpisodePage({ params, searchParams }: Props) {
         // The root layout reads the session for the header already
         signedIn={(await currentUser()) !== null}
       />
+      <EpisodeMore {...adjacent} related={related} />
     </>
   );
 }

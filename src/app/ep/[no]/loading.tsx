@@ -4,8 +4,12 @@ import { Bar, Loading } from '@/components/Skeleton';
 export default function EpisodeLoading() {
   return (
     <Loading>
-      <div className="back">
-        <Bar w={80} />
+      {/* The same row as the page (← 所有集數 and 上一集 / 下一集), so nothing moves when it streams in */}
+      <div className="ep-topnav">
+        <span className="back">
+          <Bar w={80} />
+        </span>
+        <Bar w={110} />
       </div>
       <div className="ep-head">
         <Bar w={68} h={68} r={14} />
