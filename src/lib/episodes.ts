@@ -35,6 +35,11 @@ const LIST_COLUMNS = `episode_no, title, published_at, duration,
   json_extract(summary_json, '$.line') AS line,
   (SELECT json_group_array(json_extract(s.value, '$.name')) FROM json_each(summary_json, '$.stocks') s) AS stocks`;
 
+// For links to an episode (上一集 / 下一集, related ones), which show no stocks: their
+// subquery parses every summary's stocks for nothing
+const LINK_COLUMNS = `episode_no, title, published_at, duration,
+  json_extract(summary_json, '$.line') AS line, NULL AS stocks`;
+
 function toListItem(r: ListRow): EpisodeListItem {
   return {
     no: r.episode_no,
@@ -77,6 +82,31 @@ export const getEpisode = cache(async (no: number): Promise<EpisodeDetail | null
     seek: parseSeekTable(r.seek_json),
   };
 });
+
+// The live episodes either side of one by number, for 上一集 / 下一集: the nearest ones, so a
+// gap in the numbers (an episode not live yet) is stepped over
+export async function adjacentEpisodes(no: number): Promise<{ prev: EpisodeListItem | null; next: EpisodeListItem | null }> {
+  const d = await readDb();
+  const one = (sql: string) => {
+    const r = d.prepare(sql).get(no) as ListRow | undefined;
+    return r ? toListItem(r) : null;
+  };
+  return {
+    prev: one(`SELECT ${LINK_COLUMNS} FROM episodes WHERE status = 'done' AND episode_no < ? ORDER BY episode_no DESC LIMIT 1`),
+    next: one(`SELECT ${LINK_COLUMNS} FROM episodes WHERE status = 'done' AND episode_no > ? ORDER BY episode_no ASC LIMIT 1`),
+  };
+}
+
+// Live episodes by number, in the order asked for; ones not live are left out
+export async function episodesByNo(nos: number[]): Promise<EpisodeListItem[]> {
+  if (nos.length === 0) return [];
+  const d = await readDb();
+  const rows = d
+    .prepare(`SELECT ${LINK_COLUMNS} FROM episodes WHERE status = 'done' AND episode_no IN (${nos.map(() => '?').join(', ')})`)
+    .all(...nos) as ListRow[];
+  const byNo = new Map(rows.map((r) => [r.episode_no, toListItem(r)]));
+  return nos.flatMap((n) => byNo.get(n) ?? []);
+}
 
 // The [no] segment of /ep/[no]
 export function parseEpisodeNo(raw: string): number | null {

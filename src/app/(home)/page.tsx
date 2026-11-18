@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Fragment } from 'react';
 import { redirect } from 'next/navigation';
 import { Badge, EpName } from '@/components/Badge';
+import { EpisodeRow } from '@/components/EpisodeRow';
 import { Pager } from '@/components/Pager';
 import { countEpisodes, getEpisode, latestEpisodeNo, listEpisodes, oldestEpisodeNo } from '@/lib/episodes';
 import { formatDate, minutes, monthLabel } from '@/lib/format';
@@ -122,25 +123,7 @@ export default async function Home({ searchParams }: Props) {
             return (
               <Fragment key={e.no}>
                 {header}
-                <Link className="ep-row" href={`/ep/${e.no}`}>
-                  <Badge title={e.title} />
-                  <div style={{ minWidth: 0 }}>
-                    <div className="t">
-                      <span>EP{e.no}</span>
-                      <EpName title={e.title} />
-                      <span className="fine">{formatDate(e.publishedAt)}</span>
-                    </div>
-                    <div className="d">{e.line}</div>
-                    {e.stocks.length > 0 && (
-                      <div className="chips" style={{ marginTop: 6 }}>
-                        {e.stocks.slice(0, 6).map((s, i) => (
-                          <span key={i} className="chip">{s}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="r">{e.duration && <span>{minutes(e.duration)} 分</span>}</div>
-                </Link>
+                <EpisodeRow ep={e} stocks={6} />
               </Fragment>
             );
           })}
