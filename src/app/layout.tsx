@@ -48,7 +48,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Link className="brand" href="/">
               <BrandMark />
               <span className="brand-name">
-                Gooaye <span className="search">Search</span>
+                Gooaye <span className="brand-search">Search</span>
               </span>
             </Link>
             {!isProduction() && <span className="pill warn">DEV</span>}
