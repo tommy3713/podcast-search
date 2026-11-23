@@ -13,7 +13,9 @@ import { purgeFeedbackContacts } from './feedback.ts';
 import { purgeReporters, watchReports } from './reports.ts';
 import { notify } from './notify.ts';
 import { diskWarning, ping, queueHealthy } from './monitor.ts';
-import { episodesWithPendingEdits, getEpisode, getState, setState } from './repo.ts';
+import { episodesToRepair, episodesWithPendingEdits, getEpisode, getState, promptText, repairRows, setState } from './repo.ts';
+import { editedSegments, getRepair, onRepairEnd, planRepair, repairEpisode, runRepair } from './repair.ts';
+import { planWindows } from './transcribe.ts';
 import { fetchFeed, parseFeed } from './rss.ts';
 import { isLastPollSlot, isNightlySlot, isPollSlot, nextHalfHour, taipeiTime } from './schedule.ts';
 import { indexPinyin } from './pinyin-index.ts';
@@ -48,6 +50,14 @@ const USAGE = `usage: worker <command>
   index-seek [ep]     work out where Chromium's and Safari's seeks land in live episodes lacking
                       it or with an older table (one download of each episode's audio; run does
                       this by itself)
+  repair-transcripts [ep] [--dry-run]
+                      transcribe again the spans of live transcripts made before suspect segments
+                      were handled, one episode or every one not repaired yet (local only: in
+                      production use Telegram /repair, which shares the running worker's queue);
+                      --dry-run lists the spans without calling Groq
+  repairs [ep] [--dropped]
+                      what the repair changed, before and after: in one episode, or (--dropped)
+                      every segment it dropped
   apply-edits         apply the transcript and summary edits sent from /admin and re-index those episodes
                       (run does this by itself every 15 s; this is for local snapshots)
   migrate             apply pending database migrations and exit (run by the deploy script)`;
@@ -162,15 +172,20 @@ async function run(db: DB): Promise<void> {
   // Seek tables of episodes from before them (new ones get theirs when transcribed) are
   // worked out outside the queue (seek-index.ts), only while it's idle and no backfill is
   // under way, so those downloads never compete with a job's: it stops when a job comes in,
-  // and the next idle queue (the end of that job, or the backfill's last) starts it again
+  // and the next idle queue (the end of that job, or the backfill's last) starts it again. A
+  // transcript repair holds it too, and starts it when it ends, finished or stopped.
   const seekPaused = () => {
     const q = queueState();
-    return !!q.running || q.waiting > 0 || getBackfill(db) !== null;
+    return !!q.running || q.waiting > 0 || getBackfill(db) !== null || getRepair(db) !== null;
+  };
+  const resumeSeek = () => {
+    if (!seekPaused()) void startSeekIndex(db, { paused: seekPaused });
   };
   onQueueChange(() => {
     writeQueue();
-    if (!seekPaused()) void startSeekIndex(db, { paused: seekPaused });
+    resumeSeek();
   });
+  onRepairEnd(resumeSeek);
   writeQueue();
   void runBot(db);
   const heartbeat = () => {
@@ -197,6 +212,7 @@ async function run(db: DB): Promise<void> {
   });
   void startSeekIndex(db, { paused: seekPaused });
   void runBackfill(db);
+  void runRepair(db);
   // Transcript and summary corrections an admin sent from the site (src/app/admin), and
   // listeners' typo reports waiting for the admin
   watchEdits(db, enqueue);
@@ -238,6 +254,60 @@ async function backfillNow(db: DB, n: number): Promise<void> {
     startBackfill(db, plan);
   }
   while (await backfillStep(db));
+}
+
+const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const texts = (segs: Segment[]) => segs.map((s) => s.text).join('') || '（空白）';
+
+// The CLI's repair: one episode, or every one planned, without the pause or a confirmation
+async function repairNow(db: DB, episodeNo: number | undefined, dryRun: boolean): Promise<void> {
+  if (dryRun) {
+    for (const e of episodesToRepair(db)) {
+      if (episodeNo !== undefined && e.episode_no !== episodeNo) continue;
+      const segs = JSON.parse(e.segments_json) as Segment[];
+      const windows = planWindows(segs, e.duration ?? segs.at(-1)?.end ?? 0, promptText(db, e.whisper_prompt_id), editedSegments(db, e.id));
+      if (!windows.length) continue;
+      console.log(`EP${e.episode_no}: ${windows.length} span(s)`);
+      if (episodeNo !== undefined) for (const w of windows) console.log(`  ${clock(w.start)}–${clock(w.end)} ${texts(w.before).slice(0, 80)}`);
+    }
+    const plan = planRepair(db);
+    console.log(typeof plan === 'string' ? plan : `${plan.episodes.length} episodes, ${plan.windows} spans, at most US$${plan.cost.toFixed(2)}`);
+    return;
+  }
+  let nos: number[];
+  if (episodeNo !== undefined) nos = [episodeNo];
+  else {
+    const plan = planRepair(db);
+    if (typeof plan === 'string') throw new Error(plan);
+    nos = plan.episodes.map((e) => e.no);
+  }
+  for (const no of nos) {
+    try {
+      await repairEpisode(db, no);
+    } catch (err) {
+      console.error(`EP${no}: repair failed`, err);
+      process.exitCode = 1;
+    }
+  }
+}
+
+const OUTCOME_LABEL = { recovered: '救回', dropped: '刪掉', kept: '保留原文' } as const;
+
+function printRepairs(db: DB, episodeNo: number | undefined, droppedOnly: boolean): void {
+  const rows = repairRows(db, episodeNo);
+  if (!rows.length) console.log(episodeNo === undefined ? 'nothing repaired yet' : `EP${episodeNo} has not been repaired`);
+  for (const r of rows) {
+    const changes = r.changes.filter((c) => !droppedOnly || c.outcome === 'dropped');
+    if (!changes.length) continue;
+    if (!droppedOnly) {
+      console.log(`EP${r.episode_no}（${r.created_at}）：重轉 ${r.windows} 處，救回 ${r.recovered}、刪掉 ${r.dropped}、保留 ${r.kept}，US$${r.cost_usd.toFixed(4)}`);
+    }
+    for (const c of changes) {
+      console.log(`${droppedOnly ? `EP${r.episode_no} ` : '  '}${clock(c.start)}–${clock(c.end)} ${OUTCOME_LABEL[c.outcome]}`);
+      console.log(`    前：${texts(c.before)}`);
+      if (c.outcome !== 'dropped') console.log(`    後：${texts(c.after)}`);
+    }
+  }
 }
 
 function status(db: DB): void {
@@ -299,6 +369,14 @@ async function main(): Promise<void> {
       if (r.failed.length) process.exitCode = 1;
       else if (!r.episodes) console.log('every live episode has a seek table');
       return;
+    }
+    case 'repair-transcripts': {
+      const ep = args.find((a) => /^\d+$/.test(a));
+      return repairNow(db, ep === undefined ? undefined : Number(ep), args.includes('--dry-run'));
+    }
+    case 'repairs': {
+      const ep = args.find((a) => /^\d+$/.test(a));
+      return printRepairs(db, ep === undefined ? undefined : Number(ep), args.includes('--dropped'));
     }
     case 'apply-edits': {
       const eps = episodesWithPendingEdits(db);

@@ -8,7 +8,7 @@ vi.mock('../worker/audio.ts', () => ({
   cutClip: vi.fn(async (_input: string, _start: number, _seconds: number, out: string) => fs.writeFileSync(out, 'clip')),
 }));
 
-const { echoChars, realChars, suspectReason, transcribe } = await import('../worker/transcribe.ts');
+const { echoChars, realChars, repairTranscript, suspectReason, transcribe } = await import('../worker/transcribe.ts');
 
 const seg = (start: number, end: number, text: string) => ({ start, end, text });
 
@@ -169,6 +169,58 @@ describe('transcribe', () => {
     const { segments } = await run();
     expect(segments.map((s) => s.text)).toEqual(['開頭的話。', SPOKEN.repeat(3), SPOKEN.repeat(3), '後面的話。']);
     expect(calls).toHaveLength(2);
+  });
+
+  it('repairs a saved transcript part by part, leaving what it does not touch exactly as saved', async () => {
+    fs.writeFileSync(path.join(dir, 'part1.mp3'), 'audio');
+    const saved = [
+      { start: 0, end: 5, text: '開頭的話。' },
+      { start: 5, end: 40, text: '後面的話後面的話後面的話後面的話後面的話後面的話後面的話後面的話後面的話後面的話後面的話後面的話' },
+      { start: 3000.3, end: 3004.7, text: '第二段開頭。' },
+      { start: 3004.7, end: 3034.7, text: HALLUCINATION },
+      { start: 3034.7, end: 3040, text: '第二段後面。' },
+    ];
+    // Only the second part's clip (3004.7–3034.7, part-relative 4.7–34.7) is transcribed
+    replies = (name, prompted) => (prompted || !name.startsWith('part1') ? [] : [groq(0, 14, SPOKEN + SPOKEN), groq(14, 28, SPOKEN + SPOKEN)]);
+    const r = await repairTranscript(
+      [
+        { file: path.join(dir, 'audio.mp3'), offset: 0, duration: 3000 },
+        { file: path.join(dir, 'part1.mp3'), offset: 3000, duration: 45 },
+      ],
+      saved,
+    );
+    // The first part's long slow segment is suspect too, but every pass comes back empty, and
+    // a slow one is never dropped
+    expect(r.segments.map((s) => s.text)).toEqual(['開頭的話。', saved[1]!.text, '第二段開頭。', SPOKEN + SPOKEN, SPOKEN + SPOKEN, '第二段後面。']);
+    expect(r.segments[0]).toBe(saved[0]);
+    expect(r.segments[2]).toBe(saved[2]);
+    expect(r.segments[3]).toMatchObject({ start: 3004.7, end: 3018.7 });
+    expect(r.changes.map((c) => [c.outcome, c.start, c.end])).toEqual([
+      ['kept', 5, 40],
+      ['recovered', 3004.7, 3034.7],
+    ]);
+    expect(r.changes[1]!.before).toEqual([saved[3]]);
+    expect(r.windows).toBe(3); // and the gap at the first part's end, where nothing was found
+    expect(calls.map((c) => c.name)).toEqual([
+      'audio.mp3.redo5.mp3',
+      'audio.mp3.redo5.mp3',
+      'audio.mp3.redo39.mp3',
+      'audio.mp3.redo39.mp3',
+      'part1.mp3.redo5.mp3',
+      'part1.mp3.redo5.mp3',
+    ]);
+  });
+
+  it('leaves out what a pass hears again inside a neighbour that overlaps the window', async () => {
+    const after = '後面的話後面的話後面的話後面的話後面的話後面的話後面的話後面的話後面的話後面的話';
+    replies = (name, prompted) =>
+      name === 'audio.mp3'
+        ? [groq(0, 5, '開頭的話。'), groq(5, 35, HALLUCINATION), groq(30, 40, after)]
+        : prompted
+          ? []
+          : [groq(0, 12, SPOKEN + SPOKEN), groq(12, 25, SPOKEN + SPOKEN), groq(25, 30, after.slice(0, 10))];
+    const { segments } = await run();
+    expect(segments.map((s) => s.text)).toEqual(['開頭的話。', SPOKEN + SPOKEN, SPOKEN + SPOKEN, after]);
   });
 
   it('makes one pass when the prompt is empty', async () => {

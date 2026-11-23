@@ -34,3 +34,9 @@ export function nextHalfHour(now: Date): Date {
   const step = 30 * 60_000;
   return new Date(Math.floor(now.getTime() / step) * step + step);
 }
+
+// Release days from the first poll on: a new episode's transcription needs the Groq quota, so
+// the transcript repair (repair.ts) waits these hours out
+export function isReleaseHours(t: TaipeiTime): boolean {
+  return (t.weekday === 3 || t.weekday === 6) && t.hour >= 10;
+}

@@ -289,6 +289,27 @@ const MIGRATIONS: string[] = [
   CREATE INDEX feedback_status ON feedback (status, id);
   CREATE INDEX feedback_user ON feedback (user_id, created_at);
   `,
+  // A one-off repair of transcripts made before suspect segments were handled (worker/repair.ts,
+  // Telegram /repair): one row per episode repaired, with every window transcribed again and
+  // what it held before and after, so a wrong one can be found and put right by hand
+  `
+  CREATE TABLE transcript_repairs (
+    id             INTEGER PRIMARY KEY,
+    episode_id     INTEGER NOT NULL REFERENCES episodes (id) ON DELETE CASCADE,
+    windows        INTEGER NOT NULL,             -- spans transcribed again
+    recovered      INTEGER NOT NULL,
+    dropped        INTEGER NOT NULL,
+    kept           INTEGER NOT NULL,
+    cost_usd       REAL    NOT NULL,
+    changes_json   TEXT    NOT NULL,             -- RepairChange[] (worker/transcribe.ts)
+    created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+  );
+  CREATE INDEX transcript_repairs_episode ON transcript_repairs (episode_id);
+  -- 1: a transcript from before the transcribe step repaired its own spans; set on every one
+  -- there is now, cleared by the next transcription (saveSegments) or by the repair
+  ALTER TABLE episodes ADD COLUMN repair_due INTEGER NOT NULL DEFAULT 0;
+  UPDATE episodes SET repair_due = 1 WHERE segments_json IS NOT NULL;
+  `,
 ];
 
 export function defaultDbPath(): string {
