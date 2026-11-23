@@ -5,10 +5,12 @@ import { GRID, type SeekTable } from '@/lib/seek.ts';
 import type { Segment } from '@/lib/segments.ts';
 import { STOCK_CATEGORY, type Summary } from '@/lib/summary.ts';
 import type { EditResult, TranscriptEdit } from '@/lib/transcript-edits.ts';
+import { WHISPER_PROMPT } from '@/lib/whisper/default-prompt.ts';
 import { currentPromptVersion } from '@/lib/whisper/prompts.ts';
 import type { Chunk, SummaryPoint } from './chunk.ts';
 import { MAX_RETRIES } from './config.ts';
 import type { RssEpisode } from './rss.ts';
+import type { RepairChange } from './transcribe.ts';
 
 export type EpisodeRow = {
   id: number;
@@ -101,10 +103,11 @@ export function setStatus(db: DB, id: number, status: EpisodeRow['status']): voi
   db.prepare(`UPDATE episodes SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`).run(status, id);
 }
 
-// Saved before summarizing so a retry doesn't pay for transcription again
+// Saved before summarizing so a retry doesn't pay for transcription again. A new transcript
+// was repaired as it was made (transcribe.ts), so the one-off repair (repair.ts) leaves it alone.
 export function saveSegments(db: DB, id: number, segments: Segment[], duration: number, costUsd: number): void {
   db.prepare(
-    `UPDATE episodes SET segments_json = ?, duration = ?, cost_usd = COALESCE(cost_usd, 0) + ?,
+    `UPDATE episodes SET segments_json = ?, duration = ?, cost_usd = COALESCE(cost_usd, 0) + ?, repair_due = 0,
        updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
      WHERE id = ?`,
   ).run(JSON.stringify(segments), Math.round(duration), costUsd, id);
@@ -474,4 +477,86 @@ export function markSummaryEdits(db: DB, applied: number[], missing: number[], m
     for (const e of applied) ok.run(e);
     for (const e of missing) bad.run(missingError, e);
   })();
+}
+
+// ── transcript repairs (worker/repair.ts) ───────────────────────────────────────
+
+export type RepairCandidate = {
+  id: number;
+  episode_no: number;
+  audio_url: string;
+  duration: number | null;
+  segments_json: string;
+  // The Whisper prompt the transcript was made with (null: the built-in one)
+  whisper_prompt_id: number | null;
+};
+
+// Live episodes whose transcript is from before the transcribe step repaired its own spans and
+// hasn't been repaired since (repair_due), newest first
+export function episodesToRepair(db: DB): RepairCandidate[] {
+  return db
+    .prepare(
+      `SELECT id, episode_no, audio_url, duration, segments_json, whisper_prompt_id FROM episodes
+       WHERE status = 'done' AND segments_json IS NOT NULL AND repair_due = 1
+       ORDER BY episode_no DESC`,
+    )
+    .all() as RepairCandidate[];
+}
+
+export function repairDue(db: DB, id: number): boolean {
+  return (db.prepare('SELECT repair_due FROM episodes WHERE id = ?').get(id) as { repair_due: number } | undefined)?.repair_due === 1;
+}
+
+// Leaves an episode out of the repair (its audio no longer matches its transcript)
+export function skipRepair(db: DB, id: number): void {
+  db.prepare('UPDATE episodes SET repair_due = 0 WHERE id = ?').run(id);
+}
+
+// The text of a Whisper prompt version (null: the built-in one, which an episode transcribed
+// before versions existed was given)
+export function promptText(db: DB, id: number | null): string {
+  if (id === null) return WHISPER_PROMPT;
+  return (db.prepare('SELECT text FROM whisper_prompts WHERE id = ?').get(id) as { text: string } | undefined)?.text ?? WHISPER_PROMPT;
+}
+
+// Records an episode's repair and, when it changed the transcript (`segments`), swaps in the
+// new one with its chunks, vectors and pinyin, like an edit (reindexEpisode). Refuses when the
+// transcript changed since it was read. Returns the episode's total cost.
+export function saveRepair(
+  db: DB,
+  id: number,
+  data: { readJson: string; segments: Segment[] | null; chunks: Chunk[]; vectors: number[][]; costUsd: number; windows: number; changes: RepairChange[] },
+): number {
+  const pinyins = data.chunks.map((c) => toPinyin(c.text));
+  const count = (o: RepairChange['outcome']) => data.changes.filter((c) => c.outcome === o).length;
+  return db.transaction(() => {
+    const now = db.prepare('SELECT segments_json FROM episodes WHERE id = ?').get(id) as { segments_json: string | null } | undefined;
+    if (now?.segments_json !== data.readJson) throw new Error('逐字稿在修補時被改過');
+    if (data.segments) writeChunks(db, id, data.chunks, data.vectors, pinyins);
+    db.prepare(
+      `INSERT INTO transcript_repairs (episode_id, windows, recovered, dropped, kept, cost_usd, changes_json) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, data.windows, count('recovered'), count('dropped'), count('kept'), data.costUsd, JSON.stringify(data.changes));
+    const row = db
+      .prepare(
+        `UPDATE episodes SET segments_json = COALESCE(?, segments_json), cost_usd = COALESCE(cost_usd, 0) + ?, repair_due = 0,
+           updated_at = CASE WHEN ? IS NULL THEN updated_at ELSE strftime('%Y-%m-%dT%H:%M:%SZ', 'now') END
+         WHERE id = ? RETURNING cost_usd`,
+      )
+      .get(data.segments && JSON.stringify(data.segments), data.costUsd, data.segments && 1, id) as { cost_usd: number };
+    return row.cost_usd;
+  })();
+}
+
+export type RepairRow = { episode_no: number; windows: number; recovered: number; dropped: number; kept: number; cost_usd: number; changes: RepairChange[]; created_at: string };
+
+// Repairs done, newest episode first; of one episode when given
+export function repairRows(db: DB, episodeNo?: number): RepairRow[] {
+  const rows = db
+    .prepare(
+      `SELECT e.episode_no, r.windows, r.recovered, r.dropped, r.kept, r.cost_usd, r.changes_json, r.created_at
+       FROM transcript_repairs r JOIN episodes e ON e.id = r.episode_id
+       WHERE ? IS NULL OR e.episode_no = ? ORDER BY e.episode_no DESC, r.id`,
+    )
+    .all(episodeNo ?? null, episodeNo ?? null) as (Omit<RepairRow, 'changes'> & { changes_json: string })[];
+  return rows.map(({ changes_json, ...r }) => ({ ...r, changes: JSON.parse(changes_json) as RepairChange[] }));
 }

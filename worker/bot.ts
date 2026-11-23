@@ -12,6 +12,7 @@ import {
   startBackfill,
 } from './backfill.ts';
 import { estimateCost } from './config.ts';
+import { cancelRepair, describePlan as describeRepairPlan, getRepair, planRepair, repairStatus, runRepair, startRepair } from './repair.ts';
 import { retryButtons, STEP_LABEL, usd } from './pipeline.ts';
 import { type EpisodeRow, getEpisode, recentEpisodes } from './repo.ts';
 import { fetchFeed, parseFeed } from './rss.ts';
@@ -38,6 +39,7 @@ const COMMANDS = [
   { command: 'stats', description: '問答統計，預設 7 天，例如 /stats 30' },
   { command: 'questions', description: '最近的問答，點編號看回答，例如 /questions 30' },
   { command: 'backfill', description: '往前補 N 集舊集數，例如 /backfill 20；不加數字看進度，/backfill stop 停止' },
+  { command: 'repair', description: '修補舊集數逐字稿裡 Whisper 編的假話：/repair 全部、/repair 20 最新的 20 集，進行中再下看進度，/repair stop 停止' },
 ];
 
 const HELP = `股癌搜尋 worker\n${COMMANDS.map((c) => `/${c.command}　${c.description}`).join('\n')}`;
@@ -85,6 +87,15 @@ export function parseBackfillCallback(data: string): { n: number; first: number 
   return n >= 1 && n <= MAX_BACKFILL ? { n, first: Number(m[2]) } : null;
 }
 
+// The confirm button under /repair: "repair:<episodes>:<first episode of the plan>"; like a
+// backfill's, pressing it plans again and starts only if the plan still begins there
+export function parseRepairCallback(data: string): { n: number; first: number } | null {
+  const m = /^repair:(\d{1,4}):(\d{1,5})$/.exec(data);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 1 ? { n, first: Number(m[2]) } : null;
+}
+
 // Buttons under /questions: "ask:<ask_log id>"
 export function parseAskCallback(data: string): number | null {
   const m = /^ask:(\d{1,9})$/.exec(data);
@@ -119,6 +130,18 @@ async function handle(db: DB, u: Update): Promise<void> {
       await answerCallback(q.id, '開始補集數');
       if (q.message) await closeButtons(q.message, '⏳ 開始補集數，完成後會通知').catch(() => {});
       void runBackfill(db);
+      return;
+    }
+    const repair = q.data ? parseRepairCallback(q.data) : null;
+    if (repair) {
+      if (getRepair(db)) return answerCallback(q.id, '已經在修補了，用 /repair 看進度');
+      const plan = planRepair(db, repair.n);
+      if (typeof plan === 'string') return answerCallback(q.id, plan);
+      if (plan.episodes[0]?.no !== repair.first) return answerCallback(q.id, '要修補的集數變了，請重新下 /repair');
+      startRepair(db, plan);
+      await answerCallback(q.id, '開始修補');
+      if (q.message) await closeButtons(q.message, '⏳ 開始修補逐字稿，完成後會通知').catch(() => {});
+      void runRepair(db);
       return;
     }
     const parsed = q.data ? parseCallback(q.data) : null;
@@ -160,6 +183,8 @@ async function handle(db: DB, u: Update): Promise<void> {
       return;
     case 'backfill':
       return handleBackfill(db, c.arg);
+    case 'repair':
+      return handleRepair(db, c.arg);
     case 'retry':
     case 'resummarize':
     case 'retranscribe': {
@@ -197,6 +222,23 @@ async function handleBackfill(db: DB, arg: string | undefined): Promise<void> {
   if (typeof plan === 'string') return sendMessage(plan);
   await sendMessage(`${describePlan(plan)}\n每集做完會停兩分鐘，新集數和指令可以插隊`, [
     [{ text: `✅ 開始補 ${plan.episodes.length} 集`, data: `backfill:${n}:${plan.episodes[0]!.episodeNo}` }],
+  ]);
+}
+
+// While a run is under way: its progress (and resume one an error interrupted). Otherwise a
+// plan to confirm with a button: every episode left, or the n newest.
+async function handleRepair(db: DB, arg: string | undefined): Promise<void> {
+  if (arg?.toLowerCase() === 'stop') return sendMessage(cancelRepair(db) ?? '目前沒有在修補逐字稿');
+  if (getRepair(db)) {
+    void runRepair(db);
+    return sendMessage(repairStatus(db));
+  }
+  const n = arg === undefined ? undefined : /^\d{1,4}$/.test(arg) ? Number(arg) : 0;
+  if (n === 0) return sendMessage('請給集數，例如 /repair 20；不加數字是全部');
+  const plan = planRepair(db, n);
+  if (typeof plan === 'string') return sendMessage(plan);
+  await sendMessage(`${describeRepairPlan(plan)}\n每集做完會停兩分鐘，新集數和指令可以插隊；週三、週六 10:00 以後會暫停到隔天`, [
+    [{ text: `✅ 開始修補 ${plan.episodes.length} 集`, data: `repair:${plan.episodes.length}:${plan.episodes[0]!.no}` }],
   ]);
 }
 

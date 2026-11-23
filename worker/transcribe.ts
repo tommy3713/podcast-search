@@ -58,33 +58,110 @@ export async function transcribe(parts: AudioPart[], opts: TranscribeOptions = {
   for (const part of parts) {
     const segs = clean(await transcribeFile(part.file, prompt), 0, rules);
     billedSeconds += Math.max(part.duration, MIN_BILLED_SECONDS);
-
-    // Sent as one long file, Whisper sometimes fails whole 30s windows of clear speech:
-    // it returns nothing for them (EP709 lost 14), or one invented sentence spanning them
-    // (findSuspects; on EP714 2–4 a run, in different places each run). Those spans
-    // transcribe fine on their own, without the prompt when it gets in the way.
-    const suspects = findSuspects(segs, prompt);
-    const windows = mergeWindows([
-      ...findGaps(segs, part.duration).map((g) => ({ ...g, original: [] })),
-      ...suspects.map((s) => ({ start: s.start, end: s.end, original: [s] })),
-    ]);
-    const kept = segs.filter((s) => !suspects.includes(s));
-    const tally = { recovered: 0, dropped: 0 };
-    for (const w of windows) {
-      const r = await redoWindow(part.file, w, prompt, rules);
-      billedSeconds += r.billedSeconds;
-      kept.push(...r.segments);
-      if (r.segments.length && r.segments !== w.original) tally.recovered++;
-      else if (!r.segments.length && w.original.length) tally.dropped++;
-    }
-    if (windows.length) {
-      console.log(`transcribe: retried ${windows.length} window(s) (${suspects.length} suspect): ${tally.recovered} recovered, ${tally.dropped} dropped`);
-    }
-
-    kept.sort((a, b) => a.start - b.start);
-    all.push(...kept.map((s) => ({ ...s, start: round1(s.start + part.offset), end: round1(s.end + part.offset) })));
+    const r = await repairPart(part, segs, { prompt, judge: prompt, rules }, new Set());
+    billedSeconds += r.billedSeconds;
+    if (r.windows) console.log(`transcribe: ${describeRepair(r)}`);
+    all.push(...shift(r.segments, part.offset));
   }
   return { segments: dropLoops(all), billedSeconds };
+}
+
+export type RepairOutcome = 'recovered' | 'dropped' | 'kept';
+// A window transcribed again: what it held before and after. A gap nothing was found in isn't one.
+export type RepairChange = { start: number; end: number; outcome: RepairOutcome; before: Segment[]; after: Segment[] };
+export type Repair = { segments: Segment[]; billedSeconds: number; windows: number; suspects: number; changes: RepairChange[] };
+
+export type RepairOptions = TranscribeOptions & {
+  // The prompt the saved transcript was made with, which its segments are judged by (a read-back
+  // of an older prompt is still one); the new passes get `prompt`. Default: `prompt`.
+  judgePrompt?: string;
+  // Segments never suspect: an admin's corrections, which may be short words over a long span
+  keep?: (s: Segment) => boolean;
+};
+
+// The prompt and rules the passes get, and the prompt the segments already there are judged by
+type PassSettings = { prompt: string; judge: string; rules: [string, string][] };
+
+// Repairs a transcript already saved (episode-relative times, as in segments_json) the way
+// transcribe() repairs a new one, against the episode's audio parts (worker/repair.ts, for
+// episodes transcribed before suspect segments were handled). Segments outside every window
+// come back as they were.
+export async function repairTranscript(parts: AudioPart[], segments: Segment[], opts: RepairOptions = {}): Promise<Repair> {
+  const prompt = opts.prompt ?? WHISPER_PROMPT;
+  const settings: PassSettings = { prompt, judge: opts.judgePrompt ?? prompt, rules: opts.rules ?? [] };
+  const out: Repair = { segments: [], billedSeconds: 0, windows: 0, suspects: 0, changes: [] };
+  for (const [i, part] of parts.entries()) {
+    const next = parts[i + 1];
+    const mine = segments.filter((s) => s.start >= part.offset && (!next || s.start < next.offset));
+    const local = shift(mine, -part.offset);
+    // Segments that come back untouched are the saved ones, times exactly as they were
+    const saved = new Map(local.map((s, j) => [s, mine[j]!]));
+    const back = (segs: Segment[]) => segs.map((s) => saved.get(s) ?? shift([s], part.offset)[0]!);
+    const keep = new Set(local.filter((_, j) => opts.keep?.(mine[j]!)));
+    const r = await repairPart(part, local, settings, keep);
+    out.billedSeconds += r.billedSeconds;
+    out.windows += r.windows;
+    out.suspects += r.suspects;
+    out.segments.push(...back(r.segments));
+    out.changes.push(
+      ...r.changes.map((c) => ({ ...c, start: round1(c.start + part.offset), end: round1(c.end + part.offset), before: back(c.before), after: back(c.after) })),
+    );
+  }
+  out.segments.sort((a, b) => a.start - b.start);
+  return { ...out, segments: dropLoops(out.segments) };
+}
+
+export function describeRepair(r: Pick<Repair, 'windows' | 'suspects' | 'changes'>): string {
+  const n = (o: RepairOutcome) => r.changes.filter((c) => c.outcome === o).length;
+  return `retried ${r.windows} window(s) (${r.suspects} suspect): ${n('recovered')} recovered, ${n('dropped')} dropped`;
+}
+
+// The spans a saved transcript would have transcribed again, with what they hold. `prompt`:
+// the one it was made with.
+export function planWindows(
+  segments: Segment[],
+  duration: number,
+  prompt: string,
+  keep: (s: Segment) => boolean = () => false,
+): { start: number; end: number; before: Segment[] }[] {
+  const kept = new Set(segments.filter(keep));
+  return windowsOf(segments, duration, prompt, kept).windows.map((w) => ({ start: w.start, end: w.end, before: w.original }));
+}
+
+// Sent as one long file, Whisper sometimes fails whole 30s windows of clear speech: it returns
+// nothing for them (EP709 lost 14), or one invented sentence spanning them (findSuspects; on
+// EP714 2–4 a run, in different places each run). Those spans transcribe fine on their own,
+// without the prompt when it gets in the way. `segs` and the result are part-relative; the
+// segments in `keep` are never suspect.
+async function repairPart(part: AudioPart, segs: Segment[], settings: PassSettings, keep: Set<Segment>): Promise<Repair> {
+  const { windows, suspects } = windowsOf(segs, part.duration, settings.judge, keep);
+  const segments = segs.filter((s) => !suspects.includes(s));
+  // A pass's segment centred inside one of these says again what it says
+  const neighbours = [...segments];
+  const changes: RepairChange[] = [];
+  let billedSeconds = 0;
+  for (const w of windows) {
+    const r = await redoWindow(part.file, w, settings, neighbours);
+    billedSeconds += r.billedSeconds;
+    segments.push(...r.segments);
+    const outcome: RepairOutcome | null = r.segments === w.original ? (w.original.length ? 'kept' : null) : r.segments.length ? 'recovered' : 'dropped';
+    if (outcome) changes.push({ start: w.start, end: w.end, outcome, before: w.original, after: r.segments });
+  }
+  segments.sort((a, b) => a.start - b.start);
+  return { segments, billedSeconds, windows: windows.length, suspects: suspects.length, changes };
+}
+
+function windowsOf(segs: Segment[], duration: number, prompt: string, keep: Set<Segment>): { windows: Window[]; suspects: Segment[] } {
+  const suspects = findSuspects(segs, prompt).filter((s) => !keep.has(s));
+  const windows = mergeWindows([
+    ...findGaps(segs, duration).map((g) => ({ ...g, original: [] })),
+    ...suspects.map((s) => ({ start: s.start, end: s.end, original: [s] })),
+  ]);
+  return { windows, suspects };
+}
+
+function shift(segs: Segment[], by: number): Segment[] {
+  return segs.map((s) => ({ ...s, start: round1(s.start + by), end: round1(s.end + by) }));
 }
 
 // A span to transcribe again on its own: a gap (no original) or suspect segments
@@ -113,8 +190,8 @@ export function mergeWindows(windows: Window[]): Window[] {
 async function redoWindow(
   file: string,
   w: Window,
-  prompt: string,
-  rules: [string, string][],
+  { prompt, judge, rules }: PassSettings,
+  neighbours: Segment[],
 ): Promise<{ segments: Segment[]; billedSeconds: number }> {
   // A gap gets a second each side so words at its edges aren't cut. A suspect segment is cut
   // as it is: its neighbours hold the words around it, and padding a 3 s segment's clip by
@@ -130,7 +207,9 @@ async function redoWindow(
     const pass = async (p: string | undefined) => {
       const raw = await transcribeFile(clip, p, { allowEmpty: true });
       billedSeconds += Math.max(seconds, MIN_BILLED_SECONDS);
-      const heard = clean(raw, start, rules).filter((s) => mid(s) > w.start && mid(s) < w.end);
+      // Whisper's segments can overlap: one kept beside the window may already hold the words
+      const inside = (s: Segment, t: { start: number; end: number }) => mid(s) > t.start && mid(s) < t.end;
+      const heard = clean(raw, start, rules).filter((s) => inside(s, w) && !neighbours.some((n) => inside(s, n)));
       // Without a prompt there is nothing to read back, so a list of the prompt's companies
       // that comes back then is what was said
       const segs = heard.filter((s) => !suspectReason(s, p));
@@ -146,9 +225,9 @@ async function redoWindow(
       // throughout
       if (bare.chars >= enough && bare.chars > best.chars) best = bare;
     }
-    const original = sum(w.original.map((s) => realChars(s, prompt)));
+    const original = sum(w.original.map((s) => realChars(s, judge)));
     if (best.chars > original) return { segments: best.segs, billedSeconds };
-    const invented = w.original.length > 0 && w.original.every((s) => isInvented(s, prompt));
+    const invented = w.original.length > 0 && w.original.every((s) => isInvented(s, judge));
     if (invented && original < MIN_KEPT_CHARS && !heardAgain(w.original, bare?.heard ?? [])) return { segments: [], billedSeconds };
     return { segments: w.original, billedSeconds };
   } finally {
