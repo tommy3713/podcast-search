@@ -6,13 +6,13 @@ import type { Segment } from '@/lib/segments.ts';
 import { isProduction } from '@/lib/env.ts';
 import { drain, type EpisodeAction, enqueue, onQueueChange, poll, queueState, runEpisodeAction, seed } from './actions.ts';
 import { backfillStep, describePlan, getBackfill, MAX_BACKFILL, planBackfill, runBackfill, startBackfill } from './backfill.ts';
-import { backupToR2, episodeCountDrop, verifyBackup } from './backup.ts';
+import { backupToR2, episodeCountDrop, removeBackupFiles, verifyBackup } from './backup.ts';
 import { runBot } from './bot.ts';
 import { applyPendingEdits, watchEdits } from './edits.ts';
 import { purgeFeedbackContacts } from './feedback.ts';
 import { purgeReporters, watchReports } from './reports.ts';
 import { notify } from './notify.ts';
-import { diskWarning, ping, queueHealthy } from './monitor.ts';
+import { diskWarning, ping, queueHealthy, startupMessage } from './monitor.ts';
 import { episodesToRepair, episodesWithPendingEdits, getEpisode, getState, promptText, repairRows, setState } from './repo.ts';
 import { editedSegments, getRepair, onRepairEnd, planRepair, repairEpisode, runRepair } from './repair.ts';
 import { planWindows } from './transcribe.ts';
@@ -154,12 +154,22 @@ async function reportReleaseDay(db: DB, now: Date): Promise<void> {
 
 async function run(db: DB): Promise<void> {
   console.log('worker scheduler started');
-  // Deploys restart the worker too, but an unexpected restart (crash, out of memory) shows up here
-  await notify('🔄 worker 已啟動');
   // The deploy script waits for an idle queue before replacing this container. Registered
   // before the bot starts, so a command waiting from before a restart is recorded too.
   // Written to a temp file and renamed, so the script never reads half a file.
   const queueFile = `${defaultDbPath()}.queue.json`;
+  // Deploys restart the worker too, but an unexpected restart (crash, out of memory) shows up
+  // here, naming the job it cut short; read before writeQueue below replaces the file
+  const started = startupMessage(queueFile);
+  // A backup copy a killed nightly left behind holds every question until stripAskLog ran
+  let leftover = '';
+  try {
+    removeBackupFiles();
+  } catch (err) {
+    // Never a reason not to start; said with the startup message so it gets looked at
+    leftover = `\n❌ 刪不掉上次留下的備份暫存檔：${err instanceof Error ? err.message : String(err)}`;
+  }
+  await notify(`${started}${leftover}`.slice(0, 600));
   const writeQueue = () => {
     const { running, runningSince, waiting } = queueState();
     try {

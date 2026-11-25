@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '@/lib/db.ts';
 import { episodeCountDrop, verifyBackup } from '../worker/backup.ts';
-import { diskWarning, MAX_JOB_MS, ping, queueHealthy } from '../worker/monitor.ts';
+import { diskWarning, MAX_JOB_MS, ping, queueHealthy, startupMessage } from '../worker/monitor.ts';
 
 // Backups are files, so these tests need real ones; everything is closed and removed after each test
 const dirs: string[] = [];
@@ -70,6 +70,32 @@ describe('queueHealthy', () => {
 
   it('stops the heartbeat once a job runs past the limit', () => {
     expect(queueHealthy(now - MAX_JOB_MS - 1, now)).toBe(false);
+  });
+});
+
+describe('startupMessage', () => {
+  const queueFile = (content?: string) => {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gooaye-')), 'app.db.queue.json');
+    if (content !== undefined) fs.writeFileSync(f, content);
+    return f;
+  };
+
+  it('is the plain message after an idle stop (a deploy) or on a first start', () => {
+    expect(startupMessage(queueFile('{"running":null,"since":null,"waiting":0}'))).toBe('🔄 worker 已啟動');
+    expect(startupMessage(queueFile())).toBe('🔄 worker 已啟動');
+    expect(startupMessage(queueFile('{"runn'))).toBe('🔄 worker 已啟動');
+    // Valid JSON of another shape must not stop the worker from starting
+    for (const odd of ['null', '[]', '3', '{"running":5}']) expect(startupMessage(queueFile(odd))).toBe('🔄 worker 已啟動');
+  });
+
+  it('names the job the previous process was killed in, in Taipei time', () => {
+    const msg = startupMessage(queueFile('{"running":"每晚清理與備份","since":"2026-11-24T19:00:00.004Z","waiting":0}'));
+    expect(msg).toMatch(/^⚠️ worker 重新啟動/);
+    expect(msg).toContain('「每晚清理與備份」（2026-11-25 03:00 開始）時中斷');
+  });
+
+  it('leaves out a start time it cannot read', () => {
+    expect(startupMessage(queueFile('{"running":"檢查 RSS","since":null,"waiting":2}'))).toContain('「檢查 RSS」時中斷');
   });
 });
 

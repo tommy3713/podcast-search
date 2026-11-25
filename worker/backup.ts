@@ -1,15 +1,31 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { promisify } from 'node:util';
-import { gzip } from 'node:zlib';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { createGzip } from 'node:zlib';
 import { AwsClient } from 'aws4fetch';
 import { countLiveEpisodes, type DB, hasTable, openDb } from '@/lib/db.ts';
 import { ADDRESS_SQL, ANON_SQL } from '@/lib/ask/anon.ts';
 import { isProduction } from '@/lib/env.ts';
 import { WORK_DIR } from './config.ts';
 
+const BACKUP_FILE = path.join(WORK_DIR, 'backup.db');
+// The copy, the sidecars opening it can leave behind, and the gzipped upload
+const BACKUP_FILES = ['', '-wal', '-shm', '-journal', '.gz'].map((s) => BACKUP_FILE + s);
+
+// Until stripAskLog finishes the copy holds every question, so it must not outlive the run.
+// backupToR2's finally covers errors but not the process being killed (the out-of-memory
+// kill of 2026-11-25 left a full copy in the container), so the worker also calls this
+// when it starts.
+export function removeBackupFiles(): void {
+  for (const f of BACKUP_FILES) fs.rmSync(f, { force: true });
+}
+
 // Nightly copy of app.db to Cloudflare R2. Old copies are removed by a 30-day
 // lifecycle rule on the bucket, so this only ever writes.
+// Everything streams through files: the database is past 500 MB and the worker's container
+// is capped at 768 MiB, so reading the copy into memory to gzip it got the worker killed.
 export async function backupToR2(db: DB, now = new Date()): Promise<string | null> {
   // A local database must never overwrite the live site's backup for the day
   if (!isProduction()) {
@@ -22,27 +38,65 @@ export async function backupToR2(db: DB, now = new Date()): Promise<string | nul
     return null;
   }
   fs.mkdirSync(WORK_DIR, { recursive: true });
-  const file = path.join(WORK_DIR, 'backup.db');
+  const file = BACKUP_FILE;
+  const gz = `${file}.gz`;
   try {
+    // A killed run's copy would otherwise be the destination of the backup below
+    removeBackupFiles();
     // Online backup: consistent even while web is writing ask_usage
     await db.backup(file);
     stripAskLog(file);
     verifyBackup(file);
-    const body = await promisify(gzip)(fs.readFileSync(file));
+    await pipeline(fs.createReadStream(file), createGzip(), fs.createWriteStream(gz));
+    fs.rmSync(file, { force: true });
     const key = `backups/app-${now.toISOString().slice(0, 10)}.db.gz`;
     const r2 = new AwsClient({ accessKeyId: R2_ACCESS_KEY_ID, secretAccessKey: R2_SECRET_ACCESS_KEY, service: 's3', region: 'auto' });
-    const res = await r2.fetch(`https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}/${key}`, {
-      method: 'PUT',
-      body,
-      headers: { 'Content-Type': 'application/gzip' },
-    });
-    if (!res.ok) throw new Error(`R2 ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    console.log(`backup: uploaded ${key} (${(body.length / 1e6).toFixed(1)} MB)`);
+    const size = await putFile(r2, `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}/${key}`, gz);
+    console.log(`backup: uploaded ${key} (${(size / 1e6).toFixed(1)} MB)`);
     return key;
   } finally {
-    // Until stripAskLog finishes the copy holds every question, so it must not outlive the
-    // run, killed or not; opening it can leave any of these sidecars behind
-    for (const f of [file, `${file}-wal`, `${file}-shm`, `${file}-journal`]) fs.rmSync(f, { force: true });
+    removeBackupFiles();
+  }
+}
+
+const UPLOAD_ATTEMPTS = 3;
+
+class UploadRefused extends Error {}
+
+// PUTs a file as a stream, signed with its SHA-256 (with that header set, aws4fetch never
+// reads the body to hash it). Not r2.fetch: it retries with the same body, and a stream can
+// only be sent once, so each attempt opens the file again. Returns the file's size.
+export async function putFile(r2: AwsClient, url: string, file: string, retryMs = 5000): Promise<number> {
+  const size = fs.statSync(file).size;
+  const hash = createHash('sha256');
+  for await (const chunk of fs.createReadStream(file)) hash.update(chunk as Buffer);
+  const sha256 = hash.digest('hex');
+  for (let attempt = 1; ; attempt++) {
+    let failure: string;
+    const stream = fs.createReadStream(file);
+    try {
+      const req = await r2.sign(url, {
+        method: 'PUT',
+        body: Readable.toWeb(stream) as ReadableStream,
+        // R2 needs a length, which a stream body doesn't carry
+        headers: { 'Content-Type': 'application/gzip', 'Content-Length': String(size), 'X-Amz-Content-Sha256': sha256 },
+      });
+      const res = await fetch(req);
+      if (res.ok) return size;
+      const text = await res.text().catch(() => '');
+      failure = `R2 ${res.status}: ${text.slice(0, 300)}`;
+      // A refusal (credentials, bucket) won't change on a retry; a slow upload's timeout might
+      if (res.status < 500 && res.status !== 429 && !text.includes('RequestTimeout')) throw new UploadRefused(failure);
+    } catch (err) {
+      if (err instanceof UploadRefused) throw err;
+      failure = err instanceof Error ? err.message : String(err);
+    } finally {
+      // An attempt that failed mid-way leaves its descriptor open otherwise
+      stream.destroy();
+    }
+    if (attempt >= UPLOAD_ATTEMPTS) throw new Error(failure);
+    console.error(`backup: upload attempt ${attempt} failed (${failure}), retrying`);
+    await new Promise((r) => setTimeout(r, retryMs * attempt));
   }
 }
 
